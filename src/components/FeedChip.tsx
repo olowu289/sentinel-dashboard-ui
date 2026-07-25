@@ -64,7 +64,7 @@ export function FeedChip({
           aria-hidden
           className="size-[8px] shrink-0 rounded-full bg-critical"
         />
-        <p className="font-display text-[14px] tracking-[0.14px] whitespace-nowrap text-critical">
+        <p className="font-display text-[0.875rem] tracking-[0.14px] whitespace-nowrap text-critical">
           ERROR: {name}
         </p>
       </div>
@@ -83,7 +83,7 @@ export function FeedChip({
             animated ? "pulse-dot" : ""
           }`}
         />
-        <p className="truncate font-display text-[14px] tracking-[0.14px] whitespace-nowrap text-white tabular-nums">
+        <p className="truncate font-display text-[0.875rem] tracking-[0.14px] whitespace-nowrap text-white tabular-nums">
           {stateLabel(state, name, elapsedSec)}
         </p>
       </div>
@@ -96,7 +96,7 @@ export function FeedChip({
           />
           <div className="flex shrink-0 items-center gap-[6px]">
             <p
-              className={`font-display text-[14px] uppercase tracking-[0.14px] whitespace-nowrap tabular-nums ${latencyTone(
+              className={`font-display text-[0.875rem] uppercase tracking-[0.14px] whitespace-nowrap tabular-nums ${latencyTone(
                 latencyMs,
               )}`}
             >

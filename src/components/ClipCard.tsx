@@ -88,8 +88,8 @@ export function ClipCard({
         : `Download ${attachment.title} from ${alertId}`;
 
   return (
-    <div className="flex h-[67px] w-[346px] max-w-full items-center gap-[11px] rounded-[8px] bg-panel px-[6px]">
-      <div className="relative h-[57px] w-[85px] shrink-0 overflow-hidden rounded-[8px] bg-white">
+    <div className="flex min-h-[67px] w-[346px] max-w-full items-center gap-[11px] rounded-[8px] bg-panel px-[6px]">
+      <div className="relative h-[57px] w-[64px] shrink-0 lg:w-[85px] overflow-hidden rounded-[8px] bg-white">
         <img
           src={attachment.thumbnail}
           alt=""
@@ -106,15 +106,15 @@ export function ClipCard({
       </div>
 
       <div className="flex min-w-0 flex-col gap-[4px]">
-        <p className="truncate text-[13px] tracking-[0.13px] text-white">
+        <p className="line-clamp-2 text-[0.8125rem] tracking-[0.13px] text-white lg:truncate">
           {attachment.title}
         </p>
-        <p className="truncate text-[11px] tracking-[0.11px] text-muted tabular-nums">
+        <p className="truncate text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-muted tabular-nums">
           {formatClock(at)}
         </p>
       </div>
 
-      <div className="ml-auto mr-[13px] flex shrink-0 items-center gap-[7px]">
+      <div className="ml-auto mr-[4px] flex shrink-0 lg:mr-[13px] items-center gap-[7px]">
         <button
           type="button"
           aria-label={label}

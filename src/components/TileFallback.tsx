@@ -98,8 +98,10 @@ export function OfflineFallback({ lastSeen }: { lastSeen: string }) {
   return (
     <div className="flex flex-col items-center gap-[10px] text-white/35">
       <CameraOffGlyph />
-      <p className="text-[13px] font-medium text-white/70">Camera offline</p>
-      <p className="-mt-[4px] text-[12px] text-white/35">
+      <p className="text-[0.8125rem] font-medium text-white/70">
+        Camera offline
+      </p>
+      <p className="-mt-[4px] text-[0.75rem] text-white/35">
         Last seen {lastSeen}
       </p>
     </div>
@@ -123,10 +125,12 @@ export function ConnectingFallback({
       </span>
       {reconnecting ? (
         <>
-          <p className="text-[13px] font-medium text-white/75">Signal lost</p>
+          <p className="text-[0.8125rem] font-medium text-white/75">
+            Signal lost
+          </p>
           {/* Tell the operator how long this will take, not just that
               something is happening. A silent spinner is unfalsifiable. */}
-          <p className="-mt-[6px] flex items-center gap-[6px] text-[12px] text-white/35 tabular-nums">
+          <p className="-mt-[6px] flex items-center gap-[6px] text-[0.75rem] text-white/35 tabular-nums">
             <span className="text-warn/70">
               <Spinner size={12} />
             </span>
@@ -135,8 +139,10 @@ export function ConnectingFallback({
         </>
       ) : (
         <>
-          <p className="text-[13px] font-medium text-white/75">Connecting…</p>
-          <p className="-mt-[6px] text-[12px] text-white/35">
+          <p className="text-[0.8125rem] font-medium text-white/75">
+            Connecting…
+          </p>
+          <p className="-mt-[6px] text-[0.75rem] text-white/35">
             Establishing secure stream · {name}
           </p>
         </>
@@ -157,16 +163,18 @@ export function ErrorFallback({
       <span className="text-critical/70">
         <AlertTriangleGlyph />
       </span>
-      <p className="text-[13px] font-medium text-white/70">
+      <p className="text-[0.8125rem] font-medium text-white/70">
         Stream unavailable
       </p>
       {/* The raw transport error, verbatim — never paraphrased into "oops". */}
-      <p className="-mt-[4px] font-mono text-[12px] text-white/35">{error}</p>
+      <p className="-mt-[4px] font-mono text-[0.75rem] text-white/35">
+        {error}
+      </p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[11px] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] lg:text-[0.6875rem] text-white/70 transition-colors hover:border-white/25 hover:text-white"
         >
           Retry
         </button>

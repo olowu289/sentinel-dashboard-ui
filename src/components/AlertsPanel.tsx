@@ -83,7 +83,7 @@ export function AlertsPanel({
       className={`relative min-w-0 flex-1 flex-col bg-ink lg:w-[417px] lg:flex-none lg:shrink-0 lg:border-l lg:border-line-panel ${className}`}
     >
       <header className="relative flex h-[46px] shrink-0 items-center justify-between border-b border-line px-[16px]">
-        <h2 className="font-display text-[14px] leading-[20px] tracking-[0.14px] text-dim">
+        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-dim">
           ALERTS
         </h2>
         {/* Bare glyphs, no chip around them — with the container gone, colour
@@ -134,7 +134,7 @@ export function AlertsPanel({
           an operator reading a filtered list as the whole picture. */}
       {filtered && (
         <div className="flex shrink-0 items-center gap-[8px] border-b border-line px-[15px] py-[8px]">
-          <span className="flex items-center gap-[6px] rounded-[4px] bg-terra/10 py-[3px] pl-[8px] pr-[4px] text-[12px] text-terra">
+          <span className="flex items-center gap-[6px] rounded-[4px] bg-terra/10 py-[3px] pl-[8px] pr-[4px] text-[0.75rem] text-terra">
             {filterLabel(filter)}
             <button
               type="button"
@@ -158,7 +158,7 @@ export function AlertsPanel({
               </svg>
             </button>
           </span>
-          <span className="text-[12px] text-white/35 tabular-nums">
+          <span className="text-[0.75rem] text-white/35 tabular-nums">
             {visible.length} of {alerts.length}
           </span>
         </div>

@@ -59,7 +59,7 @@ export function DateFilterPopover({
       className="absolute right-[15px] top-[42px] z-50 w-[320px] rounded-[12px] border border-white/8 bg-[#16181d] shadow-[0_16px_40px_rgba(0,0,0,0.6)]"
     >
       <div className="flex h-[44px] items-center justify-between border-b border-white/8 px-[14px]">
-        <p className="text-[13px] font-semibold text-white">Time range</p>
+        <p className="text-[0.8125rem] font-semibold text-white">Time range</p>
         <button
           type="button"
           onClick={onClose}
@@ -92,7 +92,7 @@ export function DateFilterPopover({
               type="button"
               onClick={() => setDraft({ range: r.id })}
               aria-pressed={active}
-              className={`flex h-[28px] items-center gap-[6px] rounded-full px-[10px] text-[12px] transition-colors ${
+              className={`flex h-[28px] items-center gap-[6px] rounded-full px-[10px] text-[0.75rem] transition-colors ${
                 active
                   ? "bg-terra font-semibold text-[#0b0c0e]"
                   : "bg-white/6 text-white/70 hover:bg-white/12 hover:text-white"
@@ -112,7 +112,7 @@ export function DateFilterPopover({
       </div>
 
       <div className="border-t border-white/8 px-[14px] py-[12px]">
-        <p className="pb-[8px] font-display text-[11px] uppercase tracking-[0.11px] text-white/40">
+        <p className="pb-[8px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/40">
           Custom
         </p>
         <div className="flex items-center gap-[8px]">
@@ -123,9 +123,9 @@ export function DateFilterPopover({
             onChange={(e) =>
               setDraft({ range: "custom", from: e.target.value, to: draft.to })
             }
-            className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[12px] text-white [color-scheme:dark]"
+            className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[0.75rem] text-white [color-scheme:dark]"
           />
-          <span className="shrink-0 text-[12px] text-white/30">→</span>
+          <span className="shrink-0 text-[0.75rem] text-white/30">→</span>
           <input
             type="date"
             aria-label="To date"
@@ -137,7 +137,7 @@ export function DateFilterPopover({
                 to: e.target.value,
               })
             }
-            className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[12px] text-white [color-scheme:dark]"
+            className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[0.75rem] text-white [color-scheme:dark]"
           />
         </div>
       </div>
@@ -146,7 +146,7 @@ export function DateFilterPopover({
         <button
           type="button"
           onClick={() => setDraft(NO_FILTER)}
-          className="text-[13px] text-white/55 transition-colors hover:text-white"
+          className="text-[0.8125rem] text-white/55 transition-colors hover:text-white"
         >
           Clear
         </button>
@@ -157,7 +157,7 @@ export function DateFilterPopover({
             onClose();
           }}
           disabled={!dirty}
-          className="h-[30px] rounded-[6px] bg-terra px-[14px] text-[13px] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+          className="h-[30px] rounded-[6px] bg-terra px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
         >
           Apply
         </button>

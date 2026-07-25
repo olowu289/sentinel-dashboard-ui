@@ -25,8 +25,8 @@ type Tab = (typeof TABS)[number];
 function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-[12px] border-b border-white/6 py-[10px] last:border-b-0">
-      <span className="shrink-0 text-[12px] text-white/40">{label}</span>
-      <span className="min-w-0 truncate text-right text-[12px] text-white/85">
+      <span className="shrink-0 text-[0.75rem] text-white/40">{label}</span>
+      <span className="min-w-0 truncate text-right text-[0.75rem] text-white/85">
         {value}
       </span>
     </div>
@@ -122,7 +122,7 @@ export function AlertDetail({
         />
         {/* Stable short ID before the human title — this is what gets read out
             over the radio during a handoff. */}
-        <span className="font-display text-[12px] tracking-[0.12px] text-white/50">
+        <span className="font-display text-[0.75rem] tracking-[0.12px] text-white/50">
           {alert.id}
         </span>
         <button
@@ -157,14 +157,14 @@ export function AlertDetail({
             height={28}
             className="mt-[2px] shrink-0"
           />
-          <h2 className="text-[15px] font-semibold leading-[1.35] text-white">
+          <h2 className="text-[0.9375rem] font-semibold leading-[1.35] text-white">
             {alert.title}
           </h2>
         </div>
 
         <div className="mt-[12px] flex flex-wrap gap-[6px]">
           <span
-            className={`rounded-[3px] px-[6px] py-[2px] font-display text-[11px] uppercase tracking-[0.11px] ${
+            className={`rounded-[3px] px-[6px] py-[2px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] ${
               alert.status === "resolved"
                 ? "bg-terra/15 text-terra"
                 : alert.status === "acknowledged"
@@ -174,10 +174,10 @@ export function AlertDetail({
           >
             {alert.status}
           </span>
-          <span className="rounded-[3px] bg-white/6 px-[6px] py-[2px] font-display text-[11px] uppercase tracking-[0.11px] text-white/70">
+          <span className="rounded-[3px] bg-white/6 px-[6px] py-[2px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/70">
             {alert.zone}
           </span>
-          <span className="rounded-[3px] bg-white/6 px-[6px] py-[2px] font-display text-[11px] tracking-[0.11px] text-white/70 tabular-nums">
+          <span className="rounded-[3px] bg-white/6 px-[6px] py-[2px] font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-white/70 tabular-nums">
             {formatEventTime(alert.at)}
           </span>
         </div>
@@ -205,7 +205,7 @@ export function AlertDetail({
               </button>
             </>
           ) : (
-            <div className="flex size-full items-center justify-center text-[12px] text-white/30">
+            <div className="flex size-full items-center justify-center text-[0.75rem] text-white/30">
               No clip attached
             </div>
           )}
@@ -232,7 +232,7 @@ export function AlertDetail({
               // Roving tabindex: the tablist is one tab stop, arrows move within it.
               tabIndex={tab === t ? 0 : -1}
               onClick={() => setTab(t)}
-              className={`relative pb-[8px] text-[13px] capitalize transition-colors ${
+              className={`relative pb-[8px] text-[0.8125rem] capitalize transition-colors ${
                 tab === t ? "text-white" : "text-white/40 hover:text-white/70"
               }`}
             >
@@ -297,19 +297,23 @@ export function AlertDetail({
               transition={FADE}
               className="mt-[12px]"
             >
-              <p className="mb-[10px] text-[11px] text-white/30">
+              <p className="mb-[10px] text-[0.75rem] lg:text-[0.6875rem] text-white/30">
                 Times shown in {SITE_TZ_LABEL} (GMT+1)
               </p>
               <ol>
                 {TIMELINE.map((e, i) => (
                   <li key={i} className="flex gap-[12px] pb-[14px]">
-                    <span className="w-[38px] shrink-0 font-display text-[11px] text-white/40 tabular-nums">
+                    <span className="w-[38px] shrink-0 font-display text-[0.75rem] lg:text-[0.6875rem] text-white/40 tabular-nums">
                       {e.time}
                     </span>
                     <span className="relative flex flex-col gap-[2px] border-l border-white/10 pb-[2px] pl-[14px]">
                       <span className="absolute -left-[4px] top-[5px] size-[7px] rounded-full border border-white/25 bg-[#0e0e10]" />
-                      <span className="text-[13px] text-white">{e.title}</span>
-                      <span className="text-[12px] text-white/40">{e.sub}</span>
+                      <span className="text-[0.8125rem] text-white">
+                        {e.title}
+                      </span>
+                      <span className="text-[0.75rem] text-white/40">
+                        {e.sub}
+                      </span>
                     </span>
                   </li>
                 ))}
@@ -328,7 +332,7 @@ export function AlertDetail({
           <button
             type="button"
             onClick={onAcknowledge}
-            className="h-[32px] flex-1 rounded-[6px] bg-white text-[13px] font-medium text-black transition-opacity hover:opacity-90"
+            className="h-[32px] flex-1 rounded-[6px] bg-white text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
           >
             Acknowledge
           </button>
@@ -337,19 +341,19 @@ export function AlertDetail({
           <button
             type="button"
             onClick={onResolve}
-            className="h-[32px] flex-1 rounded-[6px] bg-terra text-[13px] font-medium text-black transition-opacity hover:opacity-90"
+            className="h-[32px] flex-1 rounded-[6px] bg-terra text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
           >
             Resolve
           </button>
         )}
         {alert.status === "resolved" && (
-          <p className="flex-1 text-[12px] text-terra">
+          <p className="flex-1 text-[0.75rem] text-terra">
             Resolved by {alert.acknowledgedBy ?? "you"}
           </p>
         )}
         <button
           type="button"
-          className="h-[32px] rounded-[6px] border border-white/12 px-[12px] text-[13px] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          className="h-[32px] rounded-[6px] border border-white/12 px-[12px] text-[0.8125rem] text-white/70 transition-colors hover:border-white/25 hover:text-white"
         >
           Escalate
         </button>

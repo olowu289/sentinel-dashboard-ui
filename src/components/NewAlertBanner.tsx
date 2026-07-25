@@ -42,7 +42,7 @@ export function NewAlertBanner({
 
       {/* One sentence, then the action inline — an operator reads the what
           before deciding whether to leave the wall for it. */}
-      <p className="min-w-0 truncate text-[14px] leading-[20px] tracking-[0.14px] text-white">
+      <p className="min-w-0 truncate text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
         {alert.title}, {formatRelative(alert.at)}.{" "}
         <button
           type="button"

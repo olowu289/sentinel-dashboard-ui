@@ -49,6 +49,14 @@
     height: 100%;
   }
 
+  /* Stops iOS inflating text when a phone rotates to landscape. Without it the
+     feed chips and alert rows jump size on rotation, which on a monitoring
+     surface reads as the data changing rather than the device turning. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     background: var(--color-ink);
     color: #ffffff;

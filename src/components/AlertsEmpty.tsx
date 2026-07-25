@@ -57,10 +57,10 @@ export function AlertsEmpty({
         )}
       </span>
 
-      <p className="mt-[16px] text-[15px] font-medium text-white/85">
+      <p className="mt-[16px] text-[0.9375rem] font-medium text-white/85">
         {filtered ? "No alerts match these filters" : "All clear"}
       </p>
-      <p className="mt-[6px] max-w-[280px] text-[13px] leading-[1.5] text-white/40">
+      <p className="mt-[6px] max-w-[280px] text-[0.8125rem] leading-[1.5] text-white/40">
         {filtered
           ? "Nothing was detected in the selected range."
           : "No alerts in the last 24 hours. Detections will appear here in real time."}
@@ -70,7 +70,7 @@ export function AlertsEmpty({
         <button
           type="button"
           onClick={onClearFilters}
-          className="mt-[16px] h-[30px] rounded-[6px] border border-white/12 px-[12px] text-[12px] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          className="mt-[16px] h-[30px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white"
         >
           Clear filters
         </button>

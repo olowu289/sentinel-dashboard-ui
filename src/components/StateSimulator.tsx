@@ -37,7 +37,7 @@ export function StateSimulator({
   return (
     <div className="absolute bottom-[24px] left-[79px] z-30 w-[248px] rounded-[10px] border border-line bg-[#0e0e10] p-[12px] shadow-2xl shadow-black/60">
       <div className="mb-[10px] flex items-center justify-between">
-        <p className="font-display text-[11px] uppercase tracking-[0.11px] text-white/45">
+        <p className="font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/45">
           Feed state
         </p>
         <button
@@ -71,14 +71,16 @@ export function StateSimulator({
             : feed.state;
         return (
           <div key={feed.id} className="mb-[12px] last:mb-0">
-            <p className="mb-[6px] text-[11px] text-white/35">{feed.name}</p>
+            <p className="mb-[6px] text-[0.75rem] lg:text-[0.6875rem] text-white/35">
+              {feed.name}
+            </p>
             <div className="flex flex-wrap gap-[4px]">
               {STATES.map((s) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => onSetFeedState(feed.id, s.id)}
-                  className={`rounded-[4px] px-[6px] py-[3px] text-[11px] transition-colors ${
+                  className={`rounded-[4px] px-[6px] py-[3px] text-[0.75rem] lg:text-[0.6875rem] transition-colors ${
                     current === s.id
                       ? "bg-white text-black"
                       : "bg-white/6 text-white/60 hover:bg-white/12 hover:text-white"
@@ -98,14 +100,14 @@ export function StateSimulator({
         <button
           type="button"
           onClick={onRaiseAlert}
-          className="w-full rounded-[4px] bg-critical/20 px-[6px] py-[5px] text-[11px] text-critical transition-colors hover:bg-critical/30"
+          className="w-full rounded-[4px] bg-critical/20 px-[6px] py-[5px] text-[0.75rem] lg:text-[0.6875rem] text-critical transition-colors hover:bg-critical/30"
         >
           Raise new alert
         </button>
         <button
           type="button"
           onClick={onToggleAlertsEmpty}
-          className={`w-full rounded-[4px] px-[6px] py-[5px] text-[11px] transition-colors ${
+          className={`w-full rounded-[4px] px-[6px] py-[5px] text-[0.75rem] lg:text-[0.6875rem] transition-colors ${
             alertsEmpty
               ? "bg-white text-black"
               : "bg-white/6 text-white/60 hover:bg-white/12 hover:text-white"

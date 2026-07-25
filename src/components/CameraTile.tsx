@@ -476,11 +476,11 @@ export function CameraTile({
             </svg>
           </button>
           <div className="min-w-0">
-            <p className="truncate font-display text-[20px] leading-[24px] tracking-[0.2px] text-[#f5f7fa]">
+            <p className="truncate font-display text-[1.25rem] leading-[24px] tracking-[0.2px] text-[#f5f7fa]">
               {feed.name}
             </p>
             {towerId && (
-              <p className="truncate text-[13px] leading-[16px] text-white/60">
+              <p className="truncate text-[0.8125rem] leading-[16px] text-white/60">
                 {towerId} · Sentry camera
               </p>
             )}
@@ -607,7 +607,7 @@ export function CameraTile({
             aria-hidden
             className="pulse-dot size-[6px] rounded-full bg-critical"
           />
-          <p className="font-display text-[11px] tracking-[0.11px] text-white tabular-nums">
+          <p className="font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-white tabular-nums">
             TRANSMITTING {formatElapsed(talkSec)}
           </p>
         </motion.div>
@@ -620,7 +620,7 @@ export function CameraTile({
           {...chrome}
           className="chip-blur absolute bottom-[18px] right-[9px] rounded-[4px] bg-black/50 px-[8px] py-[4px]"
         >
-          <p className="font-display text-[11px] tracking-[0.11px] text-white tabular-nums">
+          <p className="font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-white tabular-nums">
             {view.zoom.toFixed(1)}×
           </p>
         </motion.div>

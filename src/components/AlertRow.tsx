@@ -48,17 +48,20 @@ export function AlertRow({
           className="shrink-0"
         />
         <span className="flex min-w-0 flex-1 flex-col gap-[2px] py-[1px]">
-          <span className="text-[14px] leading-[20px] tracking-[0.14px] text-white">
+          <span className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
             {alert.title}
           </span>
-          <span className="text-[12px] leading-[20px] tracking-[0.12px] text-muted tabular-nums">
+          <span className="text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted tabular-nums">
             {when}
           </span>
         </span>
       </button>
 
+      {/* The 40px indent aligns the clip under the alert title on desktop. On a
+          phone that rhythm costs more than it buys: it was squeezing the clip's
+          own title into 57px against the 123px it needs. */}
       {alert.attachment && (
-        <div className="pl-[40px] pt-[8px]">
+        <div className="pt-[8px] lg:pl-[40px]">
           <ClipCard
             attachment={alert.attachment}
             at={alert.at}

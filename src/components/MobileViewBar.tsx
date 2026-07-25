@@ -49,12 +49,12 @@ export function MobileViewBar({
               {/* Unread count rides the icon so a switched-away operator still
                   sees the feed is moving. */}
               {item.id === "alerts" && alertCount > 0 && (
-                <span className="absolute -right-[7px] -top-[3px] min-w-[15px] rounded-full bg-critical px-[4px] text-center font-display text-[10px] leading-[15px] text-white tabular-nums">
+                <span className="absolute -right-[7px] -top-[3px] min-w-[15px] rounded-full bg-critical px-[4px] text-center font-display text-[0.75rem] leading-[15px] text-white tabular-nums">
                   {alertCount > 99 ? "99+" : alertCount}
                 </span>
               )}
             </span>
-            <span className="font-display text-[11px] uppercase tracking-[0.11px]">
+            <span className="font-display text-[0.75rem] uppercase tracking-[0.11px]">
               {item.label}
             </span>
           </button>

@@ -1,5 +1,7 @@
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { AlertAttachment } from "@/lib/types";
+import { FADE } from "@/lib/motion";
 import { formatClock } from "@/lib/time";
 import { MaskIcon } from "./Icon";
 
@@ -125,21 +127,47 @@ export function ClipCard({
               : "text-muted hover:bg-white/8 hover:text-white"
           }`}
         >
-          {phase === "working" ? (
-            <Spinner />
-          ) : phase === "done" ? (
-            <Check />
-          ) : (
-            <MaskIcon src="/icons/clip-download.svg" size={24} />
-          )}
+          {/* Scale, not just opacity: at 24px a crossfade is invisible, and
+              `mode="wait"` because two icons dissolving through each other in
+              a box this small is mush. The done → idle step animates too, so
+              the check retracts rather than blinking out — a success state
+              that vanishes reads as a failure. */}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={phase}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={FADE}
+              className="flex items-center justify-center"
+            >
+              {phase === "working" ? (
+                <Spinner />
+              ) : phase === "done" ? (
+                <Check />
+              ) : (
+                <MaskIcon src="/icons/clip-download.svg" size={24} />
+              )}
+            </motion.span>
+          </AnimatePresence>
         </button>
+        {/* A clip plays, a voice message sounds — the glyph has to say which,
+            because the two rows are otherwise identical and the operator is
+            deciding whether this needs headphones or a screen. */}
         <button
           type="button"
           aria-label={`Play ${attachment.title}`}
-          title="Play audio"
+          title={attachment.kind === "clip" ? "Play clip" : "Play audio"}
           className="flex size-[24px] items-center justify-center rounded-[4px] text-muted transition-colors hover:bg-white/8 hover:text-white"
         >
-          <MaskIcon src="/icons/clip-audio.svg" size={24} />
+          <MaskIcon
+            src={
+              attachment.kind === "clip"
+                ? "/icons/clip-play.svg"
+                : "/icons/clip-audio.svg"
+            }
+            size={24}
+          />
         </button>
       </div>
 

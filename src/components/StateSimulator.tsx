@@ -24,12 +24,14 @@ export function StateSimulator({
   alertsEmpty,
   onSetFeedState,
   onToggleAlertsEmpty,
+  onRaiseAlert,
   onClose,
 }: {
   feeds: CameraFeed[];
   alertsEmpty: boolean;
   onSetFeedState: (feedId: string, state: SimState) => void;
   onToggleAlertsEmpty: () => void;
+  onRaiseAlert: () => void;
   onClose: () => void;
 }) {
   return (
@@ -44,7 +46,13 @@ export function StateSimulator({
           aria-label="Close simulator"
           className="text-white/40 transition-colors hover:text-white"
         >
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden
+          >
             <path
               d="m3 3 8 8M11 3l-8 8"
               stroke="currentColor"
@@ -84,7 +92,16 @@ export function StateSimulator({
         );
       })}
 
-      <div className="mt-[12px] border-t border-white/8 pt-[10px]">
+      <div className="mt-[12px] flex flex-col gap-[6px] border-t border-white/8 pt-[10px]">
+        {/* Arrival is the only alert event the wall itself reacts to, so it
+            needs a trigger here — the banner is unreachable otherwise. */}
+        <button
+          type="button"
+          onClick={onRaiseAlert}
+          className="w-full rounded-[4px] bg-critical/20 px-[6px] py-[5px] text-[11px] text-critical transition-colors hover:bg-critical/30"
+        >
+          Raise new alert
+        </button>
         <button
           type="button"
           onClick={onToggleAlertsEmpty}

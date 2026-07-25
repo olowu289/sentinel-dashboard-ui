@@ -14,16 +14,18 @@ export function IconRail({
   onSelect,
   onMore,
   moreOpen = false,
+  className = "",
 }: {
   active?: string;
   onSelect?: (id: string) => void;
   onMore?: () => void;
   moreOpen?: boolean;
+  className?: string;
 }) {
   return (
     <nav
       aria-label="Primary"
-      className="relative w-[71px] shrink-0 border-r border-line-rail bg-ink"
+      className={`relative w-[71px] shrink-0 border-r border-line-rail bg-ink ${className}`}
     >
       <a
         href="#"

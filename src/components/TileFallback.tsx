@@ -16,7 +16,12 @@ function CameraOffGlyph() {
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
-      <path d="M3 3l18 18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M3 3l18 18"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -31,7 +36,12 @@ function SignalOffGlyph() {
         strokeLinecap="round"
       />
       <circle cx="12" cy="19.5" r="1" fill="currentColor" />
-      <path d="M3 3l18 18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M3 3l18 18"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -45,7 +55,12 @@ function AlertTriangleGlyph() {
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
-      <path d="M12 9v4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M12 9v4.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
       <circle cx="12" cy="17" r="1" fill="currentColor" />
     </svg>
   );
@@ -61,7 +76,14 @@ function Spinner({ size = 20 }: { size?: number }) {
       aria-hidden
       className="animate-spin [animation-duration:900ms]"
     >
-      <circle cx="10" cy="10" r="8" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2" />
+      <circle
+        cx="10"
+        cy="10"
+        r="8"
+        stroke="currentColor"
+        strokeOpacity="0.2"
+        strokeWidth="2"
+      />
       <path
         d="M18 10a8 8 0 0 0-8-8"
         stroke="currentColor"
@@ -77,7 +99,9 @@ export function OfflineFallback({ lastSeen }: { lastSeen: string }) {
     <div className="flex flex-col items-center gap-[10px] text-white/35">
       <CameraOffGlyph />
       <p className="text-[13px] font-medium text-white/70">Camera offline</p>
-      <p className="-mt-[4px] text-[12px] text-white/35">Last seen {lastSeen}</p>
+      <p className="-mt-[4px] text-[12px] text-white/35">
+        Last seen {lastSeen}
+      </p>
     </div>
   );
 }
@@ -133,7 +157,9 @@ export function ErrorFallback({
       <span className="text-critical/70">
         <AlertTriangleGlyph />
       </span>
-      <p className="text-[13px] font-medium text-white/70">Stream unavailable</p>
+      <p className="text-[13px] font-medium text-white/70">
+        Stream unavailable
+      </p>
       {/* The raw transport error, verbatim — never paraphrased into "oops". */}
       <p className="-mt-[4px] font-mono text-[12px] text-white/35">{error}</p>
       {onRetry && (

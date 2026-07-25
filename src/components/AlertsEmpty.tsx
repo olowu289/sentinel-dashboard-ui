@@ -18,7 +18,13 @@ export function AlertsEmpty({
     <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center px-[24px] text-center">
       <span className="flex size-[40px] items-center justify-center rounded-[12px] border border-white/6 bg-white/4 text-white/35">
         {filtered ? (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden
+          >
             <path
               d="M3 5h18l-7 8v6l-4 2v-8L3 5Z"
               stroke="currentColor"
@@ -27,7 +33,13 @@ export function AlertsEmpty({
             />
           </svg>
         ) : (
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden
+          >
             <path
               d="M12 3 4 6v6c0 4.4 3.2 8.4 8 9.5 4.8-1.1 8-5.1 8-9.5V6l-8-3Z"
               stroke="currentColor"

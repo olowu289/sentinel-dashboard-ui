@@ -1,5 +1,7 @@
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { AlertAttachment } from "@/lib/types";
+import { FADE } from "@/lib/motion";
 import { formatClock } from "@/lib/time";
 import { MaskIcon } from "./Icon";
 
@@ -125,13 +127,29 @@ export function ClipCard({
               : "text-muted hover:bg-white/8 hover:text-white"
           }`}
         >
-          {phase === "working" ? (
-            <Spinner />
-          ) : phase === "done" ? (
-            <Check />
-          ) : (
-            <MaskIcon src="/icons/clip-download.svg" size={24} />
-          )}
+          {/* Scale, not just opacity: at 24px a crossfade is invisible, and
+              `mode="wait"` because two icons dissolving through each other in
+              a box this small is mush. The done → idle step animates too, so
+              the check retracts rather than blinking out — a success state
+              that vanishes reads as a failure. */}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={phase}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={FADE}
+              className="flex items-center justify-center"
+            >
+              {phase === "working" ? (
+                <Spinner />
+              ) : phase === "done" ? (
+                <Check />
+              ) : (
+                <MaskIcon src="/icons/clip-download.svg" size={24} />
+              )}
+            </motion.span>
+          </AnimatePresence>
         </button>
         <button
           type="button"

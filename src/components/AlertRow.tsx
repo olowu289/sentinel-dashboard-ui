@@ -1,5 +1,7 @@
+import { motion } from "motion/react";
 import type { Alert } from "@/lib/types";
 import { ALERT_BADGE } from "@/lib/data";
+import { ENTER } from "@/lib/motion";
 import { formatEventTime } from "@/lib/time";
 import { ClipCard } from "./ClipCard";
 
@@ -17,8 +19,13 @@ export function AlertRow({
     <li className="relative">
       {/* Selection is an accent bar, not a fill — a coloured row would compete
           with the severity badge and cost scannability down the feed. */}
+      {/* One bar shared across the whole list rather than one per row: it
+          slides to the row you picked, so arrowing through the feed tracks
+          where you are instead of blinking between positions. */}
       {selected && (
-        <span
+        <motion.span
+          layoutId="alert-accent"
+          transition={ENTER}
           aria-hidden
           className="absolute -left-[15px] top-0 h-[42px] w-[2px] rounded-r bg-terra"
         />

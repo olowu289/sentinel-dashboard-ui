@@ -66,7 +66,13 @@ export function DateFilterPopover({
           aria-label="Close"
           className="flex size-[22px] items-center justify-center rounded-[4px] text-white/45 transition-colors hover:bg-white/8 hover:text-white"
         >
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden
+          >
             <path
               d="m3 3 8 8M11 3l-8 8"
               stroke="currentColor"
@@ -125,7 +131,11 @@ export function DateFilterPopover({
             aria-label="To date"
             value={draft.to ?? ""}
             onChange={(e) =>
-              setDraft({ range: "custom", from: draft.from, to: e.target.value })
+              setDraft({
+                range: "custom",
+                from: draft.from,
+                to: e.target.value,
+              })
             }
             className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[12px] text-white [color-scheme:dark]"
           />

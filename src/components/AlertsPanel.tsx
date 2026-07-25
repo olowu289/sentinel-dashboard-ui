@@ -1,3 +1,4 @@
+import { AnimatePresence, LayoutGroup } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Alert } from "@/lib/types";
 import {
@@ -24,11 +25,13 @@ export function AlertsPanel({
   onFilterChange,
   onAcknowledge,
   onResolve,
+  className = "",
 }: {
   alerts: Alert[];
   selectedId: string | null;
   filter: DateFilter;
   forceEmpty?: boolean;
+  className?: string;
   onSelect: (id: string | null) => void;
   onFilterChange: (next: DateFilter) => void;
   onAcknowledge: (id: string) => void;
@@ -36,7 +39,9 @@ export function AlertsPanel({
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const visible = forceEmpty ? [] : applyDateFilter(alerts, filter, SESSION_NOW);
+  const visible = forceEmpty
+    ? []
+    : applyDateFilter(alerts, filter, SESSION_NOW);
   const selected = visible.find((a) => a.id === selectedId) ?? null;
   const filtered = isFiltered(filter);
 
@@ -70,7 +75,9 @@ export function AlertsPanel({
   return (
     <aside
       aria-label="Alerts"
-      className="relative flex w-[417px] shrink-0 flex-col border-l border-line-panel bg-ink"
+      /* Full width below lg — it owns the screen there. The left border only
+         makes sense once it sits beside the wall. */
+      className={`relative min-w-0 flex-1 flex-col bg-ink lg:w-[417px] lg:flex-none lg:shrink-0 lg:border-l lg:border-line-panel ${className}`}
     >
       <header className="relative flex h-[46px] shrink-0 items-center justify-between border-b border-line px-[16px]">
         <h2 className="font-display text-[14px] leading-[20px] tracking-[0.14px] text-dim">
@@ -114,7 +121,13 @@ export function AlertsPanel({
               aria-label="Clear date filter"
               className="flex size-[16px] items-center justify-center rounded-[3px] transition-colors hover:bg-terra/20"
             >
-              <svg width="9" height="9" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 14 14"
+                fill="none"
+                aria-hidden
+              >
                 <path
                   d="m3 3 8 8M11 3l-8 8"
                   stroke="currentColor"
@@ -130,34 +143,45 @@ export function AlertsPanel({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[15px] py-[20px]">
+      {/* Extra bottom padding clears the fixed view bar; the last alert in the
+          feed must be scrollable clear of it, not trapped underneath. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[15px] pb-[calc(76px+env(safe-area-inset-bottom))] pt-[20px] lg:pb-[20px]">
         {visible.length === 0 ? (
           <AlertsEmpty
             filtered={filtered}
             onClearFilters={() => onFilterChange(NO_FILTER)}
           />
         ) : (
-          <ul className="flex flex-col gap-[22px]">
-            {visible.map((alert) => (
-              <AlertRow
-                key={alert.id}
-                alert={alert}
-                selected={alert.id === selectedId}
-                onSelect={() => onSelect(alert.id)}
-              />
-            ))}
-          </ul>
+          /* Scopes the shared accent bar to this list. Without it the layoutId
+             would be global and any future list could capture it. */
+          <LayoutGroup id="alerts">
+            <ul className="flex flex-col gap-[22px]">
+              {visible.map((alert) => (
+                <AlertRow
+                  key={alert.id}
+                  alert={alert}
+                  selected={alert.id === selectedId}
+                  onSelect={() => onSelect(alert.id)}
+                />
+              ))}
+            </ul>
+          </LayoutGroup>
         )}
       </div>
 
-      {selected && (
-        <AlertDetail
-          alert={selected}
-          onClose={() => onSelect(null)}
-          onAcknowledge={() => onAcknowledge(selected.id)}
-          onResolve={() => onResolve(selected.id)}
-        />
-      )}
+      {/* Not keyed on the alert id, deliberately: arrowing through the feed
+          swaps the content without remounting, so bulk triage stays instant
+          and only opening and closing the drawer animates. */}
+      <AnimatePresence>
+        {selected && (
+          <AlertDetail
+            alert={selected}
+            onClose={() => onSelect(null)}
+            onAcknowledge={() => onAcknowledge(selected.id)}
+            onResolve={() => onResolve(selected.id)}
+          />
+        )}
+      </AnimatePresence>
     </aside>
   );
 }

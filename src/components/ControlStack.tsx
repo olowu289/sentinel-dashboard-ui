@@ -12,13 +12,19 @@ export interface TileControl {
   persistent?: boolean;
   disabled?: boolean;
   onSelect?: () => void;
+  /** Lets the tile hand focus back to a control after chrome unmounts. */
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 /* `invisible` rather than `opacity-0`: hidden controls must leave the tab order
    so they cannot be triggered blind, but must keep their box so the stack does
    not resize on hover. Focusing the persistent button fires focus-within on the
    tile, which reveals the rest — that is the keyboard route in. */
+/* Touch devices fire neither hover nor focus-within on a tap, so a hover-only
+   reveal makes every camera control unreachable on a phone. Below lg the
+   controls are simply always present — there is no pointer to reveal them. */
 const REVEAL =
+  "max-lg:visible max-lg:opacity-100 " +
   "invisible opacity-0 transition-[opacity,visibility] duration-150 " +
   "group-hover:visible group-hover:opacity-100 " +
   "group-focus-within:visible group-focus-within:opacity-100";
@@ -42,6 +48,7 @@ export function ControlStack({
         return (
           <button
             key={c.id}
+            ref={c.buttonRef}
             type="button"
             aria-label={c.label}
             aria-pressed={c.active}

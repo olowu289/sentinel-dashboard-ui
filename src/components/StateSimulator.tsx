@@ -44,7 +44,13 @@ export function StateSimulator({
           aria-label="Close simulator"
           className="text-white/40 transition-colors hover:text-white"
         >
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden
+          >
             <path
               d="m3 3 8 8M11 3l-8 8"
               stroke="currentColor"

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
 import { ControlStack, type TileControl } from "./ControlStack";
 import { FeedChip, formatElapsed } from "./FeedChip";
@@ -43,6 +51,7 @@ export function CameraTile({
   towerId,
   focused = false,
   fullscreen = false,
+  layoutKey = "",
   canSwitch = false,
   onFocus,
   onRetry,
@@ -54,6 +63,9 @@ export function CameraTile({
   towerId?: string;
   focused?: boolean;
   fullscreen?: boolean;
+  /** Changes only when something that actually reflows the wall changes — the
+      takeover or the landscape/portrait split. See `layoutDependency` below. */
+  layoutKey?: string;
   canSwitch?: boolean;
   onFocus?: () => void;
   onRetry?: () => void;
@@ -62,6 +74,7 @@ export function CameraTile({
   onSwitchCamera?: (delta: 1 | -1) => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const fsBtnRef = useRef<HTMLButtonElement>(null);
   const [siren, setSiren] = useState(false);
   const [overlays, setOverlays] = useState(false);
   const [talking, setTalking] = useState(false);
@@ -69,6 +82,10 @@ export function CameraTile({
   const [firstFrame, setFirstFrame] = useState(false);
   const [flash, setFlash] = useState(false);
   const [view, setView] = useState<View>(HOME);
+  /* Exiting the takeover drops `z-100` immediately, but the tile still covers
+     the viewport for the length of the animation — and the alerts panel is a
+     later sibling, so it would paint straight through the closing frame. */
+  const [exiting, setExiting] = useState(false);
 
   const hasError = Boolean(feed.error);
   const isDead = hasError || DEAD_STATES.has(feed.state);
@@ -78,6 +95,12 @@ export function CameraTile({
 
   const scale = BASE_SCALE * view.zoom;
   const limit = maxPan(scale);
+
+  /* Always fill, in the wall and in the takeover. Contain would collapse a 4:3
+     source to a strip in a tile, and letterbox ~350px a side on an ultrawide
+     in fullscreen. A fit toggle is drafted (ctl-fit/ctl-fill live in
+     public/icons) but deliberately not wired up yet. */
+  const objectFit = "object-cover";
 
   // A dead feed cannot be sounding an alarm at the site.
   const alarming = siren && !isDead;
@@ -138,12 +161,46 @@ export function CameraTile({
   const keyHandlers = useRef({ onToggleFullscreen, onSwitchCamera });
   keyHandlers.current = { onToggleFullscreen, onSwitchCamera };
 
+  /* Entering hands focus to the close button; leaving hands it back to the
+     control that opened the takeover, because the top bar holding `closeRef`
+     unmounts and focus would otherwise fall to <body> — the operator loses
+     their place on the wall.
+
+     The activeElement guard is what makes arrow-key camera switching safe:
+     that commits an exit on this tile and an entry on the next in the same
+     render, and effects fire in tree order, so either tile can go first.
+     Checking for the orphaned state rather than "was focus mine" is correct
+     in both orderings — whoever focuses first wins and the other stands down.
+
+     A layout effect so no frame is ever painted with the wrong stacking. */
+  const prevFullscreen = useRef(fullscreen);
+  useLayoutEffect(() => {
+    const was = prevFullscreen.current;
+    prevFullscreen.current = fullscreen;
+    if (fullscreen) {
+      closeRef.current?.focus();
+      return;
+    }
+    if (!was) return;
+    setExiting(true);
+    if (document.activeElement === document.body) fsBtnRef.current?.focus();
+  }, [fullscreen]);
+
+  /* onLayoutAnimationComplete clears this normally. The timeout covers the
+     cases it cannot fire in — a backgrounded tab, reduced motion resolving out
+     of order — because a stuck `exiting` leaves a tile parked at z-100. */
+  useEffect(() => {
+    if (!exiting) return;
+    const id = setTimeout(() => setExiting(false), 400);
+    return () => clearTimeout(id);
+  }, [exiting]);
+
   /* Fullscreen keys. `F` toggles and `Esc` exits — both are universal player
      conventions, and an operator who cannot find the way out of a takeover has
-     lost the whole wall. Arrows move between cameras without exiting. */
+     lost the whole wall. Arrows move between cameras without exiting. Bound to
+     the window, so the way out survives focus being anywhere at all. */
   useEffect(() => {
     if (!fullscreen) return;
-    closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       const h = keyHandlers.current;
       if (e.key === "Escape" || e.key === "f" || e.key === "F") {
@@ -175,6 +232,8 @@ export function CameraTile({
       persistent: true,
       active: fullscreen,
       onSelect: onToggleFullscreen,
+      // Never unmounts, so it is the one safe place to return focus to.
+      buttonRef: fsBtnRef,
     },
     {
       id: "record",
@@ -233,52 +292,92 @@ export function CameraTile({
     transform: `scale(${scale}) translate(${view.x}%, ${view.y}%)`,
   };
 
+  /* One transition object for the section and every child that moves with it.
+     A mismatch here is worse than either animation alone — the chrome visibly
+     drifts against the box it is anchored to. */
+  const transition = fullscreen ? ENTER : EXIT;
+
+  /* Gates motion's layout measurement. Without it the 1s recording tick and
+     the 1.4s latency walk re-render this tile mid-animation, and motion cuts
+     an in-flight layout animation to its end state when a re-render reports no
+     layout change — roughly one in three toggles would snap, at random. */
+  const layoutDep = layoutKey;
+
+  /* Position-only for every text- and icon-bearing overlay. These are all
+     content-sized, so animating position alone means no scale is ever applied
+     and nothing stretches — and they glide to their new corner rather than
+     teleporting, which is most of what sells the takeover. */
+  const chrome = {
+    layout: "position",
+    layoutDependency: layoutDep,
+    transition,
+  } as const;
+
   return (
-    <section
+    <motion.section
+      layout
+      layoutDependency={layoutDep}
+      transition={transition}
+      onLayoutAnimationComplete={() => setExiting(false)}
       aria-label={`${feed.name} camera`}
       aria-modal={fullscreen || undefined}
       role={fullscreen ? "dialog" : undefined}
       onClick={onFocus}
+      /* `fixed` positioning here relies on nothing above this tile scrolling or
+         carrying a transform/filter/backdrop-filter — true today (the app root
+         is h-screen overflow-hidden). If that changes, fullscreen breaks with
+         or without the animation. */
       className={`group overflow-hidden ${
         fullscreen
           ? "fixed inset-0 z-100 bg-black"
-          : `relative min-h-0 flex-1 ${isDead ? "bg-tile-dead" : "bg-tile"} ${
-              focused ? "ring-2 ring-terra/70 ring-inset" : ""
-            }`
+          : `relative min-h-0 min-w-0 flex-1 ${
+              exiting ? "z-100 bg-black" : isDead ? "bg-tile-dead" : "bg-tile"
+            } ${focused ? "ring-2 ring-terra/70 ring-inset" : ""}`
       }`}
     >
-      {!isDead &&
-        (feed.video ? (
-          <video
-            src={feed.video}
-            poster={feed.poster}
-            autoPlay
-            muted
-            loop
-            playsInline
-            onLoadedData={() => setFirstFrame(true)}
-            style={mediaStyle}
-            className={`absolute inset-0 size-full transition-[opacity,transform] duration-300 ease-out ${fullscreen ? "object-contain" : "object-cover"} ${
-              firstFrame ? "opacity-100" : "opacity-0"
-            }`}
-          />
-        ) : (
-          <img
-            src={feed.poster}
-            alt=""
-            /* A cached frame can finish decoding before React attaches onLoad,
+      {/* The media sits in its own frame so the two transform systems never
+          share an element: this wrapper is what animates between tile and
+          fullscreen, while the media below keeps the PTZ transform. */}
+      {!isDead && (
+        <motion.div
+          layout="preserve-aspect"
+          layoutDependency={layoutDep}
+          transition={transition}
+          className="absolute inset-0 overflow-hidden"
+        >
+          {feed.video ? (
+            <video
+              src={feed.video}
+              poster={feed.poster}
+              autoPlay
+              muted
+              loop
+              playsInline
+              onLoadedData={() => setFirstFrame(true)}
+              style={mediaStyle}
+              className={`absolute inset-0 size-full transition-[opacity,transform] duration-300 ease-out ${objectFit} ${
+                firstFrame ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          ) : (
+            <img
+              src={feed.poster}
+              alt=""
+              /* A cached frame can finish decoding before React attaches onLoad,
                so the ref also settles anything already complete — otherwise the
                tile stays black with the image sitting right there. */
-            ref={(el) => {
-              if (el?.complete && el.naturalWidth > 0) setFirstFrame(true);
-            }}
-            onLoad={() => setFirstFrame(true)}
-            style={mediaStyle}
-            className={`absolute inset-0 size-full transition-[opacity,transform] duration-300 ease-out ${fullscreen ? "object-contain" : "object-cover"} ${
-              firstFrame ? "opacity-100" : "opacity-0"
-            }`}
-          />
-        ))}
+              ref={(el) => {
+                if (el?.complete && el.naturalWidth > 0) setFirstFrame(true);
+              }}
+              onLoad={() => setFirstFrame(true)}
+              style={mediaStyle}
+              className={`absolute inset-0 size-full transition-[opacity,transform] duration-300 ease-out ${objectFit} ${
+                firstFrame ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          )}
+        </motion.div>
+      )}
 
       {alarming && <SirenOverlay />}
 
@@ -336,14 +435,23 @@ export function CameraTile({
           It keeps the same shape in fullscreen so the camera you are looking
           at never becomes a question. */}
       {fullscreen ? (
-        <div className="absolute inset-x-0 top-0 flex h-[56px] items-center gap-[12px] px-[20px]">
+        <motion.div
+          {...chrome}
+          className="absolute inset-x-0 top-0 flex h-[56px] items-center gap-[12px] px-[20px]"
+        >
           <button
             type="button"
             onClick={onToggleFullscreen}
             aria-label="Exit fullscreen"
             className="flex size-[40px] shrink-0 items-center justify-center rounded-[8px] text-white/85 transition-colors hover:bg-white/10 hover:text-white"
           >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              aria-hidden
+            >
               <path
                 d="M12 4 6 10l6 6"
                 stroke="currentColor"
@@ -379,7 +487,13 @@ export function CameraTile({
               title="Exit fullscreen (Esc)"
               className="flex size-[40px] items-center justify-center rounded-[8px] text-white/85 transition-colors hover:bg-white/10 hover:text-white"
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="none"
+                aria-hidden
+              >
                 <path
                   d="m3 3 8 8M11 3l-8 8"
                   stroke="currentColor"
@@ -389,9 +503,14 @@ export function CameraTile({
               </svg>
             </button>
           </div>
-        </div>
+        </motion.div>
       ) : (
-        <div className="absolute left-[16px] top-[10px]">
+        <motion.div
+          {...chrome}
+          /* Bounded so the chip truncates instead of running under the control
+             stack: 16px gutter + 32px stack + 9px inset + breathing room. */
+          className="absolute left-[16px] top-[10px] max-w-[calc(100%-73px)]"
+        >
           <FeedChip
             state={feed.state}
             name={feed.name}
@@ -399,37 +518,77 @@ export function CameraTile({
             latencyMs={isDead ? undefined : feed.latencyMs}
             error={hasError}
           />
-        </div>
+        </motion.div>
       )}
 
       {/* Other cameras stay reachable without leaving the takeover. */}
+      {/* Centred by a flex wrapper rather than -translate-y-1/2: these become
+          motion nodes, and motion owns `transform` — a Tailwind translate on
+          the same element gets overwritten the first time it animates. */}
       {fullscreen && canSwitch && (
         <>
-          <button
-            type="button"
-            onClick={() => onSwitchCamera?.(-1)}
-            aria-label="Previous camera"
-            className="invisible absolute left-[16px] top-1/2 flex size-[48px] -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 hover:text-white"
+          <motion.div
+            {...chrome}
+            className="pointer-events-none absolute inset-y-0 left-0 flex items-center px-[16px]"
           >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-              <path d="M12 4 6 10l6 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={() => onSwitchCamera?.(1)}
-            aria-label="Next camera"
-            className="invisible absolute right-[16px] top-1/2 flex size-[48px] -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 hover:text-white"
+            <button
+              type="button"
+              onClick={() => onSwitchCamera?.(-1)}
+              aria-label="Previous camera"
+              className="pointer-events-auto invisible flex size-[48px] items-center justify-center rounded-full bg-black/50 text-white/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100 hover:text-white"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                aria-hidden
+              >
+                <path
+                  d="M12 4 6 10l6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </motion.div>
+          <motion.div
+            {...chrome}
+            className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-[16px]"
           >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-              <path d="M8 4l6 6-6 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+            <button
+              type="button"
+              onClick={() => onSwitchCamera?.(1)}
+              aria-label="Next camera"
+              className="pointer-events-auto invisible flex size-[48px] items-center justify-center rounded-full bg-black/50 text-white/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100 hover:text-white"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                aria-hidden
+              >
+                <path
+                  d="M8 4l6 6-6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </motion.div>
         </>
       )}
 
       {talking && (
-        <div className="chip-blur absolute right-[49px] top-[10px] flex items-center gap-[6px] rounded-[4px] bg-black/50 px-[8px] py-[4px]">
+        <motion.div
+          {...chrome}
+          className="chip-blur absolute right-[49px] top-[10px] flex items-center gap-[6px] rounded-[4px] bg-black/50 px-[8px] py-[4px]"
+        >
           <span
             aria-hidden
             className="pulse-dot size-[6px] rounded-full bg-critical"
@@ -437,34 +596,42 @@ export function CameraTile({
           <p className="font-display text-[11px] tracking-[0.11px] text-white tabular-nums">
             TRANSMITTING {formatElapsed(talkSec)}
           </p>
-        </div>
+        </motion.div>
       )}
 
       {/* Zoom level only exists once you have left 1× — a permanent "1.0×" is
           noise on a wall of tiles. */}
       {!isDead && view.zoom > ZOOM_MIN && (
-        <div className="chip-blur absolute bottom-[18px] right-[9px] rounded-[4px] bg-black/50 px-[8px] py-[4px]">
+        <motion.div
+          {...chrome}
+          className="chip-blur absolute bottom-[18px] right-[9px] rounded-[4px] bg-black/50 px-[8px] py-[4px]"
+        >
           <p className="font-display text-[11px] tracking-[0.11px] text-white tabular-nums">
             {view.zoom.toFixed(1)}×
           </p>
-        </div>
+        </motion.div>
       )}
 
       {/* Pointing a real camera head is not something to trigger in passing, so
           the pad only exists while the operator is actually on this tile. */}
       {feed.ptz && !isDead && (
-        <div className="invisible absolute bottom-[18px] left-[16px] opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+        <motion.div
+          {...chrome}
+          className="invisible absolute bottom-[18px] left-[16px] opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100"
+        >
           <PtzPad onMove={move} atLimit={limit === 0} />
-        </div>
+        </motion.div>
       )}
 
-      <ControlStack
-        controls={controls}
+      <motion.div
+        {...chrome}
         className={`absolute transition-opacity ${
           // Clears the fullscreen top bar rather than colliding with it.
           fullscreen ? "right-[20px] top-[76px]" : "right-[9px] top-[10px]"
         } ${isDead ? "pointer-events-none opacity-40" : "opacity-100"}`}
-      />
-    </section>
+      >
+        <ControlStack controls={controls} />
+      </motion.div>
+    </motion.section>
   );
 }

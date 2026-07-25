@@ -60,7 +60,10 @@ export function FeedChip({
   if (error) {
     return (
       <div className="chip-blur flex items-center gap-[8px] rounded-[4px] bg-black/50 px-[8px] py-[4px] opacity-80">
-        <span aria-hidden className="size-[8px] shrink-0 rounded-full bg-critical" />
+        <span
+          aria-hidden
+          className="size-[8px] shrink-0 rounded-full bg-critical"
+        />
         <p className="font-display text-[14px] tracking-[0.14px] whitespace-nowrap text-critical">
           ERROR: {name}
         </p>
@@ -69,15 +72,18 @@ export function FeedChip({
   }
 
   return (
-    <div className="chip-blur flex items-center gap-[6px] rounded-[4px] bg-black/50 px-[8px] py-[4px] opacity-80">
-      <div className="flex items-center gap-[8px]">
+    <div className="chip-blur flex min-w-0 items-center gap-[6px] rounded-[4px] bg-black/50 px-[8px] py-[4px] opacity-80">
+      {/* min-w-0 + truncate all the way down: on a narrow tile the camera name
+          is the part that gives, never the latency — a clipped link figure
+          would misreport the feed. */}
+      <div className="flex min-w-0 items-center gap-[8px]">
         <span
           aria-hidden
           className={`size-[8px] shrink-0 rounded-full ${DOT[state]} ${
             animated ? "pulse-dot" : ""
           }`}
         />
-        <p className="font-display text-[14px] tracking-[0.14px] whitespace-nowrap text-white tabular-nums">
+        <p className="truncate font-display text-[14px] tracking-[0.14px] whitespace-nowrap text-white tabular-nums">
           {stateLabel(state, name, elapsedSec)}
         </p>
       </div>
@@ -88,7 +94,7 @@ export function FeedChip({
             aria-hidden
             className="size-[3px] shrink-0 rounded-full bg-white/40"
           />
-          <div className="flex items-center gap-[6px]">
+          <div className="flex shrink-0 items-center gap-[6px]">
             <p
               className={`font-display text-[14px] uppercase tracking-[0.14px] whitespace-nowrap tabular-nums ${latencyTone(
                 latencyMs,

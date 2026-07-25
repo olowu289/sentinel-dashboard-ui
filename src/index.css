@@ -31,6 +31,12 @@
   /* Type — loaded from Google Fonts in index.html. */
   --font-display: Quantico, ui-monospace, monospace;
   --font-sans: Sora, ui-sans-serif, system-ui, sans-serif;
+
+  /* No motion tokens here on purpose: every animated transition in this app is
+     driven from JS, so lib/motion.ts is the single source of truth. Duplicating
+     the timings as CSS custom properties gave us a set nothing consumed —
+     editing them looked like it would retune the UI and did nothing. If
+     CSS-driven motion arrives later, add tokens then, with real consumers. */
 }
 
 @layer base {

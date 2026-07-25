@@ -1,9 +1,10 @@
-import { MotionConfig } from "motion/react";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { AlertsPanel } from "@/components/AlertsPanel";
 import { CameraTile } from "@/components/CameraTile";
 import { IconRail } from "@/components/IconRail";
 import { MobileViewBar, type MobileView } from "@/components/MobileViewBar";
+import { NewAlertBanner } from "@/components/NewAlertBanner";
 import { StateSimulator, type SimState } from "@/components/StateSimulator";
 import { TopBar, type WallLayout } from "@/components/TopBar";
 import { ALERTS, FEEDS, TOWER } from "@/lib/data";
@@ -28,6 +29,39 @@ export function TowerView() {
   /* Below lg the wall and the alerts feed each want the whole screen — at
      768px a three-pane split leaves the wall ~280px, narrower than a phone. */
   const [mobileView, setMobileView] = useState<MobileView>("wall");
+  /* Desktop only. Below lg the panel is already one of two switchable views,
+     so collapsing it there would just leave the operator on a blank screen. */
+  const [alertsCollapsed, setAlertsCollapsed] = useState(false);
+  /* The id of an alert that arrived while the feed was out of sight. Held
+     separately from `alerts` because it is a notification, not a status — the
+     alert stays in the list whether or not the banner is still up. */
+  const [newAlertId, setNewAlertId] = useState<string | null>(null);
+
+  const newAlert = alerts.find((a) => a.id === newAlertId) ?? null;
+
+  /* Prototype trigger. A real deployment gets these from the alert stream;
+     the shape that matters is that arrival and acknowledgement are separate. */
+  const raiseAlert = useCallback(() => {
+    const at = Date.now();
+    const alert: Alert = {
+      id: `ALT-${Math.floor(at / 1000) % 100000}`,
+      kind: "alert",
+      title: "Alert raised by Motion Sensor on Gas Yard",
+      at,
+      status: "triggered",
+      source: "Motion Sensor",
+      zone: "Gas Yard",
+    };
+    setAlerts((prev) => [alert, ...prev]);
+
+    /* Only flag it as unseen if the feed is genuinely not on screen. CSS
+       already hides the banner in that case, but leaving the id set would make
+       it surface later — the operator collapses the panel an hour on and gets
+       announced an alert they read when it landed. */
+    const wide = window.matchMedia("(min-width: 1024px)").matches;
+    const feedVisible = wide ? !alertsCollapsed : mobileView === "alerts";
+    if (!feedVisible) setNewAlertId(alert.id);
+  }, [alertsCollapsed, mobileView]);
 
   /* The simulator lost its rail button along with the nav icons, so it lives on
      Shift+S until the new icon set lands. Ignored while typing in a field. */
@@ -186,7 +220,34 @@ export function TowerView() {
             onToggleLayout={() =>
               setLayout((l) => (l === "landscape" ? "portrait" : "landscape"))
             }
+            alertsCollapsed={alertsCollapsed}
+            /* Reopening the feed is itself an answer to the banner. */
+            onExpandAlerts={() => {
+              setAlertsCollapsed(false);
+              setNewAlertId(null);
+            }}
           />
+
+          {/* Shown only where the alerts feed itself is not: collapsed on
+              desktop, or on the camera view on a phone. If the feed is on
+              screen the banner would be reporting something already visible. */}
+          <AnimatePresence>
+            {newAlert && (
+              <NewAlertBanner
+                alert={newAlert}
+                className={`${mobileView === "wall" ? "flex" : "hidden"} ${
+                  alertsCollapsed ? "lg:flex" : "lg:hidden"
+                }`}
+                onView={() => {
+                  setAlertsCollapsed(false);
+                  setMobileView("alerts");
+                  setSelectedId(newAlert.id);
+                  setNewAlertId(null);
+                }}
+                onDismiss={() => setNewAlertId(null)}
+              />
+            )}
+          </AnimatePresence>
 
           {/* Always stacked below lg — side-by-side would give each tile ~180px,
               too small to identify anyone, which is the whole job. The bottom
@@ -208,8 +269,10 @@ export function TowerView() {
                    the layout measurement on a per-tile boolean would leave the
                    siblings unmeasured — and snapping. The layout axis is in
                    here for the same reason: it reflows the wall, so it has to
-                   open the measurement gate or the toggle jumps. */
-                layoutKey={`${fullscreenId ?? ""}|${layout}`}
+                   open the measurement gate or the toggle jumps. Same for
+                   collapsing the alerts panel — anything that changes a tile's
+                   box belongs in this key. */
+                layoutKey={`${fullscreenId ?? ""}|${layout}|${alertsCollapsed}|${newAlertId ?? ""}`}
                 canSwitch={feeds.length > 1}
                 onFocus={() => setFocusedFeed(feed.id)}
                 onRetry={() => retryFeed(feed.id)}
@@ -232,7 +295,12 @@ export function TowerView() {
           onFilterChange={setFilter}
           onAcknowledge={(id) => setStatus(id, "acknowledged")}
           onResolve={(id) => setStatus(id, "resolved")}
-          className={mobileView === "alerts" ? "flex" : "hidden lg:flex"}
+          onCollapse={() => setAlertsCollapsed(true)}
+          /* Collapse only removes the desktop column; the mobile view is still
+             reachable from the bottom bar, so `lg:hidden` beats `lg:flex`. */
+          className={`${mobileView === "alerts" ? "flex" : "hidden lg:flex"} ${
+            alertsCollapsed ? "lg:hidden" : ""
+          }`}
         />
 
         <MobileViewBar
@@ -247,6 +315,7 @@ export function TowerView() {
             alertsEmpty={alertsEmpty}
             onSetFeedState={setFeedState}
             onToggleAlertsEmpty={() => setAlertsEmpty((e) => !e)}
+            onRaiseAlert={raiseAlert}
             onClose={() => setSimOpen(false)}
           />
         )}

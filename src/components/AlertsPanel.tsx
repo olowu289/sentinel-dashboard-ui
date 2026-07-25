@@ -25,6 +25,7 @@ export function AlertsPanel({
   onFilterChange,
   onAcknowledge,
   onResolve,
+  onCollapse,
   className = "",
 }: {
   alerts: Alert[];
@@ -36,6 +37,8 @@ export function AlertsPanel({
   onFilterChange: (next: DateFilter) => void;
   onAcknowledge: (id: string) => void;
   onResolve: (id: string) => void;
+  /** Omitted below lg, where the panel is a whole view rather than a column. */
+  onCollapse?: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -83,21 +86,39 @@ export function AlertsPanel({
         <h2 className="font-display text-[14px] leading-[20px] tracking-[0.14px] text-dim">
           ALERTS
         </h2>
-        <button
-          type="button"
-          onClick={() => setPickerOpen((o) => !o)}
-          aria-expanded={pickerOpen}
-          aria-haspopup="dialog"
-          aria-label="Filter alerts by date"
-          title="Filter by date"
-          className={`flex size-[24px] items-center justify-center rounded-[4.364px] border transition-colors ${
-            filtered || pickerOpen
-              ? "border-terra/40 bg-terra/10 text-terra"
-              : "border-line text-white/70 hover:border-white/25 hover:text-white"
-          }`}
-        >
-          <MaskIcon src="/icons/calendar.svg" size={16} />
-        </button>
+        {/* Bare glyphs, no chip around them — with the container gone, colour
+            is the only thing left to carry the filter's active state. */}
+        <div className="flex items-center gap-[8px]">
+          <button
+            type="button"
+            onClick={() => setPickerOpen((o) => !o)}
+            aria-expanded={pickerOpen}
+            aria-haspopup="dialog"
+            aria-label="Filter alerts by date"
+            title="Filter by date"
+            className={`flex size-[24px] items-center justify-center rounded-[4.364px] transition-colors ${
+              filtered || pickerOpen
+                ? "text-terra"
+                : "text-white/70 hover:text-white"
+            }`}
+          >
+            <MaskIcon src="/icons/calendar.svg" size={20} />
+          </button>
+
+          {/* Only at lg: below it the panel is already a whole view of its own,
+              reached from the bottom bar, so there is nothing to collapse. */}
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label="Collapse alerts panel"
+              title="Collapse alerts"
+              className="hidden size-[24px] items-center justify-center rounded-[4.364px] text-white/70 transition-colors hover:text-white lg:flex"
+            >
+              <MaskIcon src="/icons/panel-collapse.svg" size={20} />
+            </button>
+          )}
+        </div>
 
         {pickerOpen && (
           <DateFilterPopover

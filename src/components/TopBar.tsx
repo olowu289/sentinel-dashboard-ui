@@ -7,11 +7,15 @@ export function TopBar({
   online,
   layout,
   onToggleLayout,
+  alertsCollapsed = false,
+  onExpandAlerts,
 }: {
   towerId: string;
   online: boolean;
   layout: WallLayout;
   onToggleLayout: () => void;
+  alertsCollapsed?: boolean;
+  onExpandAlerts?: () => void;
 }) {
   const next = layout === "landscape" ? "portrait" : "landscape";
 
@@ -50,24 +54,48 @@ export function TopBar({
           match the axis the tiles are stacked on. It shows the current view
           rather than the one you would switch to, so the bar always reads as a
           statement of what is on screen; the label carries the same word. */}
-      <button
-        type="button"
-        onClick={onToggleLayout}
-        aria-label={`${layout} view, switch to ${next}`}
-        title={`Switch to ${next} view`}
-        /* Hidden below lg: the wall is forced to a single stacked column there,
-           so a control that switches the split axis would do nothing. */
-        className="hidden items-center gap-[6px] py-[2px] text-dim transition-colors hover:text-white lg:flex"
-      >
-        <span className="font-display text-[14px] leading-[20px] uppercase tracking-[0.14px]">
-          {layout} view
-        </span>
-        <MaskIcon
-          src={`/icons/view-${layout}.svg`}
-          size={20}
-          className="text-[#e9e9e9]"
-        />
-      </button>
+      <div className="flex items-center gap-[8px]">
+        <button
+          type="button"
+          onClick={onToggleLayout}
+          aria-label={`${layout} view, switch to ${next}`}
+          title={`Switch to ${next} view`}
+          /* Hidden below lg: the wall is forced to a single stacked column
+             there, so a control that switches the split axis would do nothing. */
+          className="hidden items-center gap-[6px] py-[2px] text-dim transition-colors hover:text-white lg:flex"
+        >
+          <span className="font-display text-[14px] leading-[20px] uppercase tracking-[0.14px]">
+            {layout} view
+          </span>
+          <MaskIcon
+            src={`/icons/view-${layout}.svg`}
+            size={20}
+            className="text-[#e9e9e9]"
+          />
+        </button>
+
+        {/* Only appears once the panel is collapsed — it is the sole way back,
+            so it lives in the bar that is always on screen rather than in the
+            surface it restores. The rule separates it from the view control:
+            they act on different things. */}
+        {alertsCollapsed && onExpandAlerts && (
+          <>
+            <span
+              aria-hidden
+              className="hidden h-[14px] w-px bg-stroke lg:block"
+            />
+            <button
+              type="button"
+              onClick={onExpandAlerts}
+              aria-label="Show alerts panel"
+              title="Show alerts"
+              className="hidden size-[24px] items-center justify-center rounded-[4px] text-[#e9e9e9] transition-colors hover:text-white lg:flex"
+            >
+              <MaskIcon src="/icons/nav-alerts.svg" size={20} />
+            </button>
+          </>
+        )}
+      </div>
     </header>
   );
 }

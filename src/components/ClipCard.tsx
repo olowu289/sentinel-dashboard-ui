@@ -151,13 +151,23 @@ export function ClipCard({
             </motion.span>
           </AnimatePresence>
         </button>
+        {/* A clip plays, a voice message sounds — the glyph has to say which,
+            because the two rows are otherwise identical and the operator is
+            deciding whether this needs headphones or a screen. */}
         <button
           type="button"
           aria-label={`Play ${attachment.title}`}
-          title="Play audio"
+          title={attachment.kind === "clip" ? "Play clip" : "Play audio"}
           className="flex size-[24px] items-center justify-center rounded-[4px] text-muted transition-colors hover:bg-white/8 hover:text-white"
         >
-          <MaskIcon src="/icons/clip-audio.svg" size={24} />
+          <MaskIcon
+            src={
+              attachment.kind === "clip"
+                ? "/icons/clip-play.svg"
+                : "/icons/clip-audio.svg"
+            }
+            size={24}
+          />
         </button>
       </div>
 

@@ -77,3 +77,27 @@ export function formatEventTime(at: number) {
   }
   return `${dayMonth.format(at)}, ${clockShort.format(at)} ${SITE_TZ_LABEL}`;
 }
+
+/**
+ * Relative age, for the new-alert banner only — deliberately the exception to
+ * the rule above.
+ *
+ * The objection to relative times was a rail full of counters ticking against
+ * the video wall. A banner is one line, it is transient, and its whole job is
+ * to say *this just happened*, which is the one place recency beats a
+ * quotable timestamp. It is rendered once when the alert arrives and never
+ * re-ticked, so it still adds no motion.
+ *
+ * Do not reach for this in AlertRow or AlertDetail; those keep wall-clock.
+ */
+export function formatRelative(at: number, now: number = Date.now()) {
+  const mins = Math.floor((now - at) / 60000);
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 min ago";
+  if (mins < 60) return `${mins} mins ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours === 1) return "1 hour ago";
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}

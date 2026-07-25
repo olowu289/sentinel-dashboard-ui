@@ -27,6 +27,10 @@
   --color-critical: #ff5b53;
   --color-detect: #f3cf58;
   --color-detect-bg: #181509;
+  /* The new-alert banner sits on top of live video across the full wall, so it
+     is a step darker than --color-critical: at that width the brighter red
+     glares and pulls the eye off the feeds it is reporting on. */
+  --color-alert-banner: #cd4f47;
 
   /* Type — loaded from Google Fonts in index.html. */
   --font-display: Quantico, ui-monospace, monospace;

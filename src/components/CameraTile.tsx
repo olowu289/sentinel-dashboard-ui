@@ -266,7 +266,10 @@ export function CameraTile({
       id: "siren",
       label: siren ? "Silence alarm" : "Sound alarm",
       icon: "/icons/ctl-siren.svg",
-      tone: "critical",
+      /* The only control here that reaches the physical site. Record and talk
+         are consequential but reversible from this desk; a speaker left wailing
+         in a yard is not, so it keeps the saturated fill. */
+      tone: "alarm",
       active: siren,
       onSelect: () => setSiren((s) => !s),
     },

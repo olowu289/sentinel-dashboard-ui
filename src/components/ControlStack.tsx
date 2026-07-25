@@ -5,8 +5,17 @@ export interface TileControl {
   label: string;
   icon: string;
   size?: number;
-  /** Saturated fill means an abnormal state worth noticing — never just "on". */
-  tone?: "neutral" | "critical";
+  /**
+   * How loudly an engaged control announces itself. Never just "on".
+   *
+   * `critical` keeps the ordinary chip and reddens the glyph: right for
+   * recording and talk-down, which are consequential but local to the operator.
+   *
+   * `alarm` takes a saturated fill. Reserved for the siren, which is the one
+   * control that acts on the physical site: a speaker is sounding in a real
+   * yard, and it should be impossible to leave that running without noticing.
+   */
+  tone?: "neutral" | "critical" | "alarm";
   active?: boolean;
   /** Survives the hover reveal — the tile's one permanent affordance. */
   persistent?: boolean;
@@ -45,6 +54,7 @@ export function ControlStack({
     >
       {controls.map((c) => {
         const critical = c.active && c.tone === "critical";
+        const alarm = c.active && c.tone === "alarm";
         return (
           <button
             key={c.id}
@@ -55,25 +65,34 @@ export function ControlStack({
             title={c.label}
             disabled={c.disabled}
             onClick={c.onSelect}
-            /* An engaged critical control keeps the ordinary chip and turns
-               only its glyph red. The saturated fill this used to take made a
-               32px block of solid red sit on top of live video, which competed
-               with the frame it was supposed to be annotating. */
+            /* An engaged critical control keeps the ordinary chip and reddens
+               only its glyph: a 32px block of solid red on top of live video
+               competes with the frame it is annotating. The alarm tone is the
+               deliberate exception, because a siren audible at the site should
+               cost the operator's attention until it is silenced. */
             className={`chip-blur relative flex size-[32px] items-center justify-center rounded-[5.818px] transition-colors ${
-              critical
-                ? "bg-black/45 text-critical hover:bg-black/65"
-                : c.active
-                  ? "bg-white/20 text-white"
-                  : "bg-black/45 text-white hover:bg-black/65"
+              alarm
+                ? "bg-critical text-white"
+                : critical
+                  ? "bg-black/45 text-critical hover:bg-black/65"
+                  : c.active
+                    ? "bg-white/20 text-white"
+                    : "bg-black/45 text-white hover:bg-black/65"
             } ${c.persistent ? "" : REVEAL} ${
               c.disabled ? "cursor-not-allowed opacity-40" : ""
             }`}
           >
-            {/* The heartbeat is a halo hugging the glyph, not a ring around the
-                32px chip and not the glyph dimming itself. Sized to the glyph
-                box and round, so on the circular record and stop shapes it
-                traces their own edge. Holds the 2s cadence the recording and
-                live dots elsewhere already use. */}
+            {/* Two heartbeats, both on the 2s cadence the recording and live
+                dots already use. Critical pulses a halo hugging the glyph,
+                round so it traces the circular record and stop shapes. Alarm
+                pulses the whole chip, which is the louder of the two and the
+                point of the tone. */}
+            {alarm && (
+              <span
+                aria-hidden
+                className="pulse-dot pointer-events-none absolute inset-0 rounded-[5.818px] ring-2 ring-critical/70"
+              />
+            )}
             <span className="relative flex items-center justify-center">
               <MaskIcon src={c.icon} size={c.size ?? 20} />
               {critical && (

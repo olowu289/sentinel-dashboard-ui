@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces */
+  --color-ink: #000000;
+  --color-panel: #1b1b1d;
+  --color-tile: #1a1a1a;
+  /* One surface for every dead tile — offline, connecting and error share it
+     so a reconnecting feed never flashes brightness as it changes state. */
+  --color-tile-dead: #141416;
+
+  /* Lines — the design uses three distinct near-black strokes */
+  --color-line-rail: #161616;
+  --color-line: #1f1f1f;
+  --color-line-panel: #1e1e20;
+  --color-stroke: #383838;
+
+  /* Text */
+  --color-muted: #8d8d8d;
+  --color-dim: rgba(207, 207, 207, 0.63);
+
+  /* Status. Colour is reserved, never decorative: green = live, amber =
+     degraded or a detection, red = fault or live transmission. Nothing else
+     gets a hue — with a wall of tiles any extra colour costs scannability. */
+  --color-terra: #66e28e;
+  --color-warn: #ffdd70;
+  --color-critical: #ff5b53;
+  --color-detect: #f3cf58;
+  --color-detect-bg: #181509;
+
+  /* Type — loaded from Google Fonts in index.html. */
+  --font-display: Quantico, ui-monospace, monospace;
+  --font-sans: Sora, ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-ink);
+    color: #ffffff;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Operator UI: never let a stray scrollbar shift the video wall. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a3a;
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--color-terra);
+    outline-offset: 1px;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+@utility chip-blur {
+  backdrop-filter: blur(5px);
+}
+
+/* Recording / live dot pulse. Held at 2s so it reads as a heartbeat,
+   not an animation — operators stare at this for hours. */
+@keyframes sentinel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@utility pulse-dot {
+  animation: sentinel-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sentinel-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@utility sweep {
+  animation: sentinel-sweep 1.6s ease-in-out infinite;
+}
+
+/* Alarm beacon. Opposite corners trade intensity in antiphase so the tile
+   reads as a rotating light rather than a flashing rectangle. */
+@keyframes sentinel-siren-a {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes sentinel-siren-b {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.12;
+  }
+}
+
+.siren-a,
+.siren-b {
+  background-repeat: no-repeat;
+  animation: sentinel-siren-a 900ms ease-in-out infinite;
+}
+
+.siren-a {
+  background-image:
+    radial-gradient(circle at 0% 0%, rgba(255, 59, 48, 0.9), transparent 42%),
+    radial-gradient(
+      circle at 100% 100%,
+      rgba(255, 59, 48, 0.9),
+      transparent 42%
+    );
+}
+
+.siren-b {
+  background-image:
+    radial-gradient(circle at 100% 0%, rgba(255, 59, 48, 0.9), transparent 42%),
+    radial-gradient(circle at 0% 100%, rgba(255, 59, 48, 0.9), transparent 42%);
+  animation-name: sentinel-siren-b;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .sweep {
+    animation: none;
+  }
+
+  /* Hold both layers lit — the alarm must still be unmistakable when the
+     motion itself is what the viewer cannot tolerate. */
+  .siren-a,
+  .siren-b {
+    animation: none;
+    opacity: 0.55;
+  }
+}

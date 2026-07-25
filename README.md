@@ -1,8 +1,7 @@
 # Sentinel — Tower View
 
 Operator view for a single Sentinel tower: a stacked camera wall with live feed
-chrome, and a real-time alerts rail. Built from the Figma frame
-[`Terra Sentinel / Sentinel Tower View`](https://www.figma.com/design/a57qfGEtTBzzNj5R9DIJ8x/Terra--Sentinel?node-id=39-2626)
+chrome, and a real-time alerts rail. Built from the Figma file.
 (node `39:2626`).
 
 ```bash

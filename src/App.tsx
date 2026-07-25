@@ -25,13 +25,21 @@ export function TowerView() {
   const [focusedFeed, setFocusedFeed] = useState<string | null>(null);
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
   const [simOpen, setSimOpen] = useState(false);
-  const [layout, setLayout] = useState<WallLayout>("landscape");
+  /* Portrait by default: side by side gives each camera the full height of the
+     wall, which is the axis a fixed camera watching a yard actually needs.
+     Only applies at lg and up; below that the wall is always stacked. */
+  const [layout, setLayout] = useState<WallLayout>("portrait");
   /* Below lg the wall and the alerts feed each want the whole screen — at
      768px a three-pane split leaves the wall ~280px, narrower than a phone. */
   const [mobileView, setMobileView] = useState<MobileView>("wall");
-  /* Desktop only. Below lg the panel is already one of two switchable views,
+  /* Collapsed by default: the wall is the job, and the alerts feed announces
+     itself when it has something (banner plus a dot on the bell). It also keeps
+     portrait tiles at a usable aspect — with the panel open they narrow to 0.55
+     and object-cover throws away roughly two thirds of each frame's width.
+
+     Desktop only. Below lg the panel is already one of two switchable views,
      so collapsing it there would just leave the operator on a blank screen. */
-  const [alertsCollapsed, setAlertsCollapsed] = useState(false);
+  const [alertsCollapsed, setAlertsCollapsed] = useState(true);
   /* The id of an alert that arrived while the feed was out of sight. Held
      separately from `alerts` because it is a notification, not a status — the
      alert stays in the list whether or not the banner is still up. */
@@ -221,6 +229,7 @@ export function TowerView() {
               setLayout((l) => (l === "landscape" ? "portrait" : "landscape"))
             }
             alertsCollapsed={alertsCollapsed}
+            alertsUnread={Boolean(newAlertId)}
             /* Reopening the feed is itself an answer to the banner. */
             onExpandAlerts={() => {
               setAlertsCollapsed(false);

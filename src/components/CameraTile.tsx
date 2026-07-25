@@ -228,7 +228,14 @@ export function CameraTile({
       id: "fullscreen",
       label: fullscreen ? "Exit fullscreen" : "Fullscreen",
       icon: "/icons/ctl-fullscreen.svg",
-      size: 20,
+      /* 17, not the 20 the rest of the stack uses. This glyph was exported on a
+         16.86 canvas with the artwork bled to the edge, so its ink is 100% of
+         its box where every sibling sits at 67-88%. At size 20 it rendered 20px
+         of ink against their ~16.7, reading 20% heavier than record or siren
+         and 50% heavier than the zoom pair — and it is the one control that is
+         always visible. Sizing to 17 matches their ink, not their box.
+         Delete this once the Figma set has a consistent ink margin. */
+      size: 17,
       persistent: true,
       active: fullscreen,
       onSelect: onToggleFullscreen,
@@ -238,7 +245,11 @@ export function CameraTile({
     {
       id: "record",
       label: isRecording ? "Stop recording" : "Start recording",
-      icon: "/icons/ctl-record.svg",
+      /* Shape changes with state, not just colour: a ring around a circle to
+         start, a ring around a square to stop. Colour alone would leave the
+         two states indistinguishable to anyone who cannot separate red from
+         white, and it is the control that decides whether evidence exists. */
+      icon: isRecording ? "/icons/ctl-stop.svg" : "/icons/ctl-record.svg",
       tone: "critical",
       active: isRecording,
       onSelect: onToggleRecord,

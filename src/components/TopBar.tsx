@@ -8,6 +8,7 @@ export function TopBar({
   layout,
   onToggleLayout,
   alertsCollapsed = false,
+  alertsUnread = false,
   onExpandAlerts,
 }: {
   towerId: string;
@@ -15,6 +16,8 @@ export function TopBar({
   layout: WallLayout;
   onToggleLayout: () => void;
   alertsCollapsed?: boolean;
+  /** An alert has landed that the operator has not been shown the feed for. */
+  alertsUnread?: boolean;
   onExpandAlerts?: () => void;
 }) {
   const next = layout === "landscape" ? "portrait" : "landscape";
@@ -87,11 +90,24 @@ export function TopBar({
             <button
               type="button"
               onClick={onExpandAlerts}
-              aria-label="Show alerts panel"
-              title="Show alerts"
-              className="hidden size-[24px] items-center justify-center rounded-[4px] text-[#e9e9e9] transition-colors hover:text-white lg:flex"
+              aria-label={
+                alertsUnread
+                  ? "Show alerts panel, new alert"
+                  : "Show alerts panel"
+              }
+              title={alertsUnread ? "New alert" : "Show alerts"}
+              className="relative hidden size-[24px] items-center justify-center rounded-[4px] text-[#e9e9e9] transition-colors hover:text-white lg:flex"
             >
               <MaskIcon src="/icons/nav-alerts.svg" size={20} />
+              {/* Rides the glyph so the bell still reads as the alerts control
+                  rather than becoming a generic badge. The ring punches it off
+                  the bell's own outline at 6px. */}
+              {alertsUnread && (
+                <span
+                  aria-hidden
+                  className="absolute right-[2px] top-[2px] size-[6px] rounded-full bg-critical ring-2 ring-ink"
+                />
+              )}
             </button>
           </>
         )}

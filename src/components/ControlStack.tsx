@@ -55,9 +55,13 @@ export function ControlStack({
             title={c.label}
             disabled={c.disabled}
             onClick={c.onSelect}
+            /* An engaged critical control keeps the ordinary chip and turns
+               only its glyph red. The saturated fill this used to take made a
+               32px block of solid red sit on top of live video, which competed
+               with the frame it was supposed to be annotating. */
             className={`chip-blur relative flex size-[32px] items-center justify-center rounded-[5.818px] transition-colors ${
               critical
-                ? "bg-critical text-white"
+                ? "bg-black/45 text-critical hover:bg-black/65"
                 : c.active
                   ? "bg-white/20 text-white"
                   : "bg-black/45 text-white hover:bg-black/65"
@@ -65,13 +69,20 @@ export function ControlStack({
               c.disabled ? "cursor-not-allowed opacity-40" : ""
             }`}
           >
-            <MaskIcon src={c.icon} size={c.size ?? 20} />
-            {critical && (
-              <span
-                aria-hidden
-                className="pulse-dot pointer-events-none absolute inset-0 rounded-[5.818px] ring-2 ring-critical/70"
-              />
-            )}
+            {/* The heartbeat is a halo hugging the glyph, not a ring around the
+                32px chip and not the glyph dimming itself. Sized to the glyph
+                box and round, so on the circular record and stop shapes it
+                traces their own edge. Holds the 2s cadence the recording and
+                live dots elsewhere already use. */}
+            <span className="relative flex items-center justify-center">
+              <MaskIcon src={c.icon} size={c.size ?? 20} />
+              {critical && (
+                <span
+                  aria-hidden
+                  className="pulse-dot pointer-events-none absolute inset-0 rounded-full ring-2 ring-critical/70"
+                />
+              )}
+            </span>
           </button>
         );
       })}

@@ -1,35 +1,99 @@
-import { AnimatePresence, motion, useIsPresent } from "motion/react";
-import { useRef, useState, type ReactNode } from "react";
-import type { Alert } from "@/lib/types";
+import { motion, useIsPresent } from "motion/react";
+import type { ReactNode } from "react";
+import type { Alert, TimelineEvent } from "@/lib/types";
 import { ALERT_BADGE } from "@/lib/data";
-import { ENTER, EXIT, FADE } from "@/lib/motion";
-import { SITE_TZ_LABEL, formatClock, formatEventTime } from "@/lib/time";
+import { ENTER, EXIT } from "@/lib/motion";
+import {
+  SESSION_NOW,
+  formatClock,
+  formatDelta,
+  formatDuration,
+  formatEventTime,
+  formatSiteDate,
+  isSameSiteDay,
+} from "@/lib/time";
+import { ClipCard } from "./ClipCard";
 
-const TIMELINE = [
-  {
-    time: "23:10",
-    title: "Alert raised",
-    sub: "Motion Sensor · confidence 94%",
-  },
-  { time: "23:10", title: "Clip captured", sub: "15s · 1080p · stored" },
-  {
-    time: "23:10",
-    title: "Notified on-call",
-    sub: "Push · SMS to 2 responders",
-  },
-];
-
-const TABS = ["details", "timeline"] as const;
-type Tab = (typeof TABS)[number];
-
-function MetaRow({ label, value }: { label: string; value: ReactNode }) {
+/**
+ * One cell of the Alert Details grid.
+ *
+ * Fixed height, not intrinsic: the four cells form a 2×2 block and a taller
+ * value in one of them would drag its neighbour's baseline out of line, which
+ * is precisely the alignment the grid exists to provide. Long values truncate
+ * with the full string on hover rather than reflowing the block.
+ */
+function DetailCell({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-[12px] border-b border-white/6 py-[10px] last:border-b-0">
-      <span className="shrink-0 text-[0.75rem] text-white/40">{label}</span>
-      <span className="min-w-0 truncate text-right text-[0.75rem] text-white/85">
+    <div className="flex h-[60px] min-w-0 flex-col justify-center gap-[2px] rounded-[8px] bg-panel px-[14px]">
+      <span className="truncate text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted">
+        {label}
+      </span>
+      <span className="truncate text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
         {value}
       </span>
     </div>
+  );
+}
+
+/**
+ * One timeline step: badge, title, timestamp, and any evidence captured at that
+ * moment.
+ *
+ * The rail is a border on the text column, so its length is derived from that
+ * column's real height — it cannot fall out of step when a title wraps or a
+ * clip card is absent. The last step drops it: a line continuing past the final
+ * badge promises an event that is not there.
+ */
+type Step = TimelineEvent & { delta: string };
+
+function TimelineStep({
+  event,
+  first,
+  last,
+  alertId,
+}: {
+  event: Step;
+  first: boolean;
+  last: boolean;
+  alertId: string;
+}) {
+  return (
+    <li className="flex gap-[12px]">
+      <div className="flex shrink-0 flex-col items-center">
+        <img
+          src={ALERT_BADGE[event.icon]}
+          alt=""
+          width={28}
+          height={28}
+          className="shrink-0"
+        />
+        {!last && <span className="w-px flex-1 bg-white/10" />}
+      </div>
+
+      <div className={`min-w-0 flex-1 ${last ? "pb-0" : "pb-[16px]"}`}>
+        <p className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          {event.title}
+        </p>
+        {/* Wall-clock, plus elapsed from the first step. The clock is what gets
+            quoted on a handoff; the delta is what a column of clock times
+            physically cannot show — when several steps land inside one minute
+            their stamps look identical and the sequence stops being readable. */}
+        <p className="mt-[2px] text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted tabular-nums">
+          {formatClock(event.at)}
+          {!first && <span className="text-white/25"> · {event.delta}</span>}
+        </p>
+
+        {event.attachment && (
+          <div className="pt-[8px]">
+            <ClipCard
+              attachment={event.attachment}
+              at={event.at}
+              alertId={alertId}
+            />
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -44,44 +108,28 @@ export function AlertDetail({
   onAcknowledge: () => void;
   onResolve: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("details");
-  const critical = alert.kind === "alert" || alert.kind === "fault";
   const isPresent = useIsPresent();
 
-  /* Horizontal tablist per the ARIA authoring practices: arrows move between
-     tabs, Home/End jump to the ends, and selection follows focus. Declaring
-     role="tab" promises this behaviour, so it has to actually be here.
+  /* Sorted here rather than trusted from the seed: on a timeline, order *is*
+     the information, and one step out of sequence silently inverts cause and
+     effect. Falls back to the alert itself so the section is never blank. */
+  const events = (
+    alert.timeline ?? [{ at: alert.at, icon: alert.kind, title: alert.title }]
+  )
+    .slice()
+    .sort((a, b) => a.at - b.at)
+    .map((e, _i, all): Step => ({ ...e, delta: formatDelta(all[0].at, e.at) }));
 
-     stopPropagation keeps these keys off the window-level handlers. Nothing
-     traps focus inside the takeover, so this panel is still tabbable while a
-     tile is fullscreen — where Left/Right would otherwise switch camera. */
-  const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
-  const onTabKeys = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const i = TABS.indexOf(tab);
-    const to =
-      e.key === "ArrowRight"
-        ? (i + 1) % TABS.length
-        : e.key === "ArrowLeft"
-          ? (i - 1 + TABS.length) % TABS.length
-          : e.key === "Home"
-            ? 0
-            : e.key === "End"
-              ? TABS.length - 1
-              : null;
-    if (to === null) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setTab(TABS[to]);
-    tabRefs.current[TABS[to]]?.focus();
-  };
+  const detected = isSameSiteDay(alert.at, SESSION_NOW)
+    ? formatClock(alert.at)
+    : `${formatSiteDate(alert.at)}, ${formatClock(alert.at)}`;
 
   /* A short slide from the right edge, not a full panel width — the list is
      still conceptually behind this, so it should read as sliding over its own
      list rather than arriving from off-screen.
 
-     `inert` while leaving: the panel stays mounted for the exit, and its back,
-     close, tab and action buttons must not be tabbable or clickable while it
-     is on its way out. */
+     `inert` while leaving: the panel stays mounted for the exit, and its
+     controls must not be tabbable or clickable while it is on its way out. */
   return (
     <motion.div
       initial={{ opacity: 0, x: 12 }}
@@ -89,22 +137,23 @@ export function AlertDetail({
       exit={{ opacity: 0, x: 12, transition: EXIT }}
       transition={ENTER}
       inert={!isPresent}
-      className="absolute inset-0 z-20 flex flex-col bg-[#0e0e10]"
+      className="absolute inset-0 z-20 flex flex-col bg-ink"
     >
-      <header className="flex h-[46px] shrink-0 items-center gap-[8px] border-b border-line px-[16px]">
+      {/* Both exits below lg, per the design: the chevron reads as "back to the
+          list" and the X as "shut this", and on a phone the panel is the whole
+          view so they land in the same place. They are labelled differently for
+          AT so the redundancy is at least legible to a screen reader.
+          At lg the chevron goes — there the panel is a drawer beside the wall,
+          nothing was pushed, so "back" would name a journey that never
+          happened. */}
+      <header className="flex h-[46px] shrink-0 items-center gap-[4px] border-b border-line px-[16px]">
         <button
           type="button"
           onClick={onClose}
           aria-label="Back to alerts"
-          className="flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/8 hover:text-white"
+          className="mr-[8px] flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/8 hover:text-white lg:hidden"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            aria-hidden
-          >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
             <path
               d="M10 3 5 8l5 5"
               stroke="currentColor"
@@ -114,30 +163,25 @@ export function AlertDetail({
             />
           </svg>
         </button>
-        <span
-          aria-hidden
-          className={`size-[8px] shrink-0 rounded-full ${
-            critical ? "bg-critical" : "bg-detect"
-          }`}
+        <img
+          src={ALERT_BADGE[alert.kind]}
+          alt=""
+          width={16}
+          height={16}
+          className="shrink-0"
         />
         {/* Stable short ID before the human title — this is what gets read out
             over the radio during a handoff. */}
-        <span className="font-display text-[0.75rem] tracking-[0.12px] text-white/50">
+        <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-dim">
           {alert.id}
         </span>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Close alert detail"
           className="ml-auto flex size-[24px] items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/8 hover:text-white"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            aria-hidden
-          >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
             <path
               d="m3 3 8 8M11 3l-8 8"
               stroke="currentColor"
@@ -148,191 +192,160 @@ export function AlertDetail({
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-[16px] pb-[16px] pt-[16px]">
-        <div className="flex items-start gap-[12px]">
-          <img
-            src={ALERT_BADGE[alert.kind]}
-            alt=""
-            width={28}
-            height={28}
-            className="mt-[2px] shrink-0"
-          />
-          <h2 className="text-[0.9375rem] font-semibold leading-[1.35] text-white">
-            {alert.title}
-          </h2>
-        </div>
-
-        <div className="mt-[12px] flex flex-wrap gap-[6px]">
-          <span
-            className={`rounded-[3px] px-[6px] py-[2px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] ${
-              alert.status === "resolved"
-                ? "bg-terra/15 text-terra"
-                : alert.status === "acknowledged"
-                  ? "bg-warn/15 text-warn"
-                  : "bg-critical/15 text-critical"
-            }`}
-          >
-            {alert.status}
-          </span>
-          <span className="rounded-[3px] bg-white/6 px-[6px] py-[2px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/70">
-            {alert.zone}
-          </span>
-          <span className="rounded-[3px] bg-white/6 px-[6px] py-[2px] font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-white/70 tabular-nums">
-            {formatEventTime(alert.at)}
-          </span>
-        </div>
-
-        {/* The triggering frame goes above the fold, above every metadata row —
-            an operator confirms with their eyes before they read anything. */}
-        <div className="relative mt-[16px] aspect-video w-full overflow-hidden rounded-[8px] bg-tile-dead">
-          {alert.attachment ? (
-            <>
-              <img
-                src={alert.attachment.thumbnail}
-                alt={`Frame captured for ${alert.id}`}
-                className="absolute inset-0 size-full object-cover"
-              />
-              <button
-                type="button"
-                aria-label={`Play ${alert.attachment.title}`}
-                className="absolute inset-0 flex items-center justify-center bg-black/25 transition-colors hover:bg-black/10"
-              >
-                <span className="chip-blur flex size-[44px] items-center justify-center rounded-full bg-black/55">
-                  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-                    <path d="M5 3.5 14 9l-9 5.5v-11Z" fill="white" />
-                  </svg>
-                </span>
-              </button>
-            </>
-          ) : (
-            <div className="flex size-full items-center justify-center text-[0.75rem] text-white/30">
-              No clip attached
-            </div>
-          )}
-        </div>
-
-        {/* The underline is one element that slides, not a border toggled per
-            button — so the buttons carry no border of their own to fight it. */}
-        <div
-          role="tablist"
-          aria-label="Alert detail sections"
-          onKeyDown={onTabKeys}
-          className="relative mt-[16px] flex gap-[16px] border-b border-white/8"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t}
-              ref={(el) => {
-                tabRefs.current[t] = el;
-              }}
-              role="tab"
-              id={`alert-tab-${t}`}
-              aria-controls={`alert-panel-${t}`}
-              aria-selected={tab === t}
-              // Roving tabindex: the tablist is one tab stop, arrows move within it.
-              tabIndex={tab === t ? 0 : -1}
-              onClick={() => setTab(t)}
-              className={`relative pb-[8px] text-[0.8125rem] capitalize transition-colors ${
-                tab === t ? "text-white" : "text-white/40 hover:text-white/70"
-              }`}
-            >
-              {t}
-              {tab === t && (
-                <motion.span
-                  layoutId="alert-tab-underline"
-                  transition={ENTER}
-                  aria-hidden
-                  className="absolute -bottom-px left-0 h-[1.5px] w-full bg-white"
-                />
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Opacity only. `mode="wait"` means the two bodies never coexist, so
-            there is nothing for a layout animation to interpolate between —
-            and the panel sits in a scrolling region, where animating height
-            would fight the scroll position. tabIndex on the panels because
-            neither contains a focusable element, so the tab pattern needs them
-            reachable in their own right. */}
-        <AnimatePresence mode="wait" initial={false}>
-          {tab === "details" ? (
-            <motion.div
-              key="details"
-              role="tabpanel"
-              id="alert-panel-details"
-              aria-labelledby="alert-tab-details"
-              tabIndex={0}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={FADE}
-              className="mt-[4px]"
-            >
-              <MetaRow label="Camera" value={alert.source} />
-              <MetaRow label="Zone" value={alert.zone} />
-              <MetaRow label="Detected" value={formatClock(alert.at)} />
-              <MetaRow label="Rule" value={`${alert.source} · default`} />
-              {/* Empty fields stay visible — in security, absence is itself
-                diagnostic information. */}
-              <MetaRow
-                label="Acknowledged by"
-                value={
-                  alert.acknowledgedBy ?? (
-                    <span className="text-white/30">Not acknowledged</span>
-                  )
+      <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[16px] pb-[16px] pt-[16px]">
+        <section className="flex flex-col gap-[16px]">
+          <div className="flex flex-col gap-[4px]">
+            <h2 className="text-[1rem] leading-[20px] tracking-[0.16px] text-white">
+              {alert.title}
+            </h2>
+            {/* Status, place, time — wall-clock rather than the frame's
+                "18 seconds ago". A relative age goes stale on a panel an
+                operator leaves open, and cannot be read aloud accurately on a
+                handoff, which is the one thing this line is for. */}
+            <p className="flex flex-wrap items-center gap-x-[6px] text-[0.875rem] leading-[20px] tracking-[0.14px]">
+              <span
+                className={
+                  alert.status === "resolved"
+                    ? "text-terra"
+                    : alert.status === "acknowledged"
+                      ? "text-warn"
+                      : "text-critical"
                 }
+              >
+                {alert.status[0].toUpperCase() + alert.status.slice(1)}
+              </span>
+              <span aria-hidden className="size-[2px] rounded-full bg-muted" />
+              <span className="text-muted">{alert.zone}</span>
+              <span aria-hidden className="size-[2px] rounded-full bg-muted" />
+              <span className="text-muted tabular-nums">
+                {formatEventTime(alert.at)}
+              </span>
+            </p>
+          </div>
+
+          {/* The triggering frame goes above every metadata row — an operator
+              confirms with their eyes before they read anything. Aspect ratio
+              rather than the frame's fixed 198px, so the panel can be any
+              width and still show the designed proportion. */}
+          <div className="relative aspect-[388/198] w-full overflow-hidden rounded-[12px] bg-panel">
+            {alert.attachment ? (
+              <>
+                <img
+                  src={alert.attachment.thumbnail}
+                  alt={`Frame captured for ${alert.id}`}
+                  className="absolute inset-0 size-full object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label={`Play ${alert.attachment.title}`}
+                  className="absolute inset-0 flex items-center justify-center bg-black/25 transition-colors hover:bg-black/10"
+                >
+                  <span className="chip-blur flex size-[44px] items-center justify-center rounded-full bg-black/55">
+                    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+                      <path d="M5 3.5 14 9l-9 5.5v-11Z" fill="white" />
+                    </svg>
+                  </span>
+                </button>
+
+                {/* Which camera and how long, burnt onto the frame. A still with
+                    no label is evidence you cannot cite. After the button in the
+                    DOM so they paint over its scrim, and inert so they never eat
+                    the tap. */}
+                <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-white/85">
+                  {alert.source}
+                </span>
+                {alert.attachment.durationSec !== undefined && (
+                  <span className="chip-blur pointer-events-none absolute bottom-[8px] right-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-white/85 tabular-nums">
+                    {formatDuration(alert.attachment.durationSec)}
+                  </span>
+                )}
+              </>
+            ) : (
+              /* Absence is diagnostic, so it has to say *why*. "No clip
+                 attached" under a dead camera reads as a missing file; the
+                 truth is the feed was down, which is the more serious fact and
+                 the one that changes what the operator does next. */
+              <div className="flex size-full flex-col items-center justify-center gap-[3px] px-[16px] text-center">
+                <p className="text-[0.75rem] text-white/40">
+                  {alert.kind === "fault"
+                    ? "No footage — feed was down"
+                    : "No clip attached"}
+                </p>
+                <p className="text-[0.6875rem] text-white/25">
+                  {alert.kind === "fault"
+                    ? `${alert.source} stopped sending frames`
+                    : `Raised by ${alert.source}, which has no camera`}
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-[8px]">
+          <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+            Alert Details:
+          </h3>
+          {/* Two columns at every width. The panel is 417px at lg and full
+              width below it, and at neither size does a 2×2 block of short
+              key/value pairs need to collapse to one column. */}
+          <div className="grid grid-cols-2 gap-[4px]">
+            <DetailCell label="Source" value={alert.source} />
+            <DetailCell label="Detected:" value={detected} />
+            <DetailCell
+              label={alert.cameras?.length === 1 ? "Camera" : "Cameras"}
+              value={
+                alert.cameras?.length ? (
+                  alert.cameras.join(", ")
+                ) : (
+                  <span className="text-white/30">None</span>
+                )
+              }
+            />
+            <DetailCell
+              label="AI Confidence:"
+              value={
+                alert.confidence !== undefined ? (
+                  `${alert.confidence}%`
+                ) : (
+                  /* Blank, not "0%" or "N/A": a hardware fault and an operator
+                     talk-down are decisions and events, not predictions, and a
+                     number here would invent a machine judgement that was never
+                     made. */
+                  <span className="text-white/30">Not scored</span>
+                )
+              }
+            />
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-[16px]">
+          <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+            Timeline:
+          </h3>
+          <ol className="flex flex-col">
+            {events.map((e, i) => (
+              <TimelineStep
+                key={`${e.at}-${e.title}`}
+                event={e}
+                first={i === 0}
+                last={i === events.length - 1}
+                alertId={alert.id}
               />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="timeline"
-              role="tabpanel"
-              id="alert-panel-timeline"
-              aria-labelledby="alert-tab-timeline"
-              tabIndex={0}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={FADE}
-              className="mt-[12px]"
-            >
-              <p className="mb-[10px] text-[0.75rem] lg:text-[0.6875rem] text-white/30">
-                Times shown in {SITE_TZ_LABEL} (GMT+1)
-              </p>
-              <ol>
-                {TIMELINE.map((e, i) => (
-                  <li key={i} className="flex gap-[12px] pb-[14px]">
-                    <span className="w-[38px] shrink-0 font-display text-[0.75rem] lg:text-[0.6875rem] text-white/40 tabular-nums">
-                      {e.time}
-                    </span>
-                    <span className="relative flex flex-col gap-[2px] border-l border-white/10 pb-[2px] pl-[14px]">
-                      <span className="absolute -left-[4px] top-[5px] size-[7px] rounded-full border border-white/25 bg-[#0e0e10]" />
-                      <span className="text-[0.8125rem] text-white">
-                        {e.title}
-                      </span>
-                      <span className="text-[0.75rem] text-white/40">
-                        {e.sub}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            ))}
+          </ol>
+        </section>
       </div>
 
       {/* The state machine lives on the primary button — you cannot resolve
-          what you have not acknowledged, so that transition is never offered. */}
-      {/* Sits above the fixed view bar on mobile — the primary action must not
+          what you have not acknowledged, so that transition is never offered.
+          Sits above the fixed view bar on mobile: the primary action must not
           be covered by navigation. */}
-      <footer className="flex shrink-0 items-center gap-[8px] border-t border-line px-[16px] pb-[calc(12px+env(safe-area-inset-bottom))] pt-[12px] lg:h-[56px] lg:py-0 mb-[56px] lg:mb-0">
+      <footer className="flex shrink-0 items-center gap-[8px] border-t border-line px-[16px] pb-[calc(12px+env(safe-area-inset-bottom))] pt-[12px] mb-[56px] lg:mb-0">
         {alert.status === "triggered" && (
           <button
             type="button"
             onClick={onAcknowledge}
-            className="h-[32px] flex-1 rounded-[6px] bg-white text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
+            className="h-[39px] flex-1 rounded-[8px] bg-white text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90"
           >
             Acknowledge
           </button>
@@ -341,7 +354,7 @@ export function AlertDetail({
           <button
             type="button"
             onClick={onResolve}
-            className="h-[32px] flex-1 rounded-[6px] bg-terra text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
+            className="h-[39px] flex-1 rounded-[8px] bg-terra text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90"
           >
             Resolve
           </button>
@@ -353,7 +366,7 @@ export function AlertDetail({
         )}
         <button
           type="button"
-          className="h-[32px] rounded-[6px] border border-white/12 px-[12px] text-[0.8125rem] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12"
         >
           Escalate
         </button>

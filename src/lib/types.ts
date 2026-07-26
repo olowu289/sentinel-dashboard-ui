@@ -41,6 +41,30 @@ export interface AlertAttachment {
   kind: "clip" | "audio";
   title: string;
   thumbnail: string;
+  /** Runtime in seconds. Shown on the thumbnail so the cost of watching is
+   *  known before the click — a 30s clip and a 4-minute one are different
+   *  decisions mid-triage. */
+  durationSec?: number;
+}
+
+/**
+ * One step in an alert's own sequence.
+ *
+ * `at` is epoch ms like everywhere else — never a pre-formatted string, so the
+ * detail view can compute elapsed time between steps. That delta is the number
+ * an investigator actually reads: "vehicle, then a person 15 seconds later" is
+ * the finding; two identical wall-clock stamps are not.
+ */
+export interface TimelineEvent {
+  at: number;
+  /** Picks the 28px badge, from the same exported asset set the alert rows
+   *  use — a step and the alert it belongs to are the same kind of thing and
+   *  must not be drawn from two different icon vocabularies. */
+  icon: AlertKind;
+  title: string;
+  /** Evidence captured at this step, rendered as a clip card indented beneath
+   *  it. The clip belongs to the moment, not to the alert as a whole. */
+  attachment?: AlertAttachment;
 }
 
 export interface Alert {
@@ -53,7 +77,16 @@ export interface Alert {
   status: AlertStatus;
   source: string;
   zone: string;
+  /** Cameras covering the event. Plural because a zone can be overlooked by
+   *  more than one, and an operator pulling footage needs all of them. */
+  cameras?: string[];
   attachment?: AlertAttachment;
   /** Present once a responder claims the alert. */
   acknowledgedBy?: string;
+  /** Model certainty, 0–100. Only detections carry one; a hardware fault or an
+   *  operator action is not a prediction and must not be shown as if it were. */
+  confidence?: number;
+  /** Chronological, oldest first. The detections that caused the alert come
+   *  before it; what the platform did about it comes after. */
+  timeline?: TimelineEvent[];
 }

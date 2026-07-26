@@ -1,5 +1,5 @@
 import type { Alert } from "./types";
-import { SITE_TZ, isSameSiteDay } from "./time";
+import { SITE_TZ, formatDayLabel, isSameSiteDay } from "./time";
 
 export type RangeId = "all" | "1h" | "today" | "24h" | "7d" | "custom";
 
@@ -64,11 +64,15 @@ export function applyDateFilter(
   return alerts.filter((a) => inRange(a.at, f, now));
 }
 
+/* `Jul 20 → Jul 26`, not `2026-07-20 → 2026-07-26`. ISO is the storage and
+   comparison format and stays that way; the chip is read at a glance beside a
+   result count, where two full ISO dates are mostly punctuation. */
 export function filterLabel(f: DateFilter) {
   if (f.range === "custom") {
-    if (f.from && f.to) return `${f.from} → ${f.to}`;
-    if (f.from) return `From ${f.from}`;
-    if (f.to) return `Until ${f.to}`;
+    if (f.from && f.to)
+      return `${formatDayLabel(f.from)} → ${formatDayLabel(f.to)}`;
+    if (f.from) return `From ${formatDayLabel(f.from)}`;
+    if (f.to) return `Until ${formatDayLabel(f.to)}`;
     return "Custom range";
   }
   return RANGES.find((r) => r.id === f.range)?.label ?? "All time";

@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { AlertAttachment } from "@/lib/types";
 import { FADE } from "@/lib/motion";
-import { formatClock } from "@/lib/time";
+import { formatClock, formatDuration } from "@/lib/time";
 import { MaskIcon } from "./Icon";
 
 type Phase = "idle" | "working" | "done";
@@ -87,9 +87,18 @@ export function ClipCard({
         ? `${attachment.title} downloaded`
         : `Download ${attachment.title} from ${alertId}`;
 
+  /* Fills its container rather than carrying the design's fixed 346px. That
+     number is the width this card happens to have at lg, where the panel is
+     417px and the row indents 40px — quoting it here left a dead 54px strip
+     down the right of every clip on a phone, and would overflow by a pixel
+     inside the detail timeline's badge column. The container knows how much
+     room there is; the card should not second-guess it. */
   return (
-    <div className="flex min-h-[67px] w-[346px] max-w-full items-center gap-[11px] rounded-[8px] bg-panel px-[6px]">
-      <div className="relative h-[57px] w-[64px] shrink-0 lg:w-[85px] overflow-hidden rounded-[8px] bg-white">
+    <div className="flex min-h-[67px] w-full items-center gap-[11px] rounded-[8px] bg-panel px-[6px]">
+      {/* Dark placeholder, never white: on a black operator surface a white box
+          behind a loading thumbnail flashes like a strobe down a scrolling
+          feed, and at night it wrecks the viewer's dark adaptation. */}
+      <div className="relative h-[57px] w-[64px] shrink-0 lg:w-[85px] overflow-hidden rounded-[8px] bg-tile-dead">
         <img
           src={attachment.thumbnail}
           alt=""
@@ -103,6 +112,13 @@ export function ClipCard({
             </svg>
           </span>
         )}
+        {/* Runtime on the thumbnail, not in the title: it is the cost of
+            watching, and it belongs on the thing you are about to play. */}
+        {attachment.durationSec !== undefined && (
+          <span className="chip-blur absolute bottom-[3px] right-[3px] rounded-[3px] bg-black/65 px-[4px] font-display text-[0.625rem] leading-[14px] text-white/90 tabular-nums">
+            {formatDuration(attachment.durationSec)}
+          </span>
+        )}
       </div>
 
       <div className="flex min-w-0 flex-col gap-[4px]">
@@ -114,14 +130,19 @@ export function ClipCard({
         </p>
       </div>
 
-      <div className="ml-auto mr-[4px] flex shrink-0 lg:mr-[13px] items-center gap-[7px]">
+      {/* 44px targets, not the 24px glyph box. These two sit side by side and do
+          very different things — one writes evidence to the device, one plays
+          it — so a mis-tap is not a cosmetic problem. At 24px with a 7px gap
+          the two hit areas were closer together than a fingertip is wide. The
+          glyphs stay 24px; only the reachable area grew. */}
+      <div className="ml-auto flex shrink-0 items-center gap-[2px] lg:mr-[4px]">
         <button
           type="button"
           aria-label={label}
           aria-busy={phase === "working"}
           title={label}
           onClick={download}
-          className={`flex size-[24px] items-center justify-center rounded-[4px] transition-colors ${
+          className={`flex size-[44px] items-center justify-center rounded-[6px] transition-colors ${
             phase === "done"
               ? "text-terra"
               : "text-muted hover:bg-white/8 hover:text-white"
@@ -158,7 +179,7 @@ export function ClipCard({
           type="button"
           aria-label={`Play ${attachment.title}`}
           title={attachment.kind === "clip" ? "Play clip" : "Play audio"}
-          className="flex size-[24px] items-center justify-center rounded-[4px] text-muted transition-colors hover:bg-white/8 hover:text-white"
+          className="flex size-[44px] items-center justify-center rounded-[6px] text-muted transition-colors hover:bg-white/8 hover:text-white"
         >
           <MaskIcon
             src={

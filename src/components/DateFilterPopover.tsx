@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NO_FILTER, RANGES, type DateFilter } from "@/lib/dateFilter";
+import { siteToday } from "@/lib/time";
+import { CalendarRange } from "./CalendarRange";
 
 /**
  * Presets above, custom fields below, explicit Apply. The staging matters:
@@ -56,7 +58,11 @@ export function DateFilterPopover({
       ref={ref}
       role="dialog"
       aria-label="Time range"
-      className="absolute right-[15px] top-[42px] z-50 w-[320px] rounded-[12px] border border-white/8 bg-[#16181d] shadow-[0_16px_40px_rgba(0,0,0,0.6)]"
+      /* bg-panel, not the old one-off #16181d — that hex was a hair blue against
+         a neutral system and belonged to no token. Elevation is carried by the
+         border and shadow, which is what separates it from the same-coloured
+         clip cards behind it. */
+      className="absolute right-[15px] top-[42px] z-50 w-[320px] max-w-[calc(100vw-30px)] rounded-[12px] border border-white/10 bg-panel shadow-[0_16px_40px_rgba(0,0,0,0.7)]"
     >
       <div className="flex h-[44px] items-center justify-between border-b border-white/8 px-[14px]">
         <p className="text-[0.8125rem] font-semibold text-white">Time range</p>
@@ -92,16 +98,21 @@ export function DateFilterPopover({
               type="button"
               onClick={() => setDraft({ range: r.id })}
               aria-pressed={active}
+              /* White, not terra. Green in this app means a feed is live —
+                 spending it on "this preset is selected" puts a camera-status
+                 colour on a control that has nothing to do with the cameras,
+                 and a bright green pill in the corner of a monitoring screen
+                 reads as a signal rather than a setting. */
               className={`flex h-[28px] items-center gap-[6px] rounded-full px-[10px] text-[0.75rem] transition-colors ${
                 active
-                  ? "bg-terra font-semibold text-[#0b0c0e]"
+                  ? "bg-white font-medium text-black"
                   : "bg-white/6 text-white/70 hover:bg-white/12 hover:text-white"
               }`}
             >
               {r.label}
               <span
                 className={`tabular-nums ${
-                  active ? "text-[#0b0c0e]/60" : "text-white/30"
+                  active ? "text-black/50" : "text-white/30"
                 }`}
               >
                 {counts[r.id] ?? 0}
@@ -111,35 +122,21 @@ export function DateFilterPopover({
         })}
       </div>
 
+      {/* A real grid instead of two `<input type="date">`. The native control
+          renders OS chrome that ignores the theme, prints mm/dd/yyyy while
+          every other date in this app is ISO or WAT wall-clock, and opens a
+          picker built around the *viewer's* calendar rather than the tower's.
+          On a dark operator surface it was the one light-mode object on screen. */}
       <div className="border-t border-white/8 px-[14px] py-[12px]">
         <p className="pb-[8px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/40">
           Custom
         </p>
-        <div className="flex items-center gap-[8px]">
-          <input
-            type="date"
-            aria-label="From date"
-            value={draft.from ?? ""}
-            onChange={(e) =>
-              setDraft({ range: "custom", from: e.target.value, to: draft.to })
-            }
-            className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[0.75rem] text-white [color-scheme:dark]"
-          />
-          <span className="shrink-0 text-[0.75rem] text-white/30">→</span>
-          <input
-            type="date"
-            aria-label="To date"
-            value={draft.to ?? ""}
-            onChange={(e) =>
-              setDraft({
-                range: "custom",
-                from: draft.from,
-                to: e.target.value,
-              })
-            }
-            className="h-[36px] min-w-0 flex-1 rounded-[6px] border border-white/10 bg-white/4 px-[8px] text-[0.75rem] text-white [color-scheme:dark]"
-          />
-        </div>
+        <CalendarRange
+          from={draft.from}
+          to={draft.to}
+          today={siteToday()}
+          onChange={(next) => setDraft({ range: "custom", ...next })}
+        />
       </div>
 
       <div className="flex h-[52px] items-center justify-between border-t border-white/8 px-[14px]">
@@ -157,7 +154,7 @@ export function DateFilterPopover({
             onClose();
           }}
           disabled={!dirty}
-          className="h-[30px] rounded-[6px] bg-terra px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+          className="h-[30px] rounded-[6px] bg-white px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
         >
           Apply
         </button>

@@ -240,10 +240,31 @@ you cannot resolve what you have not acknowledged.
 triage in bulk. `Esc` closes. The detail deliberately does not re-animate when
 stepping, only when opening and closing.
 
-Details and Timeline are a full ARIA tab pattern: arrow keys move between tabs,
-Home and End jump to the ends, selection follows focus, and each panel is
-associated with its tab. Declaring `role="tab"` promises that behaviour, so it
-has to actually be there.
+The body is one scrolling column — frame, `Alert Details:`, `Timeline:` — built
+from the Figma. It replaced a Details/Timeline tab pair. Tabs were hiding half
+the record behind a click during triage, and with only two short panels the
+split cost more than it saved.
+
+`Alert Details:` is a 2×2 grid of fixed-height cells, at every width. Long
+values truncate rather than reflow, so the four labels keep their baselines.
+`AI Confidence:` reads `Not scored` for faults and operator actions — those are
+events and decisions, not predictions, and a percentage there would invent a
+machine judgement that was never made.
+
+`Timeline:` runs oldest first, so the detections that caused an alert sit above
+it. Each step carries the same exported badge as its alert row, its wall-clock
+time, and elapsed since the first step. That delta is the point: several steps
+inside one minute have near-identical stamps, and the gap between them is the
+finding. Evidence captured at a step renders as a clip card indented beneath it,
+because the clip belongs to the moment rather than to the alert as a whole.
+
+The rail is a border on the step's own text column, so its length is derived
+from that column's real height. The last step drops it — a line continuing past
+the final badge promises an event that is not there.
+
+Below `lg` the header carries both a back chevron and a close X, per the design.
+At `lg` the chevron goes: there the panel is a drawer beside the wall, nothing
+was pushed, so "back" would name a journey that never happened.
 
 ### Collapse
 
@@ -260,6 +281,30 @@ banner, so the trace survives in the one control that is always on screen.
 This is gated to 1024px and up. Below that the panel is already one of two
 switchable views, so collapsing it would strand the operator on an empty screen
 with no way back.
+
+### Date filter
+
+Presets carry their result count, so the cost of a range is visible before
+committing to it. Custom ranges use a hand-built month grid rather than
+`<input type="date">`: the native control renders OS chrome that ignores the
+theme, prints `mm/dd/yyyy` while every other date here is ISO or WAT wall-clock,
+and opens a picker built around the *viewer's* calendar rather than the tower's.
+On a dark operator surface it was the one light-mode object on screen.
+
+The grid is Monday-first, matching the ISO strings the filter compares, and is
+built entirely in UTC calendar space. Cells are labels for calendar days, not
+moments — the instant a day begins depends on a timezone, and dragging that into
+grid construction is how pickers end up rendering a 30th the filter reads as the
+29th. Only "today" is resolved in site time, via `siteToday()`.
+
+Selection is neutral white, never `terra`. Green means a feed is live; spending
+it on "this date is selected" puts a camera-status colour on a control with
+nothing to do with the cameras. The endpoints invert to black-on-white, the same
+primary language as `Acknowledge` and `Apply`.
+
+Staging is deliberate: nothing filters until `Apply`. Filtering live would
+re-run the feed on every keystroke of a half-finished range, so the operator
+would watch results vanish for ranges they never asked for.
 
 ### New alert banner
 
@@ -299,7 +344,11 @@ pulls the eye off the feeds it is reporting on.
   not tabbable or clickable on the way off screen.
 - Focus is returned rather than dropped when chrome unmounts.
 - `prefers-reduced-motion` is honoured in both the JS and CSS layers.
-- Tap targets meet the WCAG 2.2 minimum of 24 by 24 CSS pixels.
+- Tap targets meet the WCAG 2.2 minimum of 24 by 24 CSS pixels. The clip card's
+  download and play buttons go further, to 44, because they sit side by side and
+  do very different things — one writes evidence to the device, the other plays
+  it — and at 24 with a 7px gap the two hit areas were closer together than a
+  fingertip is wide. The glyphs stayed 24; only the reachable area grew.
 
 Two known gaps: `aria-modal` on the fullscreen takeover does not actually trap
 focus, so tabbing still reaches the alerts panel behind it, and the icon rail's

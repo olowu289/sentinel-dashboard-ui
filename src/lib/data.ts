@@ -1,6 +1,19 @@
-import type { Alert, CameraFeed } from "./types";
+import type {
+  Alert,
+  AlertAttachment,
+  AlertKind,
+  CameraFeed,
+  TimelineEvent,
+} from "./types";
 
 const CLIP_THUMB = "/media/clip-thumb.jpg";
+
+const clip = (title: string, durationSec: number): AlertAttachment => ({
+  kind: "clip",
+  title,
+  thumbnail: CLIP_THUMB,
+  durationSec,
+});
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -12,6 +25,31 @@ const DAY = 24 * HOUR;
    the tail deliberately crosses midnight and the 7-day boundary. */
 const NOW = Date.now();
 const ago = (ms: number) => NOW - ms;
+
+/**
+ * Builds an alert's sequence from offsets in seconds around its own trigger
+ * time, so every step keeps its real spacing no matter when the page loads.
+ *
+ * Negative offsets are the detections that *caused* the alert. They belong
+ * above it: a motion sensor firing is the reason the threshold was crossed, and
+ * a timeline that opens with its own conclusion tells the operator nothing.
+ */
+function sequence(
+  at: number,
+  rows: [
+    offsetSec: number,
+    icon: AlertKind,
+    title: string,
+    attachment?: AlertAttachment,
+  ][],
+): TimelineEvent[] {
+  return rows.map(([offsetSec, icon, title, attachment]) => ({
+    at: at + offsetSec * SECOND,
+    icon,
+    title,
+    ...(attachment ? { attachment } : {}),
+  }));
+}
 
 export const TOWER = {
   id: "TWR-1042",
@@ -40,99 +78,163 @@ export const FEEDS: CameraFeed[] = [
   },
 ];
 
+const AT_8841 = ago(18 * SECOND);
+const AT_8840 = ago(4 * MINUTE);
+const AT_8839 = ago(12 * MINUTE);
+const AT_8838 = ago(47 * MINUTE);
+const AT_8837 = ago(2 * HOUR + 10 * MINUTE);
+const AT_8836 = ago(5 * HOUR + 32 * MINUTE);
+const AT_8835 = ago(26 * HOUR);
+const AT_8834 = ago(3 * DAY + 4 * HOUR);
+
 export const ALERTS: Alert[] = [
   {
     id: "ALT-8841",
     kind: "alert",
     title: "Alert raised by Motion Sensor on Gas Yard",
-    at: ago(18 * SECOND),
+    at: AT_8841,
     status: "triggered",
     source: "Motion Sensor",
     zone: "Gas Yard",
+    cameras: ["Outpost 16"],
+    confidence: 94,
+    timeline: sequence(AT_8841, [
+      [-3, "alert", "Motion detected in Gas Yard"],
+      [0, "alert", "Alert raised"],
+      [4, "vehicle", "Vehicle detected by Gas Yard camera", clip("15s Clip Recording", 15)],
+      [11, "person", "Person detected by Camera 1", clip("30s Clip Recording", 30)],
+    ]),
   },
   {
     id: "ALT-8840",
     kind: "vehicle",
     title: "Vehicle detected by Gas Yard camera",
-    at: ago(4 * MINUTE),
+    at: AT_8840,
     status: "triggered",
     source: "Gas Yard camera",
     zone: "Gas Yard",
-    attachment: {
-      kind: "clip",
-      title: "15s Clip Recording",
-      thumbnail: CLIP_THUMB,
-    },
+    cameras: ["Outpost 16"],
+    confidence: 97,
+    attachment: clip("15s Clip Recording", 15),
+    timeline: sequence(AT_8840, [
+      [-6, "alert", "Motion detected in Gas Yard"],
+      [0, "vehicle", "Vehicle detected by Gas Yard camera", clip("15s Clip Recording", 15)],
+      [10, "alert", "Alert raised"],
+    ]),
   },
   {
     id: "ALT-8839",
     kind: "person",
     title: "Person detected by Camera 1",
-    at: ago(12 * MINUTE),
+    at: AT_8839,
     status: "triggered",
     source: "Camera 1",
     zone: "Gas Yard",
-    attachment: {
-      kind: "clip",
-      title: "30s Clip Recording",
-      thumbnail: CLIP_THUMB,
-    },
+    cameras: ["Camera 1"],
+    confidence: 88,
+    attachment: clip("30s Clip Recording", 30),
+    timeline: sequence(AT_8839, [
+      [-4, "alert", "Motion detected in Gas Yard"],
+      [0, "person", "Person detected by Camera 1", clip("30s Clip Recording", 30)],
+      [8, "alert", "Alert raised"],
+    ]),
   },
   {
     id: "ALT-8838",
     kind: "speaker",
     title: "Speaker Talk Down",
-    at: ago(47 * MINUTE),
+    at: AT_8838,
     status: "acknowledged",
     acknowledgedBy: "A. Okafor",
     source: "Operator console",
     zone: "Gas Yard",
+    /* No confidence: an operator pressing talk-down is a decision, not a
+       prediction. Showing a percentage here would invent a machine judgement
+       that never happened. */
+    cameras: ["Outpost 16"],
     attachment: {
       kind: "audio",
       title: "Audio Message",
       thumbnail: CLIP_THUMB,
+      durationSec: 12,
     },
+    timeline: sequence(AT_8838, [
+      [
+        0,
+        "speaker",
+        "Talk-down opened by A. Okafor",
+        {
+          kind: "audio",
+          title: "Audio Message",
+          thumbnail: CLIP_THUMB,
+          durationSec: 12,
+        },
+      ],
+      [26, "alert", "Acknowledged by A. Okafor"],
+    ]),
   },
   {
     id: "ALT-8837",
     kind: "alert",
     title: "Alert raised by Line-crossing on Oil Storage",
-    at: ago(2 * HOUR + 10 * MINUTE),
+    at: AT_8837,
     status: "triggered",
     source: "Line-crossing",
     zone: "Oil Storage",
+    cameras: ["Oil Storage camera"],
+    confidence: 76,
+    timeline: sequence(AT_8837, [
+      [-2, "alert", "Boundary crossed on Oil Storage west line"],
+      [0, "alert", "Alert raised"],
+    ]),
   },
   {
     id: "ALT-8836",
     kind: "alert",
     title: "Alert raised by Thermal Sensor on East Corridor",
-    at: ago(5 * HOUR + 32 * MINUTE),
+    at: AT_8836,
     status: "triggered",
     source: "Thermal Sensor",
     zone: "East Corridor",
+    cameras: ["East Corridor camera"],
+    confidence: 91,
+    timeline: sequence(AT_8836, [
+      [-5, "alert", "Heat signature detected in East Corridor"],
+      [0, "alert", "Alert raised"],
+    ]),
   },
   {
     id: "ALT-8835",
     kind: "alert",
     title: "Sub-alert: Person in Oil Storage",
-    at: ago(26 * HOUR),
+    at: AT_8835,
     status: "triggered",
     source: "Oil Storage camera",
     zone: "Oil Storage",
-    attachment: {
-      kind: "clip",
-      title: "30s Clip Recording",
-      thumbnail: CLIP_THUMB,
-    },
+    cameras: ["Oil Storage camera"],
+    confidence: 82,
+    attachment: clip("30s Clip Recording", 30),
+    timeline: sequence(AT_8835, [
+      [-9, "alert", "Motion detected in Oil Storage"],
+      [0, "person", "Person detected in Oil Storage", clip("30s Clip Recording", 30)],
+      [12, "alert", "Alert raised"],
+    ]),
   },
   {
     id: "ALT-8834",
     kind: "fault",
     title: "Oil Depot camera stopped working",
-    at: ago(3 * DAY + 4 * HOUR),
+    at: AT_8834,
     status: "triggered",
     source: "Oil Depot camera",
     zone: "Oil Depot",
+    cameras: ["Oil Depot camera"],
+    /* No confidence: the link either dropped or it did not. */
+    timeline: sequence(AT_8834, [
+      [-45, "fault", "Frames stopped arriving from Oil Depot camera"],
+      [0, "fault", "Feed marked offline"],
+      [30, "alert", "Escalated to maintenance · MNT-2291"],
+    ]),
   },
 ];
 

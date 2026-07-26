@@ -11,6 +11,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    /* 5173 by default, but overridable — another project on this machine also
+       answers to "sentinel" and claims 5173, and a hardcoded port turns that
+       collision into a dev server that silently serves someone else's app. */
+    port: Number(process.env.PORT) || 5173,
   },
 });

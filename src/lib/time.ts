@@ -41,6 +41,28 @@ export function isSameSiteDay(a: number, b: number) {
   return siteDay(a) === siteDay(b);
 }
 
+/**
+ * Today's calendar day at the tower, as `YYYY-MM-DD`.
+ *
+ * The custom range filter compares these strings, so the calendar has to build
+ * its grid around the *site's* today rather than the viewer's. An operator
+ * watching Lagos from London is on a different date for five hours a day, and a
+ * picker that highlights their today would quietly offer the wrong shift.
+ */
+export function siteToday(at: number = Date.now()) {
+  return siteDay(at);
+}
+
+/** `Jul 26` from a `YYYY-MM-DD` site day. */
+export function formatDayLabel(isoDay: string) {
+  const [y, m, d] = isoDay.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(Date.UTC(y, m - 1, d));
+}
+
 /** `11:10:11 PM WAT` */
 export function formatClock(at: number) {
   return `${clock.format(at)} ${SITE_TZ_LABEL}`;
@@ -56,6 +78,39 @@ const clock24 = new Intl.DateTimeFormat("en-GB", {
 /** `23:10` — the timeline gutter, where 24h reads faster than AM/PM. */
 export function formatClock24(at: number) {
   return clock24.format(at);
+}
+
+/** `Jul 25` — the timeline's date heading. */
+export function formatSiteDate(at: number) {
+  return dayMonth.format(at);
+}
+
+/**
+ * Elapsed time between two timeline steps — `+0s`, `+15s`, `+1m 04s`.
+ *
+ * The gutter already carries wall-clock, so this is not a second copy of the
+ * time: it is the one quantity a wall-clock column cannot show at a glance.
+ * When three detections land inside the same minute, the stamps are identical
+ * and the sequence is unreadable; the gap between them is the whole finding.
+ *
+ * Measured from the first step, not the previous one, so the numbers accumulate
+ * into "how long did this incident run" rather than resetting each row.
+ */
+export function formatDelta(from: number, at: number) {
+  const total = Math.round((at - from) / 1000);
+  if (total < 0) return "";
+  if (total < 60) return `+${total}s`;
+  const mins = Math.floor(total / 60);
+  if (mins < 60) return `+${mins}m ${String(total % 60).padStart(2, "0")}s`;
+  return `+${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+}
+
+/** `15s`, `4m 30s` — an attachment's runtime, for the thumbnail pill. */
+export function formatDuration(sec: number) {
+  if (sec < 60) return `${sec}s`;
+  const mins = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return rem === 0 ? `${mins}m` : `${mins}m ${String(rem).padStart(2, "0")}s`;
 }
 
 /** Captured once at load. Nothing in the feed re-renders off the clock. */

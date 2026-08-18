@@ -1,7 +1,9 @@
-# Sentinel, Tower View
+# Sentinel
 
-Operator view for a single Sentinel tower: a camera wall with live feed chrome,
-and a real-time alerts rail. Built from the Figma file
+Operator portal for a fleet of Sentinel camera towers. Two screens: a fleet
+dashboard — every tower's health beside every camera's picture — and, one level
+in, the tower view, with feed chrome and a real-time alerts rail. Built from the
+Figma file
 [`Terra Sentinel`](https://www.figma.com/design/a57qfGEtTBzzNj5R9DIJ8x/Terra--Sentinel).
 
 ```bash
@@ -29,7 +31,200 @@ Press `Shift+S`, or use the `...` button at the bottom of the icon rail, to open
 the feed state simulator. It exposes all eight feed states, the empty alerts
 feed, and new alert arrival. It is a review affordance, not product chrome.
 
-## Layout
+## Screens
+
+The dashboard is the landing screen and the tower view is its child. That was
+already the claim the tower view made: its breadcrumb has read `TOWERS ›
+TWR-1042` since the first build, and `TOWERS` pointed at nothing. It is a button
+now, and so are the rail's `Dashboard` and `Towers` entries — both land here,
+because the fleet screen *is* the towers list and there is no second page for
+them to disagree about. The other four rail destinations are still decorative.
+
+There is no router. Two screens do not need URLs, and adding them would be the
+only thing in the repo pretending to be a deployment.
+
+Camera and alert state live in `App.tsx` rather than in either screen. The
+recording tick and the latency walk are live, so a copy each would have the
+fleet wall and the tower wall disagreeing about the same camera within a second
+— and an operator drilling in to check a figure would find it had changed on the
+way. The wall's *arrangement* is up there for a different reason: the dashboard
+unmounts on every drill-in, and an arrangement that resets on the way back
+teaches operators not to arrange it.
+
+`TowerView` is keyed on `${id}|${showAlerts}`, so arriving at a tower is always
+a fresh entry. Carrying one site's selected alert, filter or collapse state into
+another's feed is the failure that key exists to prevent.
+
+## Fleet dashboard
+
+Rail, then a 417px `TOWERS` panel, then the video wall under a 46px bar carrying
+`ACTIVE CAMERAS:`, the site clock and a bell. The index is on the left because it
+is what you navigate *from* — reading order puts it before the content, which is
+the mirror of the alerts rail sitting to the right of the tower wall.
+
+The bell goes to whatever is actually waiting: the newest alert nobody has
+claimed, opened on its tower's feed. A fleet screen has no alerts list of its
+own — every alert belongs to a tower — so a bell that only decorated the bar
+would be the one control on this screen that answers nothing. With no unclaimed
+alert it is disabled rather than hidden, because an empty inbox is a reading.
+
+The clock ticks, seconds and all, which looks like the relative ages this app
+threw out. It is not the same thing. What was removed was a *rail full* of
+per-row counters, each a separate moving target competing with the video. This
+is one clock in a fixed position, and it is the number read out on a handoff. It
+lives in its own component so the tick cannot re-render the tile tree — that
+would push a re-render through the wall once a second against an unchanged
+`layoutKey`, which is the documented way to make a takeover snap.
+
+### Tower cards
+
+Site name over status word, a mast drawing, a pill carrying two readings, and —
+when the site has raised something nobody has picked up — a strip along the
+bottom.
+
+Status is the tile grammar one level up: green online, amber degraded, red dark.
+A tower with a dead camera or a poor uplink is still reachable, so it is not
+`offline` — and calling it `online` would let a half-blind site read as healthy,
+which is the one thing a fleet screen exists to prevent. `TWR-2071` ships
+degraded on purpose; a dashboard whose every card reads ONLINE proves nothing.
+
+The mast is three exported drawings, not one tinted drawing. The status lives in
+a single accent fill buried in ninety-odd paths, and the `MaskIcon` route would
+flatten the whole thing to one colour — losing the grey structure that is what
+makes 58×101 pixels read as a mast at all.
+
+It replaced a row of three telemetry glyphs — solar, battery, uplink — which the
+frame no longer carries. Those readings survive in the card's `title` and
+`aria-label`, where they were already spoken; what is gone is the row, not the
+data. `twr-solar`, `twr-battery` and `twr-link` went with it.
+
+The card is several targets, not one. The body opens the tower on its wall; the
+pill's left glyph does the same, **its count opens the alerts feed directly**,
+and the strip opens the alert it is reporting. That rules out a single
+`<button>` wrapper: a button inside a button is not something a browser or a
+screen reader forgives. Instead the primary target is stretched behind the
+content, the decorative layers are `pointer-events-none`, and the controls sit
+above them. The telemetry readings lost their per-glyph tooltips to that and
+moved into the card's own label and title, which reads better than three
+separate hover targets anyway.
+
+The strip is the second place in the app allowed a relative age, and for the
+same reason as the first (see `formatRelative`). What was thrown out was a rail
+full of ticking counters competing with the video; this is one line per site,
+rendered once, and *this just happened* is the question a fleet index exists to
+answer. Following it lands on the alert, where the time goes back to wall-clock.
+Its dismiss clears the notice, not the alert — the count on the pill does not
+move, because reading a notice is not handling an incident. It is keyed by
+*tower*, not by alert: dismissing one alert id looks correct and is not, because
+the next-newest immediately takes the slot and the × appears to do nothing. The
+count only changes when an operator goes into the feed and actually deals with
+something.
+
+The card grows 44px to make room for the strip rather than overlaying it, so the
+mast and the pill keep their clearances. The mast is therefore pinned to the
+bottom edge; measured from the top it would float when the card grew. The height
+is the *only* thing that changes: an alerting card briefly took a raised fill as
+well, and the design levelled it back — the strip is already unmissable, and
+lifting the card said the same thing twice in two vocabularies.
+
+### Wall tiles
+
+`MonitorTile`, not `CameraTile`. The tower view's tile carries the actuators —
+PTZ, record, talk-down, siren — behind a hover reveal on a wall you have already
+drilled into. This wall shows four cameras across two sites at once, and putting
+a talk-down button one stray click from four different yards is exactly the
+reflex the tower view is careful not to train. Picture, one chip, one button;
+the actuators are one level in.
+
+This was a 40px header bar until the design settled the other way, on the
+argument that four feeds side by side are read as a column of labels first and
+pictures second. Both walls now wear the same `FeedChip` — which is the stronger
+argument, because they show the same cameras and an operator crossing between
+them was reading two layouts of the same four facts. The bar also cost every
+tile 40px of picture, four times over, on the screen whose whole job is picture.
+Rendering `FeedChip` itself rather than restating its state word and dot palette
+is also what stops a seventh feed state being added to one wall and missed by
+the other.
+
+The drill-in went with the bar. The frame draws one chip and one button, the
+towers panel on the left is already a list of drill-ins, and the tower id is on
+every tile's `aria-label` — so nothing here names a site the panel does not.
+
+The design draws a capture button at the bottom-right of the video, parked
+outside its clipped parent — it is invisible in the frame and is not built.
+
+### Bands
+
+The wall is banded by tower, one header per site over the row of its cameras.
+Four tiles in an anonymous grid made "whose north gate?" a question every tile
+had to answer for itself, which is what the old per-tile tower label was for; a
+band header answers it once and gives the picture its corner back.
+
+Bands are *read out of* the arrangement rather than stored beside it — a tower
+appears where its first camera does, and its cameras keep their relative order.
+One source of truth for both, so a tile drag and a band drag can never leave the
+wall describing two different arrangements.
+
+The 3×3 glyph on a band header is that band's handle: drag it to move the whole
+site, arrows to step it. Unlike the tile handle it is always visible, because a
+band header is chrome already — there is no picture underneath for it to sit on
+top of. Moving a band moves every tile in it at once, which is why the shell
+exposes `onReorder` alongside `onMove`: walking a band into place one tile at a
+time would animate the wall through arrangements nobody asked for.
+
+A held band fills `--color-drag`, the app's only blue, and drops it the moment
+it lands. Blue is allowed here precisely because it is outside the status set:
+green, amber and red all mean something about a site, so none of them could say
+"you are holding this" without also seeming to report on the tower. A tile drag
+still fades instead — a wash of colour over live video is a different thing from
+a wash in the seams around it.
+
+### Rearranging
+
+The 2×3 dot glyph beside the expand button is a drag handle. Drag it to move a
+tile; the wall sorts live rather than on drop, so the result is visible before it
+is committed to.
+
+It is transparent until the tile is hovered, because the frame draws only the
+expand button and a handle is never wanted by a pointer that is not already over
+the tile. Transparent rather than `invisible`, so Tab still reaches it — landing
+on it is what reveals it, and the arrow keys are the only route to reordering
+for anyone not using a mouse.
+
+Dragging is armed by a ref set on the handle's `pointerdown` and read in
+`dragstart`, not by toggling `draggable` from state — the browser decides
+draggability the moment the gesture crosses its threshold, which is a race with
+a React re-render, whereas vetoing an already-started drag is not. It blocks the
+browser's own image drag for free, since the `<img>` starts a `dragstart` that
+never went through the handle.
+
+Live sorting moves the dragged tile *to* the hovered index, which makes the next
+`dragover` on that same tile a no-op. That self-cancelling is what stops two
+tiles trading places forever while the pointer sits still and the layout
+animation slides them underneath it.
+
+**Arrow keys on a focused handle do the same job** — one place sideways, a full
+row up or down. Dragging is a pointer gesture with no keyboard equivalent, and
+this wall is desktop-only, so without that the arrangement is simply unavailable
+to anyone not using a mouse. Focus rides with the tile because React keys it by
+feed id. A wall of one gets no handle at all.
+
+The drag plumbing sits on a plain wrapper rather than the animated section:
+motion replaces the native `onDragStart`/`onDragEnd` with its own pan handlers,
+which know nothing about `dataTransfer`. The wrapper also holds the grid cell
+open during a fullscreen takeover, so the wall does not reflow underneath it and
+the exit lands back in its own slot.
+
+### Below 1024px
+
+The dashboard is the tower list, full width. The wall does not follow it down.
+Four tiles stacked on a phone is four screens of scrolling to check one site,
+and side by side gives each about 180px — too small to identify anyone, which is
+the entire job. On a phone the fleet *is* the list, and the wall you actually
+want belongs to one tower, one tap away, already laid out for the screen. Drag
+reordering goes with it: HTML5 drag never fires on touch.
+
+## Tower view layout
 
 Three panes at 1024px and up: a 71px icon rail, the camera wall, and a 417px
 alerts panel, under a 46px breadcrumb bar.
@@ -266,6 +461,56 @@ Below `lg` the header carries both a back chevron and a close X, per the design.
 At `lg` the chevron goes: there the panel is a drawer beside the wall, nothing
 was pushed, so "back" would name a journey that never happened.
 
+### Clip review
+
+Playing a clip — from a feed row or from a timeline step — opens a takeover
+built on the camera takeover's shape: `fixed`, `role="dialog"`, `Esc` out, so
+the two full-screen surfaces behave the same way. A clip is evidence, and
+evidence gets looked at properly rather than in a 64px thumbnail.
+
+Two things here that a consumer player does not have, and that this one exists
+for.
+
+**The frame carries the wall-clock of the playhead.** `00:05` is where you are
+in the file; `12:23:42 PM WAT` is when it happened, and only the second is
+quotable on a handoff or legible in a screenshot pasted into a report. It sits
+in the letterbox rather than over the picture: the media is `object-contain`,
+unlike the walls, because cropping evidence to fit a box is how the thing that
+mattered ends up outside the frame.
+
+**The scrubber is marked with the alert's own timeline.** Every step that falls
+inside the clip's window becomes a mark, so the detections are visible as
+positions before anything plays, and `Previous`/`Next detection` are buttons
+rather than a hunt. Amber is already this app's word for a detection, so the
+marks need no legend; a fault keeps red. The badge row at the right repeats the
+exported badges the alert rows and the timeline already use.
+
+Clips start `PRE_ROLL_SEC` before the step they hang off, because a camera holds
+a rolling buffer and the run-up is usually what an investigator needs — the
+detection is the consequence, the approach is the evidence. It is also what puts
+the triggering event at a position on the track rather than at zero.
+
+Speed is a segmented `0.5× 1× 2× 4×`, not a menu: review is mostly a hunt at
+speed, and the whole range being visible makes changing rate one press instead
+of open-read-choose. The rate genuinely scales playback rather than relabelling
+the button.
+
+The player's key handler is bound in the **capture** phase and stops propagation
+for the keys it owns. The alerts panel binds `Esc` and the arrows on the window
+to step through the feed; without that, closing the player would also drop the
+alert selection behind it, and seeking would arrow to the next alert. `Up` and
+`Down` are swallowed rather than used — swapping the alert underneath an open
+player would leave one incident's footage under another's title.
+
+State lives in `AlertsPanel`, not in the row or the detail. Both can open a
+player, and the detail is never remounted, so a `useState` there would survive
+an alert swap.
+
+The transport is real; the media is not. There is no backend, so the clip is the
+still the rest of the app uses and the playhead is driven by a clock. Swapping
+in a real `<video>` means replacing that clock with `timeupdate` and leaving
+everything else alone.
+
 ### Collapse
 
 **The panel starts collapsed.** The wall is the job, and the feed announces
@@ -351,8 +596,8 @@ pulls the eye off the feeds it is reporting on.
   fingertip is wide. The glyphs stayed 24; only the reachable area grew.
 
 Two known gaps: `aria-modal` on the fullscreen takeover does not actually trap
-focus, so tabbing still reaches the alerts panel behind it, and the icon rail's
-six destinations are not wired to anything.
+focus, so tabbing still reaches the panel behind it, and four of the icon rail's
+six destinations are still not wired to anything (`Dashboard` and `Towers` are).
 
 ## Assets
 
@@ -372,6 +617,22 @@ be square, since `maskSize` is `100% 100%` and the exports carry
 - `env(safe-area-inset-*)` reads 0 in a desktop browser, so the bottom bar and
   detail footer padding is untested on a notched device.
 - The `overlays` control in `CameraTile` toggles state that nothing reads.
+- The fleet cards show no cameras-online-over-total. The count the view control
+  displaced still has nowhere to live; a card is the obvious home for it, but
+  the Figma frame does not draw one and it was not invented here.
+- The wall arrangement is not persisted. It survives navigation, not a reload.
+- Nothing on a fleet card says how fresh its readings are, so a tower whose
+  telemetry died looks identical to one reporting every second.
+- Tower status is authored in the seed rather than derived from the readings,
+  so the word and the numbers beside it can disagree.
+- The tower list cannot be filtered or sorted by health, which is the question
+  that matters once the fleet outgrows one screen. A name filter existed and was
+  removed with the search control the frame does not carry; health is the axis
+  worth building, not the one that was there.
+- The list and the wall do not acknowledge each other: hovering a degraded tower
+  does not mark its tiles.
+- The alert count carries no age, so eight alerts from Tuesday and eight from
+  the last ten minutes render identically.
 - `@utility sweep` in `index.css` is defined, reduced-motion guarded, and never
   used.
 - `maxPan` assumes the media fills its box, which is true under the current

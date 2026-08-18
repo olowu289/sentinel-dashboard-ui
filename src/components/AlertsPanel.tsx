@@ -10,8 +10,10 @@ import {
   type DateFilter,
 } from "@/lib/dateFilter";
 import { SESSION_NOW } from "@/lib/time";
+import type { AlertAttachment } from "@/lib/types";
 import { AlertDetail } from "./AlertDetail";
 import { AlertRow } from "./AlertRow";
+import { ClipPlayer } from "./ClipPlayer";
 import { AlertsEmpty } from "./AlertsEmpty";
 import { DateFilterPopover } from "./DateFilterPopover";
 import { MaskIcon } from "./Icon";
@@ -41,6 +43,16 @@ export function AlertsPanel({
   onCollapse?: () => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  /* The clip open in the review player. It lives here rather than in the feed
+     row or the detail because both of them can open one, and because the
+     detail is never remounted — state parked in there survives an alert swap.
+     Carrying the alert alongside the clip is what lets the player mark the
+     scrubber with that incident's own timeline. */
+  const [playing, setPlaying] = useState<{
+    alert: Alert;
+    at: number;
+    attachment: AlertAttachment;
+  } | null>(null);
 
   const visible = forceEmpty
     ? []
@@ -183,6 +195,15 @@ export function AlertsPanel({
                   alert={alert}
                   selected={alert.id === selectedId}
                   onSelect={() => onSelect(alert.id)}
+                  onPlay={
+                    alert.attachment &&
+                    (() =>
+                      setPlaying({
+                        alert,
+                        at: alert.at,
+                        attachment: alert.attachment!,
+                      }))
+                  }
                 />
               ))}
             </ul>
@@ -200,6 +221,23 @@ export function AlertsPanel({
             onClose={() => onSelect(null)}
             onAcknowledge={() => onAcknowledge(selected.id)}
             onResolve={() => onResolve(selected.id)}
+            onPlayClip={(at, attachment) =>
+              setPlaying({ alert: selected, at, attachment })
+            }
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Keyed on the clip, so playing a second one without closing the first
+          swaps the media rather than cross-fading two players. */}
+      <AnimatePresence>
+        {playing && (
+          <ClipPlayer
+            key={`${playing.alert.id}-${playing.at}`}
+            attachment={playing.attachment}
+            at={playing.at}
+            alert={playing.alert}
+            onClose={() => setPlaying(null)}
           />
         )}
       </AnimatePresence>

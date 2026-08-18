@@ -8,6 +8,16 @@
   /* One surface for every dead tile — offline, connecting and error share it
      so a reconnecting feed never flashes brightness as it changes state. */
   --color-tile-dead: #141416;
+  /* Fleet tower card, and the chrome that sits on it. A card carrying an
+     unacknowledged alert used to take a raised fill; the design has since
+     levelled all three, which is the better call — the strip along the bottom
+     is already unmissable, and lifting the card as well said the same thing
+     twice in two vocabularies. The hover step is one shade up from rest — just
+     enough to confirm the whole card is a target. */
+  --color-card: #161618;
+  --color-card-hover: #1b1b1d;
+  --color-pill: #262626;
+  --color-pill-line: #333333;
 
   /* Lines — the design uses three distinct near-black strokes */
   --color-line-rail: #161616;
@@ -18,6 +28,9 @@
   /* Text */
   --color-muted: #8d8d8d;
   --color-dim: rgba(207, 207, 207, 0.63);
+  /* A step above --color-muted: the tower card's status word, which has to
+     stay readable at 12px against #19191a. */
+  --color-sub: #c1c1c1;
 
   /* Status. Colour is reserved, never decorative: green = live, amber =
      degraded or a detection, red = fault or live transmission. Nothing else
@@ -31,6 +44,18 @@
      is a step darker than --color-critical: at that width the brighter red
      glares and pulls the eye off the feeds it is reporting on. */
   --color-alert-banner: #cd4f47;
+  /* The alert strip's ink. --color-critical at 13px on a 15% wash of the
+     banner red is under 3:1; this is the design's lighter tint, which clears
+     it. */
+  --color-alert-ink: #ffaea9;
+
+  /* The only blue in the app, and the reason it is allowed: it is the fill a
+     band takes while it is being dragged. Status is green/amber/red and nothing
+     else, so a hue from outside that set cannot be mistaken for a reading — it
+     is the one colour that can say "you are holding this" without also seeming
+     to say something about the site. It exists for the length of a gesture and
+     is gone the moment the band lands. */
+  --color-drag: #0f263f;
 
   /* Type — loaded from Google Fonts in index.html. */
   --font-display: Quantico, ui-monospace, monospace;

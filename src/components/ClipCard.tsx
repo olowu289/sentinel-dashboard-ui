@@ -1,11 +1,9 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
 import type { AlertAttachment } from "@/lib/types";
 import { FADE } from "@/lib/motion";
 import { formatClock, formatDuration } from "@/lib/time";
+import { useExportPhase } from "@/lib/useExportPhase";
 import { MaskIcon } from "./Icon";
-
-type Phase = "idle" | "working" | "done";
 
 function Spinner() {
   return (
@@ -53,32 +51,15 @@ export function ClipCard({
   attachment,
   at,
   alertId,
+  onPlay,
 }: {
   attachment: AlertAttachment;
   at: number;
   alertId: string;
+  /** Opens the review player. Omitted for audio, which has nothing to look at. */
+  onPlay?: () => void;
 }) {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  useEffect(
-    () => () => {
-      timers.current.forEach(clearTimeout);
-    },
-    [],
-  );
-
-  /* Prototype: the export is simulated. The states are the real deliverable —
-     evidence export is slow enough that a button which does nothing visible
-     gets clicked repeatedly, producing duplicate exports. */
-  const download = () => {
-    if (phase !== "idle") return;
-    setPhase("working");
-    timers.current.push(
-      setTimeout(() => setPhase("done"), 1200),
-      setTimeout(() => setPhase("idle"), 3400),
-    );
-  };
+  const { phase, start: download } = useExportPhase();
 
   const label =
     phase === "working"
@@ -177,6 +158,7 @@ export function ClipCard({
             deciding whether this needs headphones or a screen. */}
         <button
           type="button"
+          onClick={onPlay}
           aria-label={`Play ${attachment.title}`}
           title={attachment.kind === "clip" ? "Play clip" : "Play audio"}
           className="flex size-[44px] items-center justify-center rounded-[6px] text-muted transition-colors hover:bg-white/8 hover:text-white"

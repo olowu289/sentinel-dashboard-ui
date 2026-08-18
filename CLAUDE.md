@@ -1,8 +1,12 @@
 # Sentinel — working notes
 
-Operator monitoring portal for a camera tower. React 19 + TypeScript + Vite +
-Tailwind v4, `motion/react` for animation. No component library, no router, no
-backend — `src/lib/data.ts` is the seed.
+Operator monitoring portal for a fleet of camera towers. React 19 + TypeScript +
+Vite + Tailwind v4, `motion/react` for animation. No component library, no
+router, no backend — `src/lib/data.ts` is the seed.
+
+Two screens, switched by `App.tsx`: `DashboardView` (the fleet — tower list plus
+a wall of every camera) and `TowerView` (one tower). The dashboard is the
+landing screen and the parent.
 
 **Read `README.md` first.** It is not a scaffold readme; it is the design record
 and explains *why* almost everything is the way it is. This file covers only the
@@ -49,6 +53,17 @@ Springs overshoot, which on a wall of cameras reads as the stream glitching.
 There are deliberately no CSS motion tokens — the standing keyframes in
 `index.css` own their own timings.
 
+**The wall's bands are derived, never stored.** `DashboardView` groups the flat
+`order` by `towerId` — a tower sits where its first camera does. Adding a second
+piece of state for band order gives you two arrangements that drift apart the
+first time a tile is dragged across a band boundary.
+
+**Camera and alert state belong to `App.tsx`, not to a screen.** Both screens
+render the same feeds, and the recording tick and latency walk are live — give
+either one a copy and the two walls disagree about the same camera within a
+second. The wall arrangement is up there too, because `DashboardView` unmounts
+on every drill-in and would otherwise hand the operator back a reset wall.
+
 **Tokens live in the `@theme` block of `src/index.css`.** Use `bg-panel`,
 `text-muted`, `border-line`, `text-critical` and friends. A raw hex in a
 component is a bug unless it is a one-off scrim or overlay alpha.
@@ -61,10 +76,37 @@ triage stays instant. Any `useState` you add inside it therefore survives the
 swap and will appear against the *next* alert. Key the subtree that owns the
 state, not the panel.
 
+**The clip player's keys are bound in the capture phase on purpose.**
+`AlertsPanel` binds `Esc` and the arrows on the window to step the feed. The
+player registers with `{ capture: true }` and calls `stopPropagation` for the
+keys it owns, so closing it does not also clear the alert selection behind it.
+Bind a new window key anywhere in this panel and check it against an open
+player.
+
 **Fixed pixel widths from Figma are desktop measurements.** `ClipCard` carried
 the design's `w-[346px]`, which is its width at `lg` inside a 417px panel — on a
 phone that left a dead 54px strip. Let containers drive width; keep the design's
 fixed values for heights and gaps only.
+
+**`layoutKey` applies to the fleet wall too.** `MonitorTile` gates motion the
+same way `CameraTile` does, and its key already carries the takeover *and* the
+tile order — a reorder reflows every sibling. Anything else you add there that
+changes a tile's box goes in that key or the wall snaps instead of animating.
+
+**Feed state grammar has one home.** `FeedChip` owns `stateWord` and
+`STATE_DOT`, and both walls render `FeedChip` itself. Add a seventh `FeedState`
+and both pick it up; restate the switch locally and only one of them will.
+
+**The two views' tiles are deliberately different components.** `CameraTile`
+carries the actuators, `MonitorTile` carries a picture, a `FeedChip` and an
+expand button. They wear the same chip and that is on purpose; do not go further
+and "unify" the components — the split is the reason a talk-down button is not
+one stray click from four yards at once on the fleet screen.
+
+**Native drag handlers cannot go on a `motion.*` element.** Motion replaces
+`onDragStart`/`onDragEnd` with its own pan handlers, which have no
+`dataTransfer`. `MonitorTile` puts them on a plain wrapper div; that wrapper
+also holds the grid cell open during a takeover.
 
 **Vite HMR does not always pick up `data.ts` edits.** Module-level seed data is
 captured at import. If the UI shows stale copy after a data change, hard-reload

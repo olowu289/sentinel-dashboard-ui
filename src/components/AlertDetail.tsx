@@ -51,11 +51,13 @@ function TimelineStep({
   first,
   last,
   alertId,
+  onPlay,
 }: {
   event: Step;
   first: boolean;
   last: boolean;
   alertId: string;
+  onPlay: (at: number, attachment: NonNullable<Step["attachment"]>) => void;
 }) {
   return (
     <li className="flex gap-[12px]">
@@ -89,6 +91,13 @@ function TimelineStep({
               attachment={event.attachment}
               at={event.at}
               alertId={alertId}
+              /* Audio has nothing to review, so it gets no player — the
+                 glyph already says which of the two this row is. */
+              onPlay={
+                event.attachment.kind === "clip"
+                  ? () => onPlay(event.at, event.attachment!)
+                  : undefined
+              }
             />
           </div>
         )}
@@ -102,11 +111,18 @@ export function AlertDetail({
   onClose,
   onAcknowledge,
   onResolve,
+  onPlayClip,
 }: {
   alert: Alert;
   onClose: () => void;
   onAcknowledge: () => void;
   onResolve: () => void;
+  /** Hands the clip up to the panel, which owns the player. Deliberately not
+   *  held here: this panel is never remounted — arrowing through the feed
+   *  swaps its content in place — so a `useState` for the open clip would
+   *  survive the swap and show one incident's footage under the next one's
+   *  title. See the note in CLAUDE.md. */
+  onPlayClip: (at: number, attachment: NonNullable<Step["attachment"]>) => void;
 }) {
   const isPresent = useIsPresent();
 
@@ -330,6 +346,7 @@ export function AlertDetail({
                 first={i === 0}
                 last={i === events.length - 1}
                 alertId={alert.id}
+                onPlay={onPlayClip}
               />
             ))}
           </ol>

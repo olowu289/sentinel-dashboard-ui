@@ -1,14 +1,16 @@
-import { AnimatePresence, MotionConfig } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
-import { AlertsPanel } from "@/components/AlertsPanel";
-import { CameraTile } from "@/components/CameraTile";
-import { IconRail } from "@/components/IconRail";
-import { MobileViewBar, type MobileView } from "@/components/MobileViewBar";
-import { NewAlertBanner } from "@/components/NewAlertBanner";
-import { StateSimulator, type SimState } from "@/components/StateSimulator";
-import { TopBar, type WallLayout } from "@/components/TopBar";
-import { ALERTS, FEEDS, TOWER } from "@/lib/data";
-import { NO_FILTER, type DateFilter } from "@/lib/dateFilter";
+import { DashboardView } from "@/components/DashboardView";
+import { TowerView } from "@/components/TowerView";
+import type { SimState } from "@/components/StateSimulator";
+import {
+  ALERTS,
+  FEEDS,
+  TOWERS,
+  alertsForTower,
+  feedsForTower,
+  findTower,
+} from "@/lib/data";
 import type { Alert, CameraFeed } from "@/lib/types";
 
 const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
@@ -16,75 +18,75 @@ const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
 /** Each camera's resting latency, captured before the walk starts moving it. */
 const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
 
-export function TowerView() {
+/**
+ * The shell. Two screens — the fleet dashboard and one tower — and the camera
+ * and alert state they share.
+ *
+ * That state is here rather than in either view for one reason: the recording
+ * tick and the latency walk are live. Given a copy each, the fleet wall and the
+ * tower wall would show different numbers for the same camera within a second
+ * of each other, and an operator drilling in to check a figure would find it
+ * had changed on the way. There is no router; a prototype with two screens does
+ * not need URLs, and adding them would be the only thing in the repo pretending
+ * to be a deployment.
+ */
+export function SentinelApp() {
   const [feeds, setFeeds] = useState<CameraFeed[]>(FEEDS);
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
-  const [alertsEmpty, setAlertsEmpty] = useState(false);
-  const [focusedFeed, setFocusedFeed] = useState<string | null>(null);
-  const [fullscreenId, setFullscreenId] = useState<string | null>(null);
-  const [simOpen, setSimOpen] = useState(false);
-  /* Portrait by default: side by side gives each camera the full height of the
-     wall, which is the axis a fixed camera watching a yard actually needs.
-     Only applies at lg and up; below that the wall is always stacked. */
-  const [layout, setLayout] = useState<WallLayout>("portrait");
-  /* Below lg the wall and the alerts feed each want the whole screen — at
-     768px a three-pane split leaves the wall ~280px, narrower than a phone. */
-  const [mobileView, setMobileView] = useState<MobileView>("wall");
-  /* Collapsed by default: the wall is the job, and the alerts feed announces
-     itself when it has something (banner plus a dot on the bell). It also keeps
-     portrait tiles at a usable aspect — with the panel open they narrow to 0.55
-     and object-cover throws away roughly two thirds of each frame's width.
+  /* null is the fleet. The dashboard is the landing screen because it is the
+     parent the tower view's breadcrumb has always named.
 
-     Desktop only. Below lg the panel is already one of two switchable views,
-     so collapsing it there would just leave the operator on a blank screen. */
-  const [alertsCollapsed, setAlertsCollapsed] = useState(true);
-  /* The id of an alert that arrived while the feed was out of sight. Held
-     separately from `alerts` because it is a notification, not a status — the
-     alert stays in the list whether or not the banner is still up. */
-  const [newAlertId, setNewAlertId] = useState<string | null>(null);
+     `showAlerts` rides along because there are two reasons to open a tower —
+     to watch it, or to read what it has raised — and the fleet card offers
+     both as separate targets. It is part of the key below, so arriving with a
+     different intent is a fresh entry rather than a stale panel. */
+  const [open, setOpen] = useState<{ id: string; showAlerts: boolean } | null>(
+    null,
+  );
 
-  const newAlert = alerts.find((a) => a.id === newAlertId) ?? null;
+  const openTower = useCallback(
+    (id: string, showAlerts = false) => setOpen({ id, showAlerts }),
+    [],
+  );
 
-  /* Prototype trigger. A real deployment gets these from the alert stream;
-     the shape that matters is that arrival and acknowledgement are separate. */
-  const raiseAlert = useCallback(() => {
-    const at = Date.now();
-    const alert: Alert = {
-      id: `ALT-${Math.floor(at / 1000) % 100000}`,
-      kind: "alert",
-      title: "Alert raised by Motion Sensor on Gas Yard",
-      at,
-      status: "triggered",
-      source: "Motion Sensor",
-      zone: "Gas Yard",
-    };
-    setAlerts((prev) => [alert, ...prev]);
+  /* The fleet wall's arrangement, as feed ids. Up here rather than in the
+     dashboard because that view unmounts on every drill-in — arranging a wall
+     is work, and handing it back reset would teach operators not to arrange it.
+     Ids rather than a reordered copy of the feeds: `feeds` is rebuilt on every
+     latency tick, so anything holding the objects would go stale immediately. */
+  const [wallOrder, setWallOrder] = useState<string[]>(() =>
+    FEEDS.map((f) => f.id),
+  );
 
-    /* Only flag it as unseen if the feed is genuinely not on screen. CSS
-       already hides the banner in that case, but leaving the id set would make
-       it surface later — the operator collapses the panel an hour on and gets
-       announced an alert they read when it landed. */
-    const wide = window.matchMedia("(min-width: 1024px)").matches;
-    const feedVisible = wide ? !alertsCollapsed : mobileView === "alerts";
-    if (!feedVisible) setNewAlertId(alert.id);
-  }, [alertsCollapsed, mobileView]);
+  /* Committing a whole arrangement, for the band drag: moving a site moves
+     every tile in it, and doing that through `moveTile` would walk the wall
+     through intermediate arrangements nobody asked for. */
+  const reorderWall = useCallback((next: string[]) => setWallOrder(next), []);
 
-  /* The simulator lost its rail button along with the nav icons, so it lives on
-     Shift+S until the new icon set lands. Ignored while typing in a field. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (e.shiftKey && (e.key === "S" || e.key === "s")) {
-        e.preventDefault();
-        setSimOpen((o) => !o);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+  const moveTile = useCallback((from: number, to: number) => {
+    setWallOrder((prev) => {
+      if (from === to || to < 0 || to >= prev.length) return prev;
+      const next = prev.slice();
+      const [id] = next.splice(from, 1);
+      next.splice(to, 0, id);
+      return next;
+    });
   }, []);
+
+  /* Reconcile if the fleet ever gains or loses a camera. New ones land at the
+     end rather than resetting the order, for the same reason. */
+  const fleet = feeds.map((f) => f.id).join("|");
+  useEffect(() => {
+    setWallOrder((prev) => {
+      const ids = fleet.split("|");
+      const live = new Set(ids);
+      const kept = prev.filter((id) => live.has(id));
+      const added = ids.filter((id) => !prev.includes(id));
+      return kept.length === prev.length && added.length === 0
+        ? prev
+        : [...kept, ...added];
+    });
+  }, [fleet]);
 
   /* Recording timers advance client-side so the chip stays honest without
      re-fetching. Live feeds carry no counter — only capture does. */
@@ -190,15 +192,22 @@ export function TowerView() {
     );
   }, []);
 
-  /* Reads the static FEEDS rather than the live `feeds` state: camera identity
-     never changes, only its telemetry does, so this stays a stable callback
-     instead of being rebuilt on every latency tick. */
-  const switchCamera = useCallback((delta: 1 | -1) => {
-    setFullscreenId((current) => {
-      if (!current) return current;
-      const i = FEEDS.findIndex((f) => f.id === current);
-      return FEEDS[(i + delta + FEEDS.length) % FEEDS.length].id;
-    });
+  /* Returns the alert so the caller can arm its own banner against it —
+     arrival and acknowledgement stay separate concerns. */
+  const raiseAlert = useCallback((towerId: string) => {
+    const at = Date.now();
+    const alert: Alert = {
+      id: `ALT-${Math.floor(at / 1000) % 100000}`,
+      towerId,
+      kind: "alert",
+      title: "Alert raised by Motion Sensor on Gas Yard",
+      at,
+      status: "triggered",
+      source: "Motion Sensor",
+      zone: "Gas Yard",
+    };
+    setAlerts((prev) => [alert, ...prev]);
+    return alert;
   }, []);
 
   /* Honours the OS setting for every motion component below. Complements the
@@ -207,128 +216,38 @@ export function TowerView() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
-      {/* dvh, not vh: on mobile Safari/Chrome the URL bar makes 100vh taller
-          than the visible area, which would push the bottom bar off-screen. */}
-      <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
-        <IconRail
-          onMore={() => setSimOpen((o) => !o)}
-          moreOpen={simOpen}
-          className="hidden lg:block"
-        />
-
-        <div
-          className={`min-w-0 flex-1 flex-col ${
-            mobileView === "wall" ? "flex" : "hidden lg:flex"
-          }`}
-        >
-          <TopBar
-            towerId={TOWER.id}
-            online={TOWER.online}
-            layout={layout}
-            onToggleLayout={() =>
-              setLayout((l) => (l === "landscape" ? "portrait" : "landscape"))
-            }
-            alertsCollapsed={alertsCollapsed}
-            alertsUnread={Boolean(newAlertId)}
-            /* Reopening the feed is itself an answer to the banner. */
-            onExpandAlerts={() => {
-              setAlertsCollapsed(false);
-              setNewAlertId(null);
-            }}
-          />
-
-          {/* Shown only where the alerts feed itself is not: collapsed on
-              desktop, or on the camera view on a phone. If the feed is on
-              screen the banner would be reporting something already visible. */}
-          <AnimatePresence>
-            {newAlert && (
-              <NewAlertBanner
-                alert={newAlert}
-                className={`${mobileView === "wall" ? "flex" : "hidden"} ${
-                  alertsCollapsed ? "lg:flex" : "lg:hidden"
-                }`}
-                onView={() => {
-                  setAlertsCollapsed(false);
-                  setMobileView("alerts");
-                  setSelectedId(newAlert.id);
-                  setNewAlertId(null);
-                }}
-                onDismiss={() => setNewAlertId(null)}
-              />
-            )}
-          </AnimatePresence>
-
-          {/* Always stacked below lg — side-by-side would give each tile ~180px,
-              too small to identify anyone, which is the whole job. The bottom
-              bar overlays the last ~60px, so the wall pads clear of it. */}
-          <main
-            className={`flex min-h-0 flex-1 flex-col gap-[6px] px-[7px] py-[5px] pb-[calc(60px+env(safe-area-inset-bottom))] lg:pb-[5px] ${
-              layout === "landscape" ? "lg:flex-col" : "lg:flex-row"
-            }`}
-          >
-            {feeds.map((feed) => (
-              <CameraTile
-                key={feed.id}
-                feed={feed}
-                towerId={TOWER.id}
-                focused={focusedFeed === feed.id}
-                fullscreen={fullscreenId === feed.id}
-                /* Shared across every tile on purpose. The takeover changes
-                   one tile's `fullscreen` but reflows all of them, so gating
-                   the layout measurement on a per-tile boolean would leave the
-                   siblings unmeasured — and snapping. The layout axis is in
-                   here for the same reason: it reflows the wall, so it has to
-                   open the measurement gate or the toggle jumps. Same for
-                   collapsing the alerts panel — anything that changes a tile's
-                   box belongs in this key. */
-                layoutKey={`${fullscreenId ?? ""}|${layout}|${alertsCollapsed}|${newAlertId ?? ""}`}
-                canSwitch={feeds.length > 1}
-                onFocus={() => setFocusedFeed(feed.id)}
-                onRetry={() => retryFeed(feed.id)}
-                onToggleRecord={() => toggleRecord(feed.id)}
-                onToggleFullscreen={() =>
-                  setFullscreenId((id) => (id === feed.id ? null : feed.id))
-                }
-                onSwitchCamera={switchCamera}
-              />
-            ))}
-          </main>
-        </div>
-
-        <AlertsPanel
+      {open === null ? (
+        <DashboardView
+          towers={TOWERS}
+          feeds={feeds}
           alerts={alerts}
-          selectedId={selectedId}
-          filter={filter}
-          forceEmpty={alertsEmpty}
-          onSelect={setSelectedId}
-          onFilterChange={setFilter}
-          onAcknowledge={(id) => setStatus(id, "acknowledged")}
-          onResolve={(id) => setStatus(id, "resolved")}
-          onCollapse={() => setAlertsCollapsed(true)}
-          /* Collapse only removes the desktop column; the mobile view is still
-             reachable from the bottom bar, so `lg:hidden` beats `lg:flex`. */
-          className={`${mobileView === "alerts" ? "flex" : "hidden lg:flex"} ${
-            alertsCollapsed ? "lg:hidden" : ""
-          }`}
+          order={wallOrder}
+          onMove={moveTile}
+          onReorder={reorderWall}
+          onOpenTower={openTower}
+          onRetryFeed={retryFeed}
         />
-
-        <MobileViewBar
-          view={mobileView}
-          alertCount={alerts.length}
-          onSelect={setMobileView}
+      ) : (
+        <TowerView
+          /* Keyed on the tower so drilling into a second site starts from a
+             clean panel — the collapse, filter and selection below are that
+             tower's, and carrying them across would show one site's selected
+             alert against another's feed. The intent is in the key for the
+             same reason: opening the same tower for its alerts has to start
+             on them, not on wherever the last visit was left. */
+          key={`${open.id}|${open.showAlerts}`}
+          tower={findTower(open.id)}
+          feeds={feedsForTower(feeds, open.id)}
+          alerts={alertsForTower(alerts, open.id)}
+          showAlerts={open.showAlerts}
+          onBack={() => setOpen(null)}
+          onSetFeedState={setFeedState}
+          onRetryFeed={retryFeed}
+          onToggleRecord={toggleRecord}
+          onRaiseAlert={raiseAlert}
+          onSetStatus={setStatus}
         />
-
-        {simOpen && (
-          <StateSimulator
-            feeds={feeds}
-            alertsEmpty={alertsEmpty}
-            onSetFeedState={setFeedState}
-            onToggleAlertsEmpty={() => setAlertsEmpty((e) => !e)}
-            onRaiseAlert={raiseAlert}
-            onClose={() => setSimOpen(false)}
-          />
-        )}
-      </div>
+      )}
     </MotionConfig>
   );
 }

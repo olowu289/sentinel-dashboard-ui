@@ -85,6 +85,42 @@ export function formatSiteDate(at: number) {
   return dayMonth.format(at);
 }
 
+const stampDate = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  year: "2-digit",
+  timeZone: SITE_TZ,
+});
+
+const stampTime = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+  timeZone: SITE_TZ,
+});
+
+/**
+ * The fleet wall's header stamp — `TUE 4 NOV 25` / `00:54:42`, split so the
+ * date can sit muted beside a white time.
+ *
+ * Seconds, and therefore a ticking clock, which looks like the relative ages
+ * this app threw out. It is not the same thing. What was removed was a *rail
+ * full* of per-row counters, each one a separate moving target competing with
+ * the video. This is one clock, in a fixed position, and it is the number an
+ * operator reads out when they hand an incident over — a control room without
+ * a visible site clock is the anomaly. Site time, labelled, like everything
+ * else; see the note at the top of this file.
+ */
+export function formatSiteStamp(at: number) {
+  return {
+    // en-GB emits "Tue, 4 Nov 25"; the design carries no comma there.
+    date: stampDate.format(at).replace(",", "").toUpperCase(),
+    time: stampTime.format(at),
+  };
+}
+
 /**
  * Elapsed time between two timeline steps — `+0s`, `+15s`, `+1m 04s`.
  *

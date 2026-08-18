@@ -15,8 +15,34 @@ export type FeedState =
 
 export type LinkQuality = "good" | "warn" | "bad";
 
+/**
+ * Tower health, one level up from `FeedState` and deliberately in the same
+ * grammar: green is nominal, amber is degraded, red is a fault. A tower with a
+ * dead camera or a poor uplink is still reachable, so it is not `offline` — and
+ * calling it `online` would let a half-blind site read as healthy on the fleet
+ * wall, which is the one thing the dashboard exists to prevent.
+ */
+export type TowerStatus = "online" | "degraded" | "offline";
+
+export interface Tower {
+  id: string;
+  /** Site the tower watches, e.g. "WAREHOUSE: PARKING LOT". */
+  site: string;
+  status: TowerStatus;
+  /** Solar array state. These towers are off-grid; the panel is the only thing
+   *  that refills the battery, so its health is a first-class signal. */
+  solar: "charging" | "idle" | "fault";
+  /** Battery charge, 0–100. */
+  batteryPct: number;
+  /** Uplink quality — the same three tiers the tile chips use. */
+  link: LinkQuality;
+}
+
 export interface CameraFeed {
   id: string;
+  /** Owning tower. The fleet wall mixes cameras from several towers, so a tile
+   *  has to be able to say which site it is looking at. */
+  towerId: string;
   /** Zone label shown in the tile chip, e.g. "GAS YARD". */
   name: string;
   state: FeedState;
@@ -69,6 +95,8 @@ export interface TimelineEvent {
 
 export interface Alert {
   id: string;
+  /** Owning tower — the fleet card counts what each site has raised. */
+  towerId: string;
   kind: AlertKind;
   title: string;
   /** Epoch ms. Every displayed time is derived from this, never stored as a

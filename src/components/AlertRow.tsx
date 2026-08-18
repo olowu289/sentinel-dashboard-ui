@@ -9,10 +9,16 @@ export function AlertRow({
   alert,
   selected = false,
   onSelect,
+  onPlay,
 }: {
   alert: Alert;
   selected?: boolean;
   onSelect?: () => void;
+  /** Opens the review player straight from the feed. Reaching a clip should
+   *  not require opening the detail first — the thumbnail is right there, and
+   *  a play button that needs a preceding click is a play button that does
+   *  nothing. */
+  onPlay?: () => void;
 }) {
   const when = formatEventTime(alert.at);
   return (
@@ -66,6 +72,7 @@ export function AlertRow({
             attachment={alert.attachment}
             at={alert.at}
             alertId={alert.id}
+            onPlay={alert.attachment.kind === "clip" ? onPlay : undefined}
           />
         </div>
       )}

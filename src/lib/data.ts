@@ -4,6 +4,7 @@ import type {
   AlertKind,
   CameraFeed,
   TimelineEvent,
+  Tower,
 } from "./types";
 
 const CLIP_THUMB = "/media/clip-thumb.jpg";
@@ -51,16 +52,38 @@ function sequence(
   }));
 }
 
-export const TOWER = {
-  id: "TWR-1042",
-  online: true,
-  camerasOnline: 2,
-  camerasTotal: 2,
-};
+/**
+ * The fleet. Two towers rather than one because a dashboard whose every card
+ * reads ONLINE proves nothing — the second site is deliberately degraded (a
+ * dead camera and a poor uplink) so the health grammar is visible at rest.
+ */
+export const TOWERS: Tower[] = [
+  {
+    id: "TWR-1042",
+    site: "WAREHOUSE: PARKING LOT",
+    status: "online",
+    solar: "charging",
+    batteryPct: 87,
+    link: "good",
+  },
+  {
+    id: "TWR-2071",
+    site: "OIL DEPOT: NORTH GATE",
+    status: "degraded",
+    solar: "idle",
+    batteryPct: 34,
+    link: "warn",
+  },
+];
+
+export function findTower(id: string) {
+  return TOWERS.find((t) => t.id === id) ?? TOWERS[0];
+}
 
 export const FEEDS: CameraFeed[] = [
   {
     id: "cam-gas-yard",
+    towerId: "TWR-1042",
     name: "GAS YARD",
     state: "recording",
     latencyMs: 10,
@@ -70,13 +93,37 @@ export const FEEDS: CameraFeed[] = [
   },
   {
     id: "cam-east-corridor",
+    towerId: "TWR-1042",
     name: "EAST CORRIDOR",
     state: "live",
     latencyMs: 112,
     poster: "/media/cam-east-corridor.jpg",
     ptz: true,
   },
+  {
+    id: "cam-north-gate",
+    towerId: "TWR-2071",
+    name: "NORTH GATE",
+    state: "live",
+    latencyMs: 143,
+    poster: "/media/cam-parking-lot.jpg",
+    ptz: true,
+  },
+  {
+    /* Dark on purpose. The fleet wall's job is to make a blind camera obvious
+       from across the room, and a wall of four healthy tiles never shows it. */
+    id: "cam-oil-storage",
+    towerId: "TWR-2071",
+    name: "OIL STORAGE",
+    state: "offline",
+    poster: "/media/cam-east-corridor.jpg",
+  },
 ];
+
+/** Cameras belonging to one tower, in seed order. */
+export function feedsForTower(feeds: CameraFeed[], towerId: string) {
+  return feeds.filter((f) => f.towerId === towerId);
+}
 
 const AT_8841 = ago(18 * SECOND);
 const AT_8840 = ago(4 * MINUTE);
@@ -87,7 +134,14 @@ const AT_8836 = ago(5 * HOUR + 32 * MINUTE);
 const AT_8835 = ago(26 * HOUR);
 const AT_8834 = ago(3 * DAY + 4 * HOUR);
 
-export const ALERTS: Alert[] = [
+const AT_9002 = ago(9 * MINUTE);
+const AT_9001 = ago(1 * HOUR + 38 * MINUTE);
+
+/** Written without `towerId` and stamped below, so a whole site's feed cannot
+ *  drift one row at a time the way a hand-repeated field does. */
+type SiteAlert = Omit<Alert, "towerId">;
+
+const ALERTS_1042: SiteAlert[] = [
   {
     id: "ALT-8841",
     kind: "alert",
@@ -237,6 +291,57 @@ export const ALERTS: Alert[] = [
     ]),
   },
 ];
+
+const ALERTS_2071: SiteAlert[] = [
+  {
+    id: "ALT-9002",
+    kind: "fault",
+    title: "Oil Storage camera stopped working",
+    at: AT_9002,
+    status: "triggered",
+    source: "Oil Storage camera",
+    zone: "Oil Storage",
+    cameras: ["Oil Storage"],
+    /* No confidence: the link either dropped or it did not. This is the fault
+       behind TWR-2071's dark tile — the wall and the feed have to agree. */
+    timeline: sequence(AT_9002, [
+      [-38, "fault", "Frames stopped arriving from Oil Storage camera"],
+      [0, "fault", "Feed marked offline"],
+    ]),
+  },
+  {
+    id: "ALT-9001",
+    kind: "vehicle",
+    title: "Vehicle detected by North Gate camera",
+    at: AT_9001,
+    status: "acknowledged",
+    acknowledgedBy: "I. Bello",
+    source: "North Gate camera",
+    zone: "North Gate",
+    cameras: ["North Gate"],
+    confidence: 93,
+    attachment: clip("15s Clip Recording", 15),
+    timeline: sequence(AT_9001, [
+      [-7, "alert", "Motion detected at North Gate"],
+      [0, "vehicle", "Vehicle detected by North Gate camera", clip("15s Clip Recording", 15)],
+      [9, "alert", "Acknowledged by I. Bello"],
+    ]),
+  },
+];
+
+/* One feed across the fleet, newest first. Sorted rather than hand-interleaved
+   because the seeds are offsets from page load: any fixed order here would be
+   a lie the moment the two sites' offsets crossed. */
+export const ALERTS: Alert[] = [
+  ...ALERTS_1042.map((a) => ({ ...a, towerId: "TWR-1042" })),
+  ...ALERTS_2071.map((a) => ({ ...a, towerId: "TWR-2071" })),
+].sort((a, b) => b.at - a.at);
+
+/** Alerts raised by one tower — the count on its fleet card, and the feed its
+ *  operator view shows. */
+export function alertsForTower(alerts: Alert[], towerId: string) {
+  return alerts.filter((a) => a.towerId === towerId);
+}
 
 /** Icon file per alert kind — each is the exported Figma badge asset. */
 export const ALERT_BADGE: Record<Alert["kind"], string> = {

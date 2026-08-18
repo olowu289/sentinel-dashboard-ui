@@ -5,6 +5,7 @@ export type WallLayout = "landscape" | "portrait";
 export function TopBar({
   towerId,
   online,
+  onNavigateUp,
   layout,
   onToggleLayout,
   alertsCollapsed = false,
@@ -13,6 +14,10 @@ export function TopBar({
 }: {
   towerId: string;
   online: boolean;
+  /** Up to the fleet dashboard. The crumb named a parent long before one
+   *  existed; now that it does, it is a real control rather than an anchor to
+   *  nowhere — a breadcrumb that does not navigate is a lie about hierarchy. */
+  onNavigateUp: () => void;
   layout: WallLayout;
   onToggleLayout: () => void;
   alertsCollapsed?: boolean;
@@ -29,12 +34,14 @@ export function TopBar({
         aria-label="Breadcrumb"
         className="flex min-w-0 items-center gap-[4px]"
       >
-        <a
-          href="#"
-          className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+        <button
+          type="button"
+          onClick={onNavigateUp}
+          title="Back to all towers"
+          className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
         >
           TOWERS
-        </a>
+        </button>
         <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
         <span className="flex items-center gap-[6px]">
           <span

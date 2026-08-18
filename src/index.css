@@ -240,10 +240,63 @@
   transition: fill 1.4s ease-out;
 }
 
+/* The settings gear turns one notch under the pointer.
+   Sixty degrees, not three hundred and sixty — this is a control an operator
+   passes over constantly and a full turn is a performance the second time. One
+   notch of a cog says "mechanism" and stops. 240ms rather than the 200 the JS
+   tweens use, because rotation reads slower than translation at the same
+   duration. The rotation is hover-only: when the panel is open the gear is
+   already white, and holding it turned would be two signals for one state. */
+.gear-turn {
+  transition: transform 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+.group\/gear:hover .gear-turn {
+  transform: rotate(60deg);
+}
+
+/* A bell hangs, so it pivots from its crown rather than its middle.
+   Hover only, and deliberately not while there is an unread alert: the bell
+   already carries a ring for that and the rail carries the pulse, and a swing
+   on top of those is three things saying one thing. */
+@keyframes sentinel-bell-swing {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-8deg);
+  }
+  55% {
+    transform: rotate(6deg);
+  }
+  80% {
+    transform: rotate(-3deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.group\/bell:hover .bell-swing {
+  transform-origin: 50% 15%;
+  animation: sentinel-bell-swing 450ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot,
   .sweep,
   .battery-charge {
+    animation: none;
+  }
+
+  /* The gear stops turning and the bell stops swinging; both still change
+     colour, which is the part that was carrying the affordance anyway. */
+  .group\/gear:hover .gear-turn {
+    transform: none;
+  }
+  .gear-turn {
+    transition: none;
+  }
+  .group\/bell:hover .bell-swing {
     animation: none;
   }
 

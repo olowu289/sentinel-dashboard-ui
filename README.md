@@ -750,6 +750,58 @@ It is a shared token rather than a per tile boolean on purpose. A takeover
 changes one tile's `fullscreen` but reflows all of them, so gating on a per tile
 value leaves the siblings unmeasured.
 
+## Bar micro-interactions
+
+Three controls in the tower bar, and only two of them are hovers.
+
+**The gear turns one notch.** Sixty degrees over 240ms, not three hundred and
+sixty — this is a control an operator passes over constantly, and a full turn is
+a performance the second time. One notch says *mechanism* and stops. 240ms
+rather than `ENTER`'s 200 because rotation reads slower than translation at the
+same duration. Hover only: when the panel is open the gear is already white, and
+holding it turned would be two signals for one state.
+
+**The bell swings from its crown.** `0 → −8° → +6° → −3° → 0` over 450ms with
+`transform-origin: 50% 15%`, because a bell hangs and pivots from the top rather
+than the middle.
+
+It is on **every bell that is a live control**: the tower bar, the fleet
+header, and the rail's `Alerts` entry. Withholding the `group/bell` class is how
+each one opts out, and two do — the tower bar's when an alert is unread, because
+it already carries a ring for that and the rail carries the pulse, and a swing
+on top of those is three things saying one thing; and the fleet header's when
+there is nothing unclaimed to open, because a disabled control that animates
+under the pointer is offering something it will not do.
+
+Two bells deliberately do **not** take it. The one in the add-tower header is a
+decorative `MaskIcon` rather than a button — a swing on something that does
+nothing is worse than a still glyph. And `MobileViewBar`'s alerts tab is
+`lg:hidden`, so it lives where there is no hover to respond to.
+
+**The view toggle animates the change, not the hover.** The wall already reflows
+on `ENTER` when layout switches — `layoutKey` carries `layout`, so every tile
+runs a layout animation — and the glyph used to cut instantly while the thing it
+describes took 200ms to move. It now rotates a quarter turn on the wall's own
+tween so the icon and the wall are one gesture, with the label crossfading on
+`FADE` beneath it.
+
+The rotation carries the motion and a crossfade covers the rest, because **the
+two exports are not rotations of each other**: `view-landscape.svg` is a single
+rounded rect, `view-portrait.svg` a decomposed frame. Rotating one does not land
+on the other. Both glyph and label sit in fixed-size boxes so nothing in the row
+shifts as one replaces the other.
+
+Hover on this control stays colour-only. It has a text label doing the
+explaining, and a hover animation on top of that is noise.
+
+All three are in the `prefers-reduced-motion` block. The view toggle matters
+most there: it degrades to an instant swap with no rotation and no crossfade,
+because a crossfade with no motion budget is worse than a cut.
+
+The two hovers live in `index.css` with the other standing keyframes; the view
+toggle is JS state, so it borrows `ENTER` and `FADE` from `motion.ts` rather
+than inventing sibling tokens.
+
 ## Feed states
 
 `state, duration`, one chip per tile, and the chip is the only thing that asserts

@@ -60,13 +60,22 @@ export function IconRail({
                 aria-current={isActive ? "page" : undefined}
                 title={item.label}
                 onClick={() => onSelect?.(item.id)}
+                /* The alerts entry is a bell, and a bell swings — the same
+                   one the tower bar and the fleet header use. Nothing else in
+                   this stack is a bell, so nothing else takes it. */
                 className={`flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
+                  item.id === "alerts" ? "group/bell" : ""
+                } ${
                   isActive
                     ? "text-white"
                     : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
                 }`}
               >
-                <MaskIcon src={item.icon} size={24} />
+                <MaskIcon
+                  src={item.icon}
+                  size={24}
+                  className={item.id === "alerts" ? "bell-swing" : undefined}
+                />
               </button>
             </li>
           );

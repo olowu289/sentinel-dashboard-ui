@@ -1,3 +1,5 @@
+import { AnimatePresence, motion } from "motion/react";
+import { ENTER, FADE } from "@/lib/motion";
 import { MaskIcon } from "./Icon";
 
 export type WallLayout = "landscape" | "portrait";
@@ -79,14 +81,51 @@ export function TopBar({
              there, so a control that switches the split axis would do nothing. */
           className="hidden items-center gap-[6px] py-[2px] text-dim transition-colors hover:text-white lg:flex"
         >
-          <span className="font-display text-[0.875rem] leading-[20px] uppercase tracking-[0.14px]">
-            {layout} view
+          {/* The label crossfades in place. `mode="popLayout"` would reflow the
+              row as one word replaces the other; both are absolutely stacked in
+              a fixed-width box instead, so the icon beside them never moves. */}
+          <span className="relative block h-[20px] w-[104px] font-display text-[0.875rem] leading-[20px] uppercase tracking-[0.14px]">
+            <AnimatePresence initial={false}>
+              <motion.span
+                key={layout}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={FADE}
+                className="absolute inset-0 flex items-center justify-end whitespace-nowrap"
+              >
+                {layout} view
+              </motion.span>
+            </AnimatePresence>
           </span>
-          <MaskIcon
-            src={`/icons/view-${layout}.svg`}
-            size={20}
-            className="text-[#e9e9e9]"
-          />
+
+          {/* The wall reflows on `ENTER` when this toggles — `layoutKey` carries
+              `layout`, so every tile runs a layout animation. The glyph used to
+              cut instantly while the thing it describes took 200ms to move.
+              Same tween, so the icon and the wall are one gesture.
+
+              A quarter turn carries the motion and a crossfade covers the rest:
+              the two exports are not rotations of each other — landscape is a
+              single rounded rect, portrait a decomposed frame — so rotating one
+              does not land on the other. */}
+          <span className="relative block size-[20px]">
+            <AnimatePresence initial={false}>
+              <motion.span
+                key={layout}
+                initial={{ opacity: 0, rotate: -90 }}
+                animate={{ opacity: 1, rotate: 0 }}
+                exit={{ opacity: 0, rotate: 90 }}
+                transition={ENTER}
+                className="absolute inset-0"
+              >
+                <MaskIcon
+                  src={`/icons/view-${layout}.svg`}
+                  size={20}
+                  className="text-[#e9e9e9]"
+                />
+              </motion.span>
+            </AnimatePresence>
+          </span>
         </button>
 
         {/* Camera settings, where the frame puts them: in the tower's bar
@@ -101,11 +140,11 @@ export function TopBar({
             settingsOpen ? "Close camera settings" : "Camera settings"
           }
           title="Camera settings"
-          className={`hidden size-[24px] items-center justify-center rounded-[4px] transition-colors hover:text-white lg:flex ${
+          className={`group/gear hidden size-[24px] items-center justify-center rounded-[4px] transition-colors hover:text-white lg:flex ${
             settingsOpen ? "text-white" : "text-[#e9e9e9]"
           }`}
         >
-          <MaskIcon src="/icons/nav-settings.svg" size={20} />
+          <MaskIcon src="/icons/nav-settings.svg" size={20} className="gear-turn" />
         </button>
 
         {/* Only appears once the panel is collapsed — it is the sole way back,
@@ -124,9 +163,18 @@ export function TopBar({
                   : "Show alerts panel"
               }
               title={alertsUnread ? "New alert" : "Show alerts"}
-              className="relative hidden size-[24px] items-center justify-center rounded-[4px] text-[#e9e9e9] transition-colors hover:text-white lg:flex"
+              className={`relative hidden size-[24px] items-center justify-center rounded-[4px] text-[#e9e9e9] transition-colors hover:text-white lg:flex ${
+                /* No swing while something is unread. The ring below already
+                   says it, and the alert rail carries the pulse — a swinging
+                   bell on top of those is three things saying one thing. */
+                alertsUnread ? "" : "group/bell"
+              }`}
             >
-              <MaskIcon src="/icons/nav-alerts.svg" size={20} />
+              <MaskIcon
+                src="/icons/nav-alerts.svg"
+                size={20}
+                className="bell-swing"
+              />
               {/* Rides the glyph so the bell still reads as the alerts control
                   rather than becoming a generic badge. The ring punches it off
                   the bell's own outline at 6px. */}

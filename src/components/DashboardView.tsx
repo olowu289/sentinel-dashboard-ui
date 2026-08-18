@@ -170,9 +170,14 @@ export function DashboardView({
                   : "No unclaimed alerts"
               }
               title={newest ? `${newest.title} — ${newest.towerId}` : "No unclaimed alerts"}
-              className="flex size-[20px] items-center justify-center text-white transition-colors hover:text-terra disabled:text-white/35"
+              /* No swing when there is nothing to open. A disabled control
+                 that animates under the pointer is offering something it will
+                 not do. */
+              className={`flex size-[20px] items-center justify-center text-white transition-colors hover:text-terra disabled:text-white/35 ${
+                newest ? "group/bell" : ""
+              }`}
             >
-              <MaskIcon src="/icons/bell.svg" size={20} />
+              <MaskIcon src="/icons/bell.svg" size={20} className="bell-swing" />
             </button>
           </div>
         </header>

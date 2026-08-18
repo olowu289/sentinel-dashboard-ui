@@ -213,6 +213,27 @@ export const PEOPLE: Person[] = [
   },
 ];
 
+/**
+ * What the array is *actually* doing, as opposed to what it is fitted to do.
+ *
+ * A panel with a full battery is not charging it. `Tower.solar` records the
+ * array's own condition, and reading it raw meant a tower at 100% claiming
+ * SOLAR CHARGING with a pulsing sun and a sweep that had nothing left to sweep
+ * — three things asserting a fourth thing's opposite. Derived at read rather
+ * than written at the tick, because it is a projection of two facts and not a
+ * state of its own: let the battery drain and it charges again with nothing to
+ * reset.
+ *
+ * A fault outranks everything. A broken array is broken whether or not the
+ * battery happens to be full.
+ */
+export function solarState(
+  tower: Pick<Tower, "solar" | "batteryPct">,
+): Tower["solar"] {
+  if (tower.solar === "fault") return "fault";
+  return tower.batteryPct >= 100 ? "idle" : tower.solar;
+}
+
 export function findPerson(people: Person[], id?: string) {
   return id ? people.find((p) => p.id === id) : undefined;
 }

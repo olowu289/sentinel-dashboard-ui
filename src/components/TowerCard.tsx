@@ -1,4 +1,5 @@
 import type { Alert, Tower, TowerStatus } from "@/lib/types";
+import { solarState } from "@/lib/data";
 import { formatRelative } from "@/lib/time";
 import { MaskIcon } from "./Icon";
 import { TowerBattery } from "./TowerBattery";
@@ -110,6 +111,10 @@ export function TowerCard({
   onDismissNotice?: () => void;
 }) {
   const status = STATUS[tower.status];
+  /* Not `tower.solar` — see `solarState`. A full battery is not being charged,
+     and the word, the sun and the mast sweep all read from this one call so
+     they cannot drift apart at 100%. */
+  const solar = solarState(tower);
   const alertCount = alerts.length;
   /* The strip reports the newest one still waiting on somebody. A card is a
      summary; the feed inside the tower is where the rest of them live, and an
@@ -120,8 +125,8 @@ export function TowerCard({
 
   /* The gauge on the mast is decorative; this is where the reading actually
      lives for anyone not looking at it, so the charging state has to be in it. */
-  const telemetry = `${SOLAR_LABEL[tower.solar]} · Battery ${tower.batteryPct}%${
-    tower.solar === "charging" && tower.batteryPct < 100 ? " and rising" : ""
+  const telemetry = `${SOLAR_LABEL[solar]} · Battery ${tower.batteryPct}%${
+    solar === "charging" ? " and rising" : ""
   } · ${LINK_LABEL[tower.link]}`;
   const alertsLabel = `${alertCount} ${alertCount === 1 ? "alert" : "alerts"}`;
 
@@ -191,7 +196,7 @@ export function TowerCard({
       >
         <TowerBattery
           pct={tower.batteryPct}
-          charging={tower.solar === "charging"}
+          charging={solar === "charging"}
           className="absolute inset-0 size-full"
         />
         {/* Both axes pinned. The export is 59×101, so a width-only rule would
@@ -223,16 +228,16 @@ export function TowerCard({
           <span className="flex items-center gap-[6px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/78">
             {/* Only while it is actually taking charge. An idle or faulted
                 array is a still sun, which is the reading. */}
-            <span className={SOLAR_TONE[tower.solar]}>
+            <span className={SOLAR_TONE[solar]}>
               <MaskIcon
                 src="/icons/twr-solar.svg"
                 size={16}
                 className={
-                  tower.solar === "charging" ? "solar-charging" : undefined
+                  solar === "charging" ? "solar-charging" : undefined
                 }
               />
             </span>
-            {SOLAR_LABEL[tower.solar].toUpperCase()}
+            {SOLAR_LABEL[solar].toUpperCase()}
           </span>
 
           <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">

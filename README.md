@@ -139,6 +139,16 @@ figure printed beside it.
 swelling, the same heartbeat the live dot keeps. Only while charging: an idle or
 faulted array is a still sun, and the stillness is the reading.
 
+"Charging" is derived rather than read raw. `Tower.solar` records what the array
+is fitted to do; `solarState()` says what it is *doing*, which at 100% is
+nothing. Reading the field directly meant a full tower claiming SOLAR CHARGING
+with a pulsing sun and a sweep that had nothing left to sweep — three things
+asserting a fourth thing's opposite. It is derived at read rather than written
+at the tick because it is a projection of two facts and not a state of its own:
+let the battery drain and it charges again with nothing to reset. A fault
+outranks everything; a broken array is broken whether or not the battery is
+full.
+
 Two seconds rather than the four the battery sweep uses, and that is the whole
 consideration. This glyph is only ever on screen while a pointer is parked on
 the mast, so it has to read inside a *hover* rather than over a shift — matching

@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { solarState } from "@/lib/data";
 import { ENTER, FADE } from "@/lib/motion";
 import {
   MAX_ZONES,
@@ -379,7 +380,7 @@ export function CameraSettingsPanel({
 
         <Group
           title="POWER"
-          value={`${tower.batteryPct}%${tower.solar === "charging" && tower.batteryPct < 100 ? " and rising" : ""}`}
+          value={`${tower.batteryPct}%${solarState(tower) === "charging" ? " and rising" : ""}`}
           tone={
             tower.batteryPct < 20
               ? "text-critical"

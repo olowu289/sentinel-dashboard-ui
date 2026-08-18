@@ -4,7 +4,7 @@ import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { TowerCard } from "@/components/TowerCard";
 import { ENTER, FADE } from "@/lib/motion";
-import { findUnclaimed, UNCLAIMED } from "@/lib/data";
+import { findUnclaimed, solarState, UNCLAIMED } from "@/lib/data";
 import type {
   CameraFeed,
   PendingTower,
@@ -779,8 +779,11 @@ function BringingOnline({
             : "text-critical",
     },
     {
-      value: claim.solar === "fault" ? "FAULT" : claim.solar.toUpperCase(),
-      tone: claim.solar === "fault" ? "text-critical" : "text-terra",
+      /* Derived, like everywhere else — a unit that arrives with a full
+         battery is not charging it, and the first reading an operator ever
+         sees of a tower should not be the one lie. */
+      value: solarState(claim) === "fault" ? "FAULT" : solarState(claim).toUpperCase(),
+      tone: solarState(claim) === "fault" ? "text-critical" : "text-terra",
     },
     {
       value: `${claim.batteryPct}%`,

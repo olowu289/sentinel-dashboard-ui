@@ -35,11 +35,17 @@ comments at the site. Changing one is a real decision, not a cleanup.
 fault or live transmission. Nothing else gets a hue. Do not reach for `terra` to
 mean "selected", "primary" or "success" — selection and primary actions are
 white-on-black. A green pill on a monitoring screen reads as a signal, not a
-setting.
+setting. `--color-drag` is the one blue, and it is allowed *because* it is
+outside that set: a held band has to say "you have this" without also seeming to
+report on the site. It exists for the length of a gesture. Do not spend it on
+anything that persists.
 
 **Times are wall-clock, in site time, labelled.** `formatEventTime` /
-`formatClock`, never the viewer's timezone and never a relative age. The new
-alert banner is the single documented exception. `src/lib/time.ts` explains it.
+`formatClock`, never the viewer's timezone and never a relative age. There are
+exactly two documented exceptions, both `formatRelative`: the new-alert banner
+and the tower card's alert strip. Both are one transient line whose whole job is
+*this just happened*, and neither re-ticks. `src/lib/time.ts` explains it. Do
+not reach for it in `AlertRow` or `AlertDetail`.
 
 **Timestamps are epoch ms in the data layer**, never pre-formatted strings — the
 filter and the timeline deltas both need to compare them.
@@ -58,11 +64,13 @@ There are deliberately no CSS motion tokens — the standing keyframes in
 piece of state for band order gives you two arrangements that drift apart the
 first time a tile is dragged across a band boundary.
 
-**Camera and alert state belong to `App.tsx`, not to a screen.** Both screens
+**Camera, alert and tower state belong to `App.tsx`, not to a screen.** Both screens
 render the same feeds, and the recording tick and latency walk are live — give
 either one a copy and the two walls disagree about the same camera within a
 second. The wall arrangement is up there too, because `DashboardView` unmounts
 on every drill-in and would otherwise hand the operator back a reset wall.
+`towers` is up there for the same reason once the batteries started filling —
+both screens read a tower, and two copies of a moving number disagree.
 
 **Tokens live in the `@theme` block of `src/index.css`.** Use `bg-panel`,
 `text-muted`, `border-line`, `text-critical` and friends. A raw hex in a
@@ -115,6 +123,18 @@ constant — a charging tower gains 1% a second. `TowerBattery` reads
 `batteryPct` and `solar` and draws the cell from them; do not reintroduce
 picking a mast illustration by `tower.status`, which is the bug the three
 exports invited.
+
+**Figma illustration exports bake in the whole page behind them.** The mast
+arrived with the black canvas, the panel's right border and a 386×129 card rect
+under the artwork, which painted a lighter patch over the real card. Strip
+everything above the artwork group before committing an exported illustration,
+and check the fill list for the surface colours (`#1e1e1e`, `#202022`) as the
+tell.
+
+**The battery cell renders *under* `twr-mast.svg`, not over it.** The fill is the
+first thing the export paints and all 133 mast strokes come after, so the cage
+struts cross in front of the cell. Two absolutely positioned layers on the same
+59×101 grid; flip the order and the struts vanish.
 
 **Vite HMR does not always pick up `data.ts` edits.** Module-level seed data is
 captured at import. If the UI shows stale copy after a data change, hard-reload

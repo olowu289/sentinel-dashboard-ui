@@ -85,18 +85,96 @@ bottom.
 Status is the tile grammar one level up: green online, amber degraded, red dark.
 A tower with a dead camera or a poor uplink is still reachable, so it is not
 `offline` — and calling it `online` would let a half-blind site read as healthy,
-which is the one thing a fleet screen exists to prevent. `TWR-2071` ships
-degraded on purpose; a dashboard whose every card reads ONLINE proves nothing.
+which is the one thing a fleet screen exists to prevent.
 
-The mast is three exported drawings, not one tinted drawing. The status lives in
-a single accent fill buried in ninety-odd paths, and the `MaskIcon` route would
-flatten the whole thing to one colour — losing the grey structure that is what
-makes 58×101 pixels read as a mast at all.
+Both seed towers currently ship `online`, so nothing on the fleet screen
+exercises the amber or red branches. `TWR-2071` still carries `link: "warn"`,
+which is the condition `degraded` was there to describe — worth knowing when
+reading the seed, and worth restoring the moment the fleet grows past two.
 
-It replaced a row of three telemetry glyphs — solar, battery, uplink — which the
-frame no longer carries. Those readings survive in the card's `title` and
-`aria-label`, where they were already spoken; what is gone is the row, not the
-data. `twr-solar`, `twr-battery` and `twr-link` went with it.
+The mast replaced a row of three telemetry glyphs parked on the card. The
+readings came back where the design put them: **hovering the mast opens a panel
+carrying solar state, cabinet temperature and charge**, three cells divided by
+hairlines on a black pill.
+
+The mast is a `<button>` for it. Anything that takes a pointer on this card sits
+on top of the stretched primary target, so rather than punching a dead hole in
+the middle of the card it carries the same action — and focus opens the panel
+too, which is more than the `title` attribute those readings used to live in
+ever offered.
+
+All three glyphs are single-colour exports, so they go through `MaskIcon` and
+take their own reading's tone rather than the fill they were drawn with: the
+frame draws the sun amber, the thermometer grey and the battery green because
+that is this palette at the state it drew. Rendered as exported they would say
+that about every tower forever, which is exactly the trap the old glyph row fell
+into. The battery glyph uses the same tiers `TowerBattery` paints the cell with,
+so the reading beside the mast and the charge inside it cannot disagree.
+
+Temperature is new to the model. These are sealed enclosures in the sun with a
+battery inside, so heat is a reading in its own right rather than weather —
+amber from 45°C, red from 55.
+
+The panel is black at 60% behind a 4px backdrop blur rather than solid: it is
+*about* the mast it covers, and blanking that out mid-hover reads as the drawing
+being replaced. Four, not the five the feed chips use — those sit over live
+video and need more, this sits over line art.
+
+### The battery cell
+
+The design shipped three exports of the mast, and they are not colour variants:
+they are the same cell drawn full, half and nearly empty, differing only in
+where the top edge of the fill sits. The first pass picked between them by
+`tower.status`, so a site at 87% showed a full cell because it happened to be
+`online` and one at 34% showed a half cell because it happened to be `degraded`.
+The two agreed by luck.
+
+`TowerBattery` reconstructs the fill from the full-level geometry and a clip, so
+charge is continuous. The clip's top edge carries the drawing's own surface
+slope — the cell is in oblique projection and a horizontal cut reads as the fill
+tipping forward. Feeding the design's own half and empty exports back through
+the model puts them at ~53% and ~6%, which is what says the numbers are right.
+
+Colour follows charge, on this repo's existing battery tiers: green at or above
+40%, amber from 20, red below. The receding face takes 81% of each channel — the
+step the amber export already uses (`#f3cf58` → `#c4a749`), applied to all three
+so the cell is lit the same way at every level.
+
+It renders *under* `twr-mast.svg`, not over it. In the export the fill is the
+first thing painted and all 133 mast strokes come after, so the cage struts
+cross in front of the cell; an overlay would paint them out. Two absolutely
+positioned layers on the same 59×101 grid, so registration is exact and only two
+paths are inlined.
+
+The charge is real: `App.tsx` ticks a charging tower up 1% a second and stops at
+full, alongside the recording tick and for the same reason — a card claiming to
+be charging while the number sits still is the one reading on this screen an
+operator could catch out. It caps rather than wrapping, because a battery that
+quietly reset to 5% would be reporting a fault it does not have. `towers` moved
+out of the module constant into state to carry it.
+
+Colour follows the level across the thresholds as it climbs, and cross-fades
+over 1.4s rather than cutting — slower than the 1s charge step on purpose, so
+crossing 20 or 40 arrives as the reading shading over and not as a second tick.
+
+On top of the real climb, charging adds the flourish a phone shows: the fill
+runs from where the battery actually is up to full, rests there a beat, and
+settles back to the true reading. That distance is different on every card and
+changes every second, which a keyframe cannot hold — `TowerBattery` sets it as
+`--charge-gap` and the keyframe translates by it. At 100% the gap is zero and
+the animation does nothing, which is correct: there is nothing left to fill.
+
+Four seconds, ease-in-out, and it ends where it started. The true level is where
+the cycle sits for most of its length so the charge is still readable at a
+glance, and the pace keeps it in the same register as the dot pulse — this is a
+list an operator watches for hours, and a gauge that visibly works competes with
+the video wall for exactly the reason the per-row age counters were thrown out.
+It moves the clip, not the fill, so the cell's outline holds still and only the
+charge inside it climbs.
+
+Both seed towers ship charging, from 87% and 5%, because a cell that climbs the
+whole way from red through amber into green next to one that only tops off is
+what shows the gauge is a reading rather than a decoration.
 
 The card is several targets, not one. The body opens the tower on its wall; the
 pill's left glyph does the same, **its count opens the alerts feed directly**,
@@ -150,6 +228,12 @@ The drill-in went with the bar. The frame draws one chip and one button, the
 towers panel on the left is already a list of drill-ins, and the tower id is on
 every tile's `aria-label` — so nothing here names a site the panel does not.
 
+The expand button is revealed on hover, not drawn at rest, so a resting wall is
+picture and chip and nothing else. Transparent rather than `invisible`, so Tab
+still reaches it — landing on it is what reveals it, and that is the only route
+to the takeover for anyone not using a mouse. It stays lit in fullscreen: it is
+the way out, and a way out that has to be found by hovering is not one.
+
 The design draws a capture button at the bottom-right of the video, parked
 outside its clipped parent — it is invisible in the frame and is not built.
 
@@ -172,48 +256,42 @@ top of. Moving a band moves every tile in it at once, which is why the shell
 exposes `onReorder` alongside `onMove`: walking a band into place one tile at a
 time would animate the wall through arrangements nobody asked for.
 
-A held band fills `--color-drag`, the app's only blue, and drops it the moment
-it lands. Blue is allowed here precisely because it is outside the status set:
-green, amber and red all mean something about a site, so none of them could say
-"you are holding this" without also seeming to report on the tower. A tile drag
-still fades instead — a wash of colour over live video is a different thing from
-a wash in the seams around it.
+A band fills `--color-drag`, the app's only blue, for exactly as long as its
+handle is held. It appears on `pointerdown` — not once a drag is under way,
+which would put it after the operator has already started moving, and not on
+click, which would latch it — and it goes on the release. The fill answers "have
+I got hold of it", so it lives as long as the grip and no longer; a band left
+lit with nothing holding it is a thing to explain rather than a thing to ignore.
+
+`pointercancel` is handled alongside `pointerup` because that is what fires when
+a press turns into a native drag. From that point `draggingBand` carries the
+fill, and both clear together when the band lands.
+
+Blue is allowed here precisely because it is outside the status set: green,
+amber and red all mean something about a site, so none of them could say "you
+are holding this" without also seeming to report on the tower. A tile drag still
+fades instead — a wash of colour over live video is a different thing from a wash
+in the seams around it.
 
 ### Rearranging
 
-The 2×3 dot glyph beside the expand button is a drag handle. Drag it to move a
-tile; the wall sorts live rather than on drop, so the result is visible before it
-is committed to.
+Rearranging is a band gesture and only a band gesture: the 3×3 glyph on a band
+header moves a whole site. Tiles carried their own handles for a while too,
+which meant two grammars for one job and a handle parked in the corner of every
+picture. The wall is arranged by site now, and the cameras under a site keep the
+order the site lists them in.
 
-It is transparent until the tile is hovered, because the frame draws only the
-expand button and a handle is never wanted by a pointer that is not already over
-the tile. Transparent rather than `invisible`, so Tab still reaches it — landing
-on it is what reveals it, and the arrow keys are the only route to reordering
-for anyone not using a mouse.
+**Arrow keys on a focused handle do the same job**, one band up or down.
+Dragging is a pointer gesture with no keyboard equivalent, and this wall is
+desktop-only, so without that the arrangement would simply be unavailable to
+anyone not using a mouse.
 
-Dragging is armed by a ref set on the handle's `pointerdown` and read in
-`dragstart`, not by toggling `draggable` from state — the browser decides
-draggability the moment the gesture crosses its threshold, which is a race with
-a React re-render, whereas vetoing an already-started drag is not. It blocks the
-browser's own image drag for free, since the `<img>` starts a `dragstart` that
-never went through the handle.
-
-Live sorting moves the dragged tile *to* the hovered index, which makes the next
-`dragover` on that same tile a no-op. That self-cancelling is what stops two
-tiles trading places forever while the pointer sits still and the layout
-animation slides them underneath it.
-
-**Arrow keys on a focused handle do the same job** — one place sideways, a full
-row up or down. Dragging is a pointer gesture with no keyboard equivalent, and
-this wall is desktop-only, so without that the arrangement is simply unavailable
-to anyone not using a mouse. Focus rides with the tile because React keys it by
-feed id. A wall of one gets no handle at all.
-
-The drag plumbing sits on a plain wrapper rather than the animated section:
-motion replaces the native `onDragStart`/`onDragEnd` with its own pan handlers,
-which know nothing about `dataTransfer`. The wrapper also holds the grid cell
-open during a fullscreen takeover, so the wall does not reflow underneath it and
-the exit lands back in its own slot.
+The drag plumbing sits on the band `<section>`, which is plain rather than a
+`motion.*` element — motion replaces the native `onDragStart`/`onDragEnd` with
+its own pan handlers, which know nothing about `dataTransfer`. Each tile still
+sits inside a plain wrapper of its own, which holds the grid cell open during a
+fullscreen takeover so the wall does not reflow underneath it and the exit lands
+back in its own slot.
 
 ### Below 1024px
 
@@ -221,7 +299,7 @@ The dashboard is the tower list, full width. The wall does not follow it down.
 Four tiles stacked on a phone is four screens of scrolling to check one site,
 and side by side gives each about 180px — too small to identify anyone, which is
 the entire job. On a phone the fleet *is* the list, and the wall you actually
-want belongs to one tower, one tap away, already laid out for the screen. Drag
+want belongs to one tower, one tap away, already laid out for the screen. Band
 reordering goes with it: HTML5 drag never fires on touch.
 
 ## Tower view layout

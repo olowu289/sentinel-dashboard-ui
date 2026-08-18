@@ -1,6 +1,7 @@
 import type { Alert, Tower, TowerStatus } from "@/lib/types";
 import { formatRelative } from "@/lib/time";
 import { MaskIcon } from "./Icon";
+import { TowerBattery } from "./TowerBattery";
 
 /* Status is the same three-tier grammar the tiles use, one level up. Nothing
    here gets a hue for being a card: green is a healthy site, amber a degraded
@@ -9,17 +10,6 @@ const STATUS: Record<TowerStatus, { label: string; dot: string }> = {
   online: { label: "ONLINE", dot: "bg-terra" },
   degraded: { label: "DEGRADED", dot: "bg-warn" },
   offline: { label: "OFFLINE", dot: "bg-critical" },
-};
-
-/* The mast drawing carries the status in one accent part — green mast head,
-   amber, red — and is otherwise identical across the three. Three exported
-   files rather than one tinted file because the accent is a fill buried in a
-   90-path illustration; a mask would flatten the whole drawing to one colour
-   and lose the grey structure that makes it read as a mast at 58px. */
-const ILLUSTRATION: Record<TowerStatus, string> = {
-  online: "/icons/twr-illus-online.svg",
-  degraded: "/icons/twr-illus-degraded.svg",
-  offline: "/icons/twr-illus-offline.svg",
 };
 
 const LINK_LABEL = {
@@ -33,6 +23,30 @@ const SOLAR_LABEL = {
   idle: "Solar idle",
   fault: "Solar array fault",
 } as const;
+
+/* All three hover glyphs are single-colour exports, so they go through
+   `MaskIcon` and take their own reading's tone rather than the fill they
+   happened to be drawn with. The frame draws the sun amber, the thermometer
+   grey and the battery green, which is this palette at the state it drew —
+   charging, temperate, healthy. Rendered as exported they would say that about
+   every tower forever, which is the same trap the old telemetry row fell into. */
+const SOLAR_TONE = {
+  charging: "text-warn",
+  idle: "text-white/45",
+  fault: "text-critical",
+} as const;
+
+/** Sealed cabinet in the sun. Past 45 the battery is losing life, past 55 it is
+ *  a fault waiting to happen. */
+function tempTone(c: number) {
+  return c >= 55 ? "text-critical" : c >= 45 ? "text-warn" : "text-[#cccccc]";
+}
+
+/** Same tiers `TowerBattery` paints the cell with, so the glyph beside the mast
+ *  and the charge inside it can never disagree. */
+function batteryTone(pct: number) {
+  return pct < 20 ? "text-critical" : pct < 40 ? "text-warn" : "text-terra";
+}
 
 export function TowerCard({
   tower,
@@ -73,7 +87,11 @@ export function TowerCard({
     ? undefined
     : alerts.find((a) => a.status === "triggered");
 
-  const telemetry = `${SOLAR_LABEL[tower.solar]} · Battery ${tower.batteryPct}% · ${LINK_LABEL[tower.link]}`;
+  /* The gauge on the mast is decorative; this is where the reading actually
+     lives for anyone not looking at it, so the charging state has to be in it. */
+  const telemetry = `${SOLAR_LABEL[tower.solar]} · Battery ${tower.batteryPct}%${
+    tower.solar === "charging" && tower.batteryPct < 100 ? " and rising" : ""
+  } · ${LINK_LABEL[tower.link]}`;
   const alertsLabel = `${alertCount} ${alertCount === 1 ? "alert" : "alerts"}`;
 
   return (
@@ -116,19 +134,80 @@ export function TowerCard({
 
       {/* Bottom-anchored rather than pinned to the design's y=18: the card grows
           by 44px when the alert strip appears, and a mast measured from the top
-          would then float. */}
-      <img
-        src={ILLUSTRATION[tower.status]}
-        alt=""
-        width={58}
-        height={101}
-        /* Both axes pinned. The export is 59×101, so a width-only rule would
-           let the intrinsic ratio decide the height and land it 1.7px short of
-           the frame. */
-        className={`pointer-events-none absolute right-[33px] block h-[101px] w-[58px] ${
+          would then float.
+
+          Two layers in one 58×101 box, both on the export's 59×101 grid so they
+          register exactly: the charge underneath, the mast over it. That order
+          is the export's own — the fill is the first thing it paints, and the
+          cage struts that cross in front of the cell come after. */}
+      {/* A button, not a decoration. It has to take a pointer to open the
+          readings on hover, and anything that takes a pointer here sits on top
+          of the stretched primary target — so rather than punching a dead hole
+          in the card it carries the same action. Focus gets the readings too,
+          which is more than the `title` they used to live in ever offered. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${tower.id} telemetry — ${telemetry}`}
+        className={`group/mast absolute right-[33px] block h-[101px] w-[58px] ${
           latest ? "bottom-[58px]" : "bottom-[14px]"
         }`}
-      />
+      >
+        <TowerBattery
+          pct={tower.batteryPct}
+          charging={tower.solar === "charging"}
+          className="absolute inset-0 size-full"
+        />
+        {/* Both axes pinned. The export is 59×101, so a width-only rule would
+            let the intrinsic ratio decide the height and land it 1.7px short of
+            the frame. */}
+        <img
+          src="/icons/twr-mast.svg"
+          alt=""
+          width={58}
+          height={101}
+          className="absolute inset-0 block h-[101px] w-[58px]"
+        />
+
+        {/* The telemetry row, back as a hover panel rather than three glyphs
+            parked on the card. Anchored to the mast's own bottom so it holds
+            its place when the card grows for the alert strip, and pulled left
+            of the mast because it is 299px wide in a 386px card — right-aligned
+            to the card's gutter it clears the name block above and the pill
+            below, and only ever covers the thing that summoned it. */}
+        <span
+          aria-hidden
+          /* Translucent and blurred rather than solid, so the mast it covers
+             stays legible underneath it — the panel is *about* the thing behind
+             it, and blanking that out mid-hover reads as the drawing being
+             replaced. 4px, not the 5 the feed chips use: those sit over live
+             video and need more, this sits over line art. */
+          className="pointer-events-none absolute bottom-[24px] right-[-18px] flex h-[32px] origin-bottom-right scale-95 items-center rounded-[8px] bg-black/60 opacity-0 backdrop-blur-[4px] transition-[opacity,transform] duration-150 ease-out group-hover/mast:scale-100 group-hover/mast:opacity-100 group-focus-visible/mast:scale-100 group-focus-visible/mast:opacity-100"
+        >
+          <span className="flex items-center gap-[6px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/78">
+            <span className={SOLAR_TONE[tower.solar]}>
+              <MaskIcon src="/icons/twr-solar.svg" size={16} />
+            </span>
+            {SOLAR_LABEL[tower.solar].toUpperCase()}
+          </span>
+
+          <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+            <span className={tempTone(tower.tempC)}>
+              <MaskIcon src="/icons/twr-temp.svg" size={16} />
+            </span>
+            {tower.tempC}˚
+          </span>
+
+          <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+            {/* 19.2 in a 16 box, as the frame draws it — the glyph is bled to
+                its own edges where the other two carry a margin. */}
+            <span className={`flex size-[16px] items-center ${batteryTone(tower.batteryPct)}`}>
+              <MaskIcon src="/icons/twr-battery.svg" size={19.2} />
+            </span>
+            {tower.batteryPct}%
+          </span>
+        </span>
+      </button>
 
       {/* Two readings in one pill, the way the frame draws them: what this
           tower has recorded, and what it has raised. They are separate targets

@@ -11,7 +11,7 @@ import {
   feedsForTower,
   findTower,
 } from "@/lib/data";
-import type { Alert, CameraFeed } from "@/lib/types";
+import type { Alert, CameraFeed, Tower } from "@/lib/types";
 
 const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
 
@@ -33,6 +33,13 @@ const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
 export function SentinelApp() {
   const [feeds, setFeeds] = useState<CameraFeed[]>(FEEDS);
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
+  /* State rather than the module constant, because the batteries actually fill:
+     these towers are off-grid and the panel is the only thing that refills
+     them, so a card claiming to be charging while the number sits still is the
+     one reading on this screen an operator could catch out. Up here with the
+     feeds for the same reason they are — both screens show towers, and two
+     copies of a moving number disagree within a second. */
+  const [towers, setTowers] = useState<Tower[]>(TOWERS);
   /* null is the fleet. The dashboard is the landing screen because it is the
      parent the tower view's breadcrumb has always named.
 
@@ -63,16 +70,6 @@ export function SentinelApp() {
      through intermediate arrangements nobody asked for. */
   const reorderWall = useCallback((next: string[]) => setWallOrder(next), []);
 
-  const moveTile = useCallback((from: number, to: number) => {
-    setWallOrder((prev) => {
-      if (from === to || to < 0 || to >= prev.length) return prev;
-      const next = prev.slice();
-      const [id] = next.splice(from, 1);
-      next.splice(to, 0, id);
-      return next;
-    });
-  }, []);
-
   /* Reconcile if the fleet ever gains or loses a camera. New ones land at the
      end rather than resetting the order, for the same reason. */
   const fleet = feeds.map((f) => f.id).join("|");
@@ -87,6 +84,29 @@ export function SentinelApp() {
         : [...kept, ...added];
     });
   }, [fleet]);
+
+  /* Solar charge, 1% a second, stopping at full. The gauge on the mast sweeps
+     on its own to say "taking on charge"; this is the number underneath it
+     actually moving, and without it the sweep is a decoration that never
+     resolves. Charging stops meaning anything at 100, so it caps there rather
+     than wrapping — a battery that quietly reset to 34% would be reporting a
+     fault it does not have. */
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTowers((prev) => {
+        let changed = false;
+        const next = prev.map((tower) => {
+          if (tower.solar !== "charging" || tower.batteryPct >= 100)
+            return tower;
+          changed = true;
+          return { ...tower, batteryPct: Math.min(100, tower.batteryPct + 1) };
+        });
+        // Same array when nothing moved, so a full fleet stops re-rendering.
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
 
   /* Recording timers advance client-side so the chip stays honest without
      re-fetching. Live feeds carry no counter — only capture does. */
@@ -218,11 +238,10 @@ export function SentinelApp() {
     <MotionConfig reducedMotion="user">
       {open === null ? (
         <DashboardView
-          towers={TOWERS}
+          towers={towers}
           feeds={feeds}
           alerts={alerts}
           order={wallOrder}
-          onMove={moveTile}
           onReorder={reorderWall}
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
@@ -236,7 +255,7 @@ export function SentinelApp() {
              same reason: opening the same tower for its alerts has to start
              on them, not on wherever the last visit was left. */
           key={`${open.id}|${open.showAlerts}`}
-          tower={findTower(open.id)}
+          tower={towers.find((t) => t.id === open.id) ?? findTower(open.id)}
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
           showAlerts={open.showAlerts}

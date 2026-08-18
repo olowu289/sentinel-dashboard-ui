@@ -1,12 +1,5 @@
 import { motion } from "motion/react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type DragEvent,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
 import { FeedChip } from "./FeedChip";
@@ -39,51 +32,32 @@ const DEAD_STATES = new Set(["connecting", "offline"]);
  *
  * It renders `FeedChip` itself rather than restating the state word and dot,
  * so the six feed states cannot fork between the two walls.
+ *
+ * It carries no drag handle. Rearranging is a band gesture now — the handle on
+ * a band header moves a whole site — and a second handle inside every picture
+ * offered a second grammar for the same job while spending a corner of the
+ * frame on it. The wall is arranged by site; the cameras under a site stay in
+ * the order the site lists them.
  */
 export function MonitorTile({
   feed,
   towerId,
-  index,
-  count,
-  columns,
   fullscreen = false,
-  dragging = false,
-  dragActive = false,
   layoutKey = "",
   onToggleFullscreen,
   onRetry,
-  onDragStart,
-  onDragEnd,
-  onDragOverTile,
-  onMove,
 }: {
   feed: CameraFeed;
-  /** Shown dim in the bar. The fleet wall mixes sites, so a tile that names
-   *  only its camera leaves "whose north gate?" unanswered. */
+  /** Spoken in the tile's label. The fleet wall mixes sites, so a tile that
+   *  names only its camera leaves "whose north gate?" unanswered. */
   towerId: string;
-  /** Position on the wall, 0-based — spoken in the drag handle's label. */
-  index: number;
-  count: number;
-  /** Grid columns, so Up/Down on the handle move a full row rather than one
-   *  place. A handle that only walks the flat order is unusable on a grid. */
-  columns: number;
   fullscreen?: boolean;
-  /** This tile is the one being dragged. */
-  dragging?: boolean;
-  /** Some tile is being dragged — gates the drop targets, so an image or a
-   *  file dragged in from the desktop never reshuffles the wall. */
-  dragActive?: boolean;
   /** Changes only when something actually reflows the wall. See the README's
    *  note on `layoutKey` — the latency walk re-renders every tile mid-animation
    *  and motion cuts an in-flight layout animation that reports no change. */
   layoutKey?: string;
   onToggleFullscreen?: () => void;
   onRetry?: () => void;
-  onDragStart?: () => void;
-  onDragEnd?: () => void;
-  onDragOverTile?: () => void;
-  /** Move this tile `delta` places along the wall order. */
-  onMove?: (delta: number) => void;
 }) {
   const expandRef = useRef<HTMLButtonElement>(null);
   const [firstFrame, setFirstFrame] = useState(false);
@@ -91,20 +65,10 @@ export function MonitorTile({
      for the length of the animation and later siblings would paint through it. */
   const [exiting, setExiting] = useState(false);
 
-  /* Set on the handle's pointerdown and read in `dragstart`, rather than
-     toggling `draggable` from state. The browser decides draggability at the
-     moment the gesture crosses its threshold, which is a race with a React
-     re-render; vetoing an already-started drag is not. It also blocks the
-     browser's own image drag for free — the <img> below starts a dragstart
-     that never went through the handle, and gets cancelled here. */
-  const handleHeld = useRef(false);
-
   const hasError = Boolean(feed.error);
   const isDead = hasError || DEAD_STATES.has(feed.state);
   const reconnecting =
     feed.state === "connecting" && feed.elapsedSec !== undefined;
-  // A wall of one has nothing to rearrange, so it gets no handle.
-  const reorderable = count > 1 && !fullscreen;
 
   useEffect(() => {
     if (isDead) setFirstFrame(false);
@@ -144,63 +108,13 @@ export function MonitorTile({
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
 
-  /* The keyboard route through the same reordering. Dragging is a pointer
-     gesture with no keyboard equivalent, and this wall is desktop-only, so
-     without this the arrangement is simply unavailable to anyone not using a
-     mouse. Arrows on a focused handle, one place sideways or a full row up
-     and down; focus rides with the tile because React keys it by feed id. */
-  const onHandleKey = (e: KeyboardEvent<HTMLButtonElement>) => {
-    const delta =
-      e.key === "ArrowLeft"
-        ? -1
-        : e.key === "ArrowRight"
-          ? 1
-          : e.key === "ArrowUp"
-            ? -columns
-            : e.key === "ArrowDown"
-              ? columns
-              : 0;
-    if (!delta) return;
-    e.preventDefault();
-    onMove?.(delta);
-  };
-
   const transition = fullscreen ? ENTER : EXIT;
 
   return (
-    /* The drag plumbing sits on a plain wrapper rather than the animated
-       section: motion replaces the native onDragStart/onDragEnd with its own
-       pan handlers, which know nothing about dataTransfer. The wrapper also
-       holds the grid cell open while the tile is a fullscreen takeover, so the
-       wall does not reflow underneath it and the exit lands back in its slot. */
-    <div
-      draggable={reorderable}
-      onDragStart={(e: DragEvent<HTMLDivElement>) => {
-        if (!handleHeld.current) {
-          e.preventDefault();
-          return;
-        }
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", feed.id);
-        onDragStart?.();
-      }}
-      onDragEnd={() => {
-        handleHeld.current = false;
-        onDragEnd?.();
-      }}
-      onDragOver={(e: DragEvent<HTMLDivElement>) => {
-        if (!dragActive) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        onDragOverTile?.();
-      }}
-      onDrop={(e: DragEvent<HTMLDivElement>) => {
-        if (!dragActive) return;
-        e.preventDefault();
-        onDragEnd?.();
-      }}
-      className="relative min-h-0 min-w-0"
-    >
+    /* A plain wrapper so the grid cell stays open while the tile is a
+       fullscreen takeover — the wall must not reflow underneath it, and the
+       exit has to land back in its own slot. */
+    <div className="relative min-h-0 min-w-0">
       <motion.section
         layout
         layoutDependency={layoutKey}
@@ -214,11 +128,6 @@ export function MonitorTile({
             ? "fixed inset-0 z-100 bg-black"
             : `absolute inset-0 ${
                 exiting ? "z-100 bg-black" : isDead ? "bg-tile-dead" : "bg-tile"
-              } ${
-                /* The picked-up tile fades rather than moving with the pointer
-                   — the browser is already dragging a snapshot of it, and two
-                   copies travelling together reads as a rendering fault. */
-                dragging ? "opacity-40" : ""
               }`
         }`}
       >
@@ -293,33 +202,6 @@ export function MonitorTile({
           transition={transition}
           className="absolute right-[16px] top-[7px] flex items-center gap-[4px]"
         >
-          {/* Not drawn on the frame, and it does not need to be: a drag handle
-              is only ever wanted by a pointer that is already over the tile,
-              and this wall is desktop-only. It stays mounted and merely
-              transparent rather than `invisible`, so Tab can still reach it —
-              landing on it is what reveals it for keyboard reordering. */}
-          {reorderable && (
-            <button
-              type="button"
-              onPointerDown={() => {
-                handleHeld.current = true;
-              }}
-              onPointerUp={() => {
-                handleHeld.current = false;
-              }}
-              onKeyDown={onHandleKey}
-              aria-label={`Rearrange ${feed.name}, position ${index + 1} of ${count}. Use the arrow keys to move it.`}
-              title="Drag to rearrange, or use the arrow keys"
-              className="flex size-[24px] cursor-grab items-center justify-center rounded-[4.364px] bg-black/64 text-white opacity-0 transition-[opacity,background-color] group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-black/80 active:cursor-grabbing"
-            >
-              {/* 18, not the 20 the header used: this glyph carries a 1/6 ink
-                  margin where the expand arrows bleed to their box edge, so
-                  matching boxes would put 13.3px of ink beside 11.6px. Sized
-                  to its neighbour's ink, not its neighbour's box. */}
-              <MaskIcon src="/icons/tile-grid.svg" size={18} />
-            </button>
-          )}
-
           <button
             ref={expandRef}
             type="button"
@@ -330,7 +212,18 @@ export function MonitorTile({
                 : `Fullscreen ${feed.name}`
             }
             title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
-            className="flex size-[24px] items-center justify-center rounded-[4.364px] bg-black/64 text-white transition-colors hover:bg-black/80"
+            /* Revealed on hover, so at rest the tile is picture and chip and
+               nothing else. Transparent rather than `invisible`, so Tab still
+               reaches it — landing on it is what reveals it, and that is the
+               only route to the takeover for anyone not using a mouse.
+
+               Always lit in fullscreen: it is the way out, and a way out that
+               has to be found by hovering is not one. */
+            className={`flex size-[24px] items-center justify-center rounded-[4.364px] bg-black/64 text-white transition-[opacity,background-color] hover:bg-black/80 ${
+              fullscreen
+                ? ""
+                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            }`}
           >
             <MaskIcon src="/icons/tile-expand.svg" size={11.589} />
           </button>

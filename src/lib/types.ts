@@ -34,6 +34,10 @@ export interface Tower {
   solar: "charging" | "idle" | "fault";
   /** Battery charge, 0–100. */
   batteryPct: number;
+  /** Cabinet temperature in °C. These are sealed enclosures in the sun with a
+   *  battery inside; heat is what kills them, so it is a reading in its own
+   *  right rather than weather. */
+  tempC: number;
   /** Uplink quality — the same three tiers the tile chips use. */
   link: LinkQuality;
 }

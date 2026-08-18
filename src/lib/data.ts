@@ -64,14 +64,21 @@ export const TOWERS: Tower[] = [
     status: "online",
     solar: "charging",
     batteryPct: 87,
+    tempC: 34,
     link: "good",
   },
   {
     id: "TWR-2071",
     site: "OIL DEPOT: NORTH GATE",
-    status: "degraded",
-    solar: "idle",
-    batteryPct: 34,
+    status: "online",
+    /* On charge at 34%, which is the case the gauge is built to show: the
+       cell climbs the whole way from red through amber into green, where
+       TWR-1042 at 87% only tops off. Two towers charging from different depths
+       is the readable demonstration that the gauge is a reading and not a
+       decoration. */
+    solar: "charging",
+    batteryPct: 5,
+    tempC: 41,
     link: "warn",
   },
 ];

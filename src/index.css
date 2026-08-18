@@ -201,9 +201,49 @@
   animation-name: sentinel-siren-b;
 }
 
+/* Solar putting charge in, shown the way a phone shows it: the cell fills from
+   where the battery actually is up to full, rests there a beat, and settles
+   back to the real reading. `--charge-gap` is that distance and is set per card
+   — at 100% it is zero and this animation does nothing, which is correct.
+
+   Slow, and it ends where it started. An operator glancing at this list has to
+   be able to read the charge off it, so the true level is where the cycle sits
+   for most of its length and the rest is clearly a sweep. Four seconds keeps it
+   in the same register as the dot pulse above, on a screen where anything
+   livelier competes with the video wall for exactly the reason the per-row age
+   counters were thrown out.
+
+   It moves the clip, not the fill, so the cell's outline holds still and only
+   the charge inside it climbs. */
+@keyframes sentinel-charge {
+  0% {
+    transform: translateY(0);
+  }
+  55%,
+  70% {
+    transform: translateY(var(--charge-gap, 0px));
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.battery-charge {
+  animation: sentinel-charge 4s ease-in-out infinite;
+}
+
+/* The cell crosses its own thresholds as it fills — amber into green at 40,
+   red into amber at 20 — and a hard cut there would read as the reading being
+   replaced rather than the charge passing a mark. Slower than the 1s charge
+   step on purpose, so the colour arrives as a fade and not as a second tick. */
+.battery-fill {
+  transition: fill 1.4s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot,
-  .sweep {
+  .sweep,
+  .battery-charge {
     animation: none;
   }
 

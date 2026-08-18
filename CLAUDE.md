@@ -90,8 +90,9 @@ fixed values for heights and gaps only.
 
 **`layoutKey` applies to the fleet wall too.** `MonitorTile` gates motion the
 same way `CameraTile` does, and its key already carries the takeover *and* the
-tile order — a reorder reflows every sibling. Anything else you add there that
-changes a tile's box goes in that key or the wall snaps instead of animating.
+wall order — a band reorder reflows every sibling. Anything else you add there
+that changes a tile's box goes in that key or the wall snaps instead of
+animating.
 
 **Feed state grammar has one home.** `FeedChip` owns `stateWord` and
 `STATE_DOT`, and both walls render `FeedChip` itself. Add a seventh `FeedState`
@@ -105,8 +106,15 @@ one stray click from four yards at once on the fleet screen.
 
 **Native drag handlers cannot go on a `motion.*` element.** Motion replaces
 `onDragStart`/`onDragEnd` with its own pan handlers, which have no
-`dataTransfer`. `MonitorTile` puts them on a plain wrapper div; that wrapper
-also holds the grid cell open during a takeover.
+`dataTransfer`. The band `<section>` in `DashboardView` carries them and is
+deliberately not a motion element; `MonitorTile`'s own plain wrapper is what
+holds the grid cell open during a takeover.
+
+**Tower battery is live state.** `towers` is state in `App.tsx`, not the module
+constant — a charging tower gains 1% a second. `TowerBattery` reads
+`batteryPct` and `solar` and draws the cell from them; do not reintroduce
+picking a mast illustration by `tower.status`, which is the bug the three
+exports invited.
 
 **Vite HMR does not always pick up `data.ts` edits.** Module-level seed data is
 captured at import. If the UI shows stale copy after a data change, hard-reload

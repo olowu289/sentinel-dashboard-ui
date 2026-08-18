@@ -6,10 +6,6 @@ import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
 import type { Alert, CameraFeed, Tower } from "@/lib/types";
 
-/** The wall is two across. Up and Down on a drag handle move a whole row, so
- *  the keyboard route needs the same number the grid is built from. */
-const COLUMNS = 2;
-
 /**
  * The fleet view: every tower on the left, every camera on the right.
  *
@@ -21,13 +17,17 @@ const COLUMNS = 2;
  * anonymous grid made "whose north gate?" a question every tile had to answer
  * for itself, which is what the old per-tile tower label was for; a band header
  * answers it once for the row beneath it and gives the picture back its corner.
+ *
+ * Rearranging is a band gesture and only a band gesture. Tiles used to carry
+ * their own handles too, which meant two grammars for one job and a handle in
+ * the corner of every picture; the wall is arranged by site, and the cameras
+ * under a site keep the order the site lists them in.
  */
 export function DashboardView({
   towers,
   feeds,
   alerts,
   order,
-  onMove,
   onReorder,
   onOpenTower,
   onRetryFeed,
@@ -40,17 +40,22 @@ export function DashboardView({
    *  arrangement that resets on the way back is worse than no arrangement —
    *  they would have to redo it, or learn not to bother. */
   order: string[];
-  onMove: (from: number, to: number) => void;
-  /** Commit a whole arrangement at once. Moving a band moves every tile in it,
-   *  which `onMove`'s one-at-a-time contract cannot express without walking
-   *  through arrangements the operator never asked for. */
+  /** Commit a whole arrangement at once. A band move relocates every tile in
+   *  it, and stepping through that one tile at a time would walk the wall
+   *  through arrangements nobody asked for. */
   onReorder: (next: string[]) => void;
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
   onRetryFeed: (feedId: string) => void;
 }) {
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingBand, setDraggingBand] = useState<string | null>(null);
+  /* Held under the pointer, not yet moving. The fill answers "have I got hold
+     of it", so it lives exactly as long as the grip does: it appears the
+     instant the handle is pressed and goes the instant the finger comes off.
+     Not a toggle — a band that stayed lit after the release would be claiming
+     a state the operator is no longer in, and on a wall of live pictures a
+     standing blue block is a thing to explain rather than a thing to ignore. */
+  const [heldBand, setHeldBand] = useState<string | null>(null);
 
   const byId = new Map(feeds.map((f) => [f.id, f]));
   const tiles = order
@@ -80,6 +85,13 @@ export function DashboardView({
     const [band] = next.splice(from, 1);
     next.splice(to, 0, band);
     onReorder(next.flatMap((b) => b.feeds.map((f) => f.id)));
+  };
+
+  /* Landed, or let go of. Clears both sources of the fill together, because
+     which of them was carrying it depends on how far the gesture got. */
+  const release = () => {
+    setDraggingBand(null);
+    setHeldBand(null);
   };
 
   const onBandKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -174,7 +186,7 @@ export function DashboardView({
               onDrop={(e: DragEvent<HTMLElement>) => {
                 if (!draggingBand) return;
                 e.preventDefault();
-                setDraggingBand(null);
+                release();
               }}
               /* Held bands fill blue rather than fading. A fade says "this is
                  not really here", which is wrong — it is the one thing the
@@ -183,7 +195,9 @@ export function DashboardView({
                  seams and behind the header, which is exactly the band's own
                  outline, and it is gone the moment the band lands. */
               className={`flex min-h-0 flex-1 flex-col gap-[8px] ${
-                draggingBand === band.towerId ? "bg-drag" : ""
+                heldBand === band.towerId || draggingBand === band.towerId
+                  ? "bg-drag"
+                  : ""
               }`}
             >
               <header className="flex h-[24px] shrink-0 items-center justify-between">
@@ -192,24 +206,39 @@ export function DashboardView({
                 </h2>
 
                 {/* The 3×3 glyph is the band's handle, the same gesture the
-                    tiles carry one level down: drag it to move the whole site,
-                    arrows to step it. It is always visible because a band
+                    tiles carry one level down: press and drag to move the whole
+                    site, arrows to step it. It is always visible because a band
                     header is chrome already — there is no picture underneath
                     for it to sit on top of. */}
                 {bands.length > 1 && (
                   <button
                     type="button"
                     draggable
+                    /* On press and only while pressed. Waiting for the click
+                       would put the fill after the operator has already started
+                       moving, which is exactly when it stops being useful; and
+                       a click that latched it would leave a band lit with
+                       nothing holding it. `pointercancel` is in here because it
+                       is what fires when a press turns into a native drag —
+                       `draggingBand` has the fill from that point on. */
+                    onPointerDown={() => setHeldBand(band.towerId)}
+                    onPointerUp={() => setHeldBand(null)}
+                    onPointerLeave={() => setHeldBand(null)}
+                    onPointerCancel={() => setHeldBand(null)}
                     onDragStart={(e: DragEvent<HTMLButtonElement>) => {
                       e.dataTransfer.effectAllowed = "move";
                       e.dataTransfer.setData("text/plain", band.towerId);
                       setDraggingBand(band.towerId);
                     }}
-                    onDragEnd={() => setDraggingBand(null)}
+                    onDragEnd={release}
                     onKeyDown={(e) => onBandKey(e, bandIndex)}
                     aria-label={`Rearrange ${towerName(band.towerId)}, band ${bandIndex + 1} of ${bands.length}. Use the arrow keys to move it.`}
                     title="Drag to rearrange, or use the arrow keys"
-                    className="flex size-[24px] shrink-0 cursor-grab items-center justify-center rounded-[4px] text-muted transition-colors hover:text-white active:cursor-grabbing"
+                    className={`flex size-[24px] shrink-0 cursor-grab items-center justify-center rounded-[4px] transition-colors active:cursor-grabbing ${
+                      heldBand === band.towerId
+                        ? "text-white"
+                        : "text-muted hover:text-white"
+                    }`}
                   >
                     {/* Rotated a quarter turn, as the frame draws it: the
                         glyph's own artwork is two columns of three dots. */}
@@ -223,48 +252,24 @@ export function DashboardView({
               </header>
 
               <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-[8px]">
-                {band.feeds.map((feed) => {
-                  const i = order.indexOf(feed.id);
-                  return (
-                    <MonitorTile
-                      key={feed.id}
-                      feed={feed}
-                      towerId={feed.towerId}
-                      index={i}
-                      count={tiles.length}
-                      columns={COLUMNS}
-                      fullscreen={fullscreenId === feed.id}
-                      dragging={draggingId === feed.id}
-                      dragActive={draggingId !== null}
-                      /* The takeover reflows every sibling, and so does a
-                         reorder of either kind, so the gate is shared rather
-                         than per-tile — see the README. Anything else added
-                         here that changes a tile's box belongs in this key, or
-                         the wall snaps instead of animating. */
-                      layoutKey={`${fullscreenId ?? ""}|${order.join(">")}`}
-                      onToggleFullscreen={() =>
-                        setFullscreenId((id) =>
-                          id === feed.id ? null : feed.id,
-                        )
-                      }
-                      onRetry={() => onRetryFeed(feed.id)}
-                      onDragStart={() => setDraggingId(feed.id)}
-                      onDragEnd={() => setDraggingId(null)}
-                      /* Sort live rather than on drop, so the wall shows the
-                         result before the operator commits to it. Moving to the
-                         hovered index makes the dragged tile land there, which
-                         means the next dragover on this same tile is a no-op —
-                         that self-cancelling is what stops two tiles trading
-                         places over and over while the pointer sits still and
-                         the layout animation slides them. */
-                      onDragOverTile={() => {
-                        if (!draggingId || draggingId === feed.id) return;
-                        onMove(order.indexOf(draggingId), i);
-                      }}
-                      onMove={(delta) => onMove(i, i + delta)}
-                    />
-                  );
-                })}
+                {band.feeds.map((feed) => (
+                  <MonitorTile
+                    key={feed.id}
+                    feed={feed}
+                    towerId={feed.towerId}
+                    fullscreen={fullscreenId === feed.id}
+                    /* The takeover reflows every sibling, and so does a band
+                       reorder, so the gate is shared rather than per-tile — see
+                       the README. Anything else added here that changes a
+                       tile's box belongs in this key, or the wall snaps instead
+                       of animating. */
+                    layoutKey={`${fullscreenId ?? ""}|${order.join(">")}`}
+                    onToggleFullscreen={() =>
+                      setFullscreenId((id) => (id === feed.id ? null : feed.id))
+                    }
+                    onRetry={() => onRetryFeed(feed.id)}
+                  />
+                ))}
               </div>
             </section>
           ))}

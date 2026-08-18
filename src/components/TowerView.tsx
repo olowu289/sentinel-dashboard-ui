@@ -29,7 +29,10 @@ export function TowerView({
   onRetryFeed,
   onToggleRecord,
   onRaiseAlert,
+  onNavigate,
   onSetStatus,
+  onWatchPerson,
+  onRejectMatch,
 }: {
   tower: Tower;
   /** This tower's cameras, already filtered by the shell. */
@@ -46,7 +49,13 @@ export function TowerView({
   onToggleRecord: (feedId: string) => void;
   /** Returns the alert it created, so the banner can be armed against it. */
   onRaiseAlert: (towerId: string) => Alert;
+  /** Rail destinations, routed by the shell. */
+  onNavigate: (id: string) => void;
   onSetStatus: (id: string, status: Alert["status"]) => void;
+  /** Enrol the person in a detection. Hands the whole alert up because the
+   *  watchlist wants its frame and its zone, not just an id. */
+  onWatchPerson?: (alert: Alert) => void;
+  onRejectMatch?: (id: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
@@ -131,11 +140,7 @@ export function TowerView({
     <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
       <IconRail
         active="towers"
-        /* Up to the fleet. Both entries land there because the dashboard is
-           the towers list; the remaining four are still decorative. */
-        onSelect={(id) => {
-          if (id === "dashboard" || id === "towers") onBack();
-        }}
+        onSelect={onNavigate}
         onMore={() => setSimOpen((o) => !o)}
         moreOpen={simOpen}
         className="hidden lg:block"
@@ -230,6 +235,8 @@ export function TowerView({
         onFilterChange={setFilter}
         onAcknowledge={(id) => onSetStatus(id, "acknowledged")}
         onResolve={(id) => onSetStatus(id, "resolved")}
+        onWatchPerson={onWatchPerson}
+        onRejectMatch={onRejectMatch}
         onCollapse={() => setAlertsCollapsed(true)}
         /* Collapse only removes the desktop column; the mobile view is still
            reachable from the bottom bar, so `lg:hidden` beats `lg:flex`. */

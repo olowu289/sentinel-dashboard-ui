@@ -30,7 +30,7 @@ export function DashboardView({
   order,
   onReorder,
   pending,
-  onAddTower,
+  onNavigate,
   onResumeSetup,
   onOpenTower,
   onRetryFeed,
@@ -49,8 +49,10 @@ export function DashboardView({
   onReorder: (next: string[]) => void;
   /** A claim that has landed but not been finished, if there is one. */
   pending: PendingTower | null;
-  /** The rail's `+`. Claiming a tower is a screen, not a dialog. */
-  onAddTower: () => void;
+  /** Every rail destination, routed by the shell. Deliberately not wired here:
+   *  four screens render this rail and each one wiring its own meant two of
+   *  them shipped a nav bar that did not navigate. */
+  onNavigate: (id: string) => void;
   onResumeSetup: () => void;
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
   onRetryFeed: (feedId: string) => void;
@@ -120,33 +122,16 @@ export function DashboardView({
      matters most. */
   const newest = alerts.find((a) => a.status === "triggered");
 
-  /* Where the Towers rail button goes. `alerts` is not guaranteed sorted once
-     the shell starts prepending new ones, so this reduces rather than trusting
-     index 0. Newest alert of any status, deliberately unlike the bell above,
-     which wants the newest *unclaimed* one — the rail is "show me the site
-     something last happened at", the bell is "show me what nobody has picked
-     up". Falls back to the first tower so the button always goes somewhere. */
-  const lastActive =
-    alerts.reduce<Alert | undefined>(
-      (best, a) => (!best || a.at > best.at ? a : best),
-      undefined,
-    )?.towerId ?? towers[0]?.id;
-
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
       <IconRail
         active="dashboard"
-        /* "Dashboard" lands here, because here *is* the fleet — there is no
-           second screen for the two to disagree about. "Towers" drills in
-           instead, to the site something last happened at; a nav item that
-           returns you to the screen you are already on is a dead control, and
-           the fleet's own list is right there in the panel beside it. The
-           `+` opens the setup flow. The remaining three are decorative and
-           still not wired. */
         onSelect={(id) => {
+          /* Leaving fullscreen is this screen's own business — the takeover is
+             a state of the wall, not a destination. Everything else is the
+             shell's. */
           if (id === "dashboard") setFullscreenId(null);
-          if (id === "towers" && lastActive) onOpenTower(lastActive);
-          if (id === "add") onAddTower();
+          onNavigate(id);
         }}
         className="hidden lg:block"
       />

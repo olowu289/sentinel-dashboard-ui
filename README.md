@@ -413,6 +413,104 @@ already exist as an unnamed row in the panel with a `Finish setup` action — th
 needs a pending state in `TowersPanel` first, and a half-built one would be a
 button that goes nowhere.
 
+## People of interest
+
+The rail's person glyph is the watchlist, not the staff list — those two
+readings of one icon are as far apart as this product gets, and it was labelled
+`Team` until somebody said so out loud.
+
+A sighting is **not a new kind of event**. It is a `person` detection that also
+carries an identity and a match confidence, so it lands in the alert feed, the
+fleet card counts and the new-alert banner without any of them being taught
+anything. `AlertKind` already had `person` with its own badge, `confidence` was
+already documented as belonging only to predictions, and `--color-detect` was
+already the amber `ClipPlayer` marks detections with. Inventing a seventh alert
+kind would have forked a vocabulary that already covered this.
+
+### A match is a possibility, never an identification
+
+Face matching is probabilistic, so nothing in this feature asserts an identity.
+Titles read `Possible match: M. Okonkwo on Gas Yard`, the confidence travels
+with the name everywhere it appears, and a match takes **detect amber** — red is
+a fault or a live transmission, and somebody walking past a camera is neither.
+
+The alert footer carries **`Not them`**, which keeps the detection and drops the
+identity: the camera did see somebody, and deleting the alert would lose that.
+Without it the only way to answer a wrong match is to resolve an alert that
+never happened.
+
+### Reason and expiry are required, and that is the design
+
+A watchlist entry with no stated reason is an accusation with no author, and the
+reason is the only thing that lets a second operator judge a match they did not
+create — so it is shown with every match. A watchlist that never expires becomes
+permanent surveillance of people whose reason lapsed months ago, so entries stop
+matching on their own and have to be extended deliberately. Extending runs from
+*now*, not from the old expiry: renewing a lapsed entry is a fresh decision to
+watch somebody, not a correction of a clerical slip.
+
+Expired entries are never deleted. They drop to their own section, stop
+matching, and stay readable — a list that quietly forgets who was on it is a
+list nobody can audit. `addedBy` is on every entry for the same reason.
+
+### Enrolment has two doors, and the obvious one is secondary
+
+The path this gets used through is **from an alert**: an operator watching a
+person detection with the clip in front of them presses `Add person`, and
+enrolment opens with that frame and that zone already filled in. Re-finding a
+face they are already looking at would be busywork. Uploading a file from the
+roster is the fallback, not the path.
+
+`Never seen` is a reading, not a zero — the same rule the empty alert fields
+follow.
+
+### The rail routes from one place
+
+Four screens render `IconRail`, and each one used to wire its own `onSelect`.
+It drifted exactly as you would expect: two screens shipped a nav bar that did
+not navigate at all, and the two that did disagreed about what `Towers` meant.
+Routing now lives in `App.navigate` and every screen passes it straight through,
+so adding a destination lights it up everywhere rather than in whichever view
+you remembered. Leaving the setup flow through the rail is an exit like any
+other and still keeps the claim.
+
+`Alerts` and `Settings` are drawn by the frame and go nowhere yet — clicking
+them leaves you where you are rather than blanking the screen. The `...`
+simulator now renders only where something handles it; it used to draw on all
+four screens and work on one, which is the same dead-control bug one row lower.
+
+### Not built
+
+There is no matcher. The two sightings in the seed are authored, not generated,
+because a stub that invents faces is worse than one that repeats: a random match
+would put a name on a person who was never there. The reference photos are a
+drawn silhouette for the same reason — a stock photograph of a real person used
+as a fake person-of-interest is not a placeholder, it is a picture of somebody
+on a watchlist.
+
+Nothing enforces who may enrol. `addedBy` records it and the roster shows it,
+but any operator can add anyone; a real deployment needs that gated.
+
+There is no copy for a photo the matcher cannot use — `This photo can't be
+matched. Try a clearer, front-on face.` needs a matcher to raise it.
+
+### Copy
+
+Reviewed against the ux-writing skill. Two changes were worth more than the
+tidying: the reason field was labelled `WHY`, which is the least serious word
+available for the most serious field on a screen that may end up in an incident
+review; and the enrolment screen never said what enrolling *does*. It now leads
+with **"Every camera in the fleet will match against this face and raise an
+alert"** — said before the act rather than after it, because this feature puts a
+named person under fleet-wide automated matching on one operator's say-so, and
+the interface should be plain about that at the moment of the decision. The
+submit reads `Start watching` for the same reason: it names the outcome, not the
+form.
+
+Roster rows use `formatClockShort` — seconds are the information on an incident
+timeline, where three detections can share a minute, and four characters of
+noise in a list that is scanned.
+
 ## Tower view layout
 
 Three panes at 1024px and up: a 71px icon rail, the camera wall, and a 417px

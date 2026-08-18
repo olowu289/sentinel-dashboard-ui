@@ -37,6 +37,7 @@ const CHECKS = ["UPLINK", "SOLAR", "BATTERY", "FIRST FRAME"] as const;
 
 export function AddTowerView({
   pending,
+  onNavigate,
   onCancel,
   onAdd,
 }: {
@@ -48,6 +49,9 @@ export function AddTowerView({
   /** Back to the fleet, carrying whatever has been claimed and typed so far.
    *  `null` only when nothing was claimed. */
   onCancel: (draft: PendingTower | null) => void;
+  /** Rail destinations, routed by the shell. Leaving this way still saves the
+   *  claim — a rail click is an exit like any other. */
+  onNavigate: (id: string) => void;
   onAdd: (tower: Tower, feeds: CameraFeed[]) => void;
 }) {
   const [step, setStep] = useState<Step>(pending ? "site" : "intro");
@@ -101,7 +105,14 @@ export function AddTowerView({
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
-      <IconRail active="add" className="hidden lg:block" />
+      <IconRail
+        active="add"
+        onSelect={(id) => {
+          leave();
+          onNavigate(id);
+        }}
+        className="hidden lg:block"
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-line pl-[16px] pr-[16px]">

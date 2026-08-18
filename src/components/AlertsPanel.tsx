@@ -27,6 +27,8 @@ export function AlertsPanel({
   onFilterChange,
   onAcknowledge,
   onResolve,
+  onWatchPerson,
+  onRejectMatch,
   onCollapse,
   className = "",
 }: {
@@ -39,6 +41,8 @@ export function AlertsPanel({
   onFilterChange: (next: DateFilter) => void;
   onAcknowledge: (id: string) => void;
   onResolve: (id: string) => void;
+  onWatchPerson?: (alert: Alert) => void;
+  onRejectMatch?: (id: string) => void;
   /** Omitted below lg, where the panel is a whole view rather than a column. */
   onCollapse?: () => void;
 }) {
@@ -221,6 +225,8 @@ export function AlertsPanel({
             onClose={() => onSelect(null)}
             onAcknowledge={() => onAcknowledge(selected.id)}
             onResolve={() => onResolve(selected.id)}
+            onWatchPerson={() => onWatchPerson?.(selected)}
+            onRejectMatch={() => onRejectMatch?.(selected.id)}
             onPlayClip={(at, attachment) =>
               setPlaying({ alert: selected, at, attachment })
             }

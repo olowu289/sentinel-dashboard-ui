@@ -94,6 +94,31 @@ export interface PendingTower {
   names: Record<string, string>;
 }
 
+/**
+ * Somebody the fleet is watching for.
+ *
+ * `reason` and `expiresAt` are required, and that is the whole design position.
+ * A watchlist entry with no stated reason is an accusation with no author, and
+ * it is the only thing that lets a second operator judge a match they did not
+ * create. A watchlist that never expires becomes permanent surveillance of
+ * people whose reason lapsed months ago. Both are cheap now and effectively
+ * impossible to add later, because by then there are entries without them.
+ */
+export interface Person {
+  id: string;
+  name: string;
+  /** The reference face. One frame, front-on — what the matcher compares to. */
+  photo: string;
+  /** Why this person is being watched for. Shown wherever a match is. */
+  reason: string;
+  /** Who put them on the list. Enrolling somebody is an act with a name on it. */
+  addedBy: string;
+  addedAt: number;
+  /** Epoch ms. Past it, the entry stops matching and moves to `EXPIRED` — it is
+   *  never deleted, because a list that quietly forgets is unauditable. */
+  expiresAt: number;
+}
+
 export interface CameraFeed {
   id: string;
   /** Owning tower. The fleet wall mixes cameras from several towers, so a tile
@@ -170,6 +195,13 @@ export interface Alert {
   /** Model certainty, 0–100. Only detections carry one; a hardware fault or an
    *  operator action is not a prediction and must not be shown as if it were. */
   confidence?: number;
+  /** Set when this detection matched somebody on the watchlist. A match is a
+   *  *possibility*, never an identification — `confidence` travels with it and
+   *  the copy says "possible match" everywhere it is shown. */
+  matchedPersonId?: string;
+  /** The operator said this is not the person. Keeps the detection, drops the
+   *  identity — the camera did see somebody. */
+  matchRejected?: boolean;
   /** Chronological, oldest first. The detections that caused the alert come
    *  before it; what the platform did about it comes after. */
   timeline?: TimelineEvent[];

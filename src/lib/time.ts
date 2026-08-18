@@ -149,6 +149,16 @@ export function formatDuration(sec: number) {
   return rem === 0 ? `${mins}m` : `${mins}m ${String(rem).padStart(2, "0")}s`;
 }
 
+/**
+ * `06:47 WAT` — a wall-clock stamp without seconds, for lists that are scanned
+ * rather than read. Seconds are the information on an incident timeline, where
+ * three detections can share a minute; in a roster row they are four characters
+ * of noise in the middle of a name and a place.
+ */
+export function formatClockShort(at: number) {
+  return `${clockShort.format(at)} ${SITE_TZ_LABEL}`;
+}
+
 /** Captured once at load. Nothing in the feed re-renders off the clock. */
 export const SESSION_NOW = Date.now();
 

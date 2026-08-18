@@ -2,19 +2,31 @@ import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { DashboardView } from "@/components/DashboardView";
+import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
 import type { SimState } from "@/components/StateSimulator";
 import {
   ALERTS,
   FEEDS,
+  PEOPLE,
   TOWERS,
   alertsForTower,
   feedsForTower,
   findTower,
 } from "@/lib/data";
-import type { Alert, CameraFeed, PendingTower, Tower } from "@/lib/types";
+import type {
+  Alert,
+  CameraFeed,
+  PendingTower,
+  Person,
+  Tower,
+} from "@/lib/types";
 
 const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
+
+/** Whose name goes on an enrolment. Stands in for the signed-in operator —
+ *  putting somebody on a watchlist is an act with an author. */
+const OPERATOR = "A. Bello";
 
 /** Each camera's resting latency, captured before the walk starts moving it. */
 const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
@@ -51,6 +63,95 @@ export function SentinelApp() {
      tower nobody can see and nobody else can claim — it waits in the panel
      instead, with whatever naming was done. */
   const [pending, setPending] = useState<PendingTower | null>(null);
+
+  /* The watchlist, and the screen that edits it. Up here with the feeds and the
+     towers because a match is an alert like any other — the roster and the feed
+     have to be reading the same list, or a person could be removed while their
+     sightings still name them. */
+  const [people, setPeople] = useState<Person[]>(PEOPLE);
+  const [onPeople, setOnPeople] = useState(false);
+  /* A detection carried out of the alert feed and into enrolment, so the face
+     the operator is already looking at is the face that gets watched for. */
+  const [enrolFrom, setEnrolFrom] = useState<Alert | null>(null);
+
+  const watchPerson = useCallback((alert: Alert) => {
+    setEnrolFrom(alert);
+    setOpen(null);
+    setOnPeople(true);
+  }, []);
+
+  /* Rejecting keeps the alert and drops the identity — the camera did see
+     somebody, and deleting the detection would lose that. */
+  /* One rail, one router.
+     Every screen renders the same `IconRail`, and until now each one wired its
+     own `onSelect` — which drifted four ways: two screens had no handler at all
+     and so shipped a nav bar that did not navigate, and the two that did
+     disagreed about what "Towers" meant. Routing belongs to the shell that owns
+     the screens, not to the screens. Add a destination here and every rail
+     picks it up; wire it in a view and only that view will have it. */
+  const navigate = useCallback(
+    (id: string) => {
+      if (id === "dashboard") {
+        setOnPeople(false);
+        setAdding(false);
+        setOpen(null);
+        return;
+      }
+      if (id === "add") {
+        setOnPeople(false);
+        setOpen(null);
+        setAdding(true);
+        return;
+      }
+      if (id === "poi") {
+        setAdding(false);
+        setOpen(null);
+        setOnPeople(true);
+        return;
+      }
+      if (id === "towers") {
+        /* The site something last happened at. Derived here rather than in the
+           dashboard so the rail means the same thing from every screen. */
+        const newest = alerts.reduce<Alert | undefined>(
+          (best, a) => (!best || a.at > best.at ? a : best),
+          undefined,
+        );
+        const target = newest?.towerId ?? towers[0]?.id;
+        if (!target) return;
+        setOnPeople(false);
+        setAdding(false);
+        setOpen({ id: target, showAlerts: false });
+      }
+      /* `alerts` and `settings` are drawn by the frame and go nowhere yet. */
+    },
+    [alerts, towers],
+  );
+
+  const rejectMatch = useCallback((id: string) => {
+    setAlerts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, matchRejected: true } : a)),
+    );
+  }, []);
+
+  const enrolPerson = useCallback((person: Omit<Person, "id">) => {
+    setPeople((prev) => [
+      { ...person, id: `POI-${String(prev.length + 1).padStart(2, "0")}` },
+      ...prev,
+    ]);
+  }, []);
+
+  /* Extending is always a deliberate act, and always from *now* rather than
+     from the old expiry — renewing a lapsed entry is a fresh decision to watch
+     somebody, not a correction of a clerical slip. */
+  const extendWatch = useCallback((personId: string, days: number) => {
+    setPeople((prev) =>
+      prev.map((p) =>
+        p.id === personId
+          ? { ...p, expiresAt: Date.now() + days * 86_400_000 }
+          : p,
+      ),
+    );
+  }, []);
 
   /* A claimed tower arrives whole: the unit reported its own readings and the
      operator named the site and the cameras. Landing straight on it is the
@@ -258,9 +359,27 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
-      {adding ? (
+      {onPeople ? (
+        <PeopleView
+          people={people}
+          alerts={alerts}
+          operator={OPERATOR}
+          enrolFrom={enrolFrom}
+          onNavigate={navigate}
+          onBack={() => {
+            setEnrolFrom(null);
+            setOnPeople(false);
+          }}
+          onEnrol={(person) => {
+            enrolPerson(person);
+            setEnrolFrom(null);
+          }}
+          onExtend={extendWatch}
+        />
+      ) : adding ? (
         <AddTowerView
           pending={pending}
+          onNavigate={navigate}
           onCancel={(draft) => {
             setPending(draft);
             setAdding(false);
@@ -275,7 +394,7 @@ export function SentinelApp() {
           order={wallOrder}
           onReorder={reorderWall}
           pending={pending}
-          onAddTower={() => setAdding(true)}
+          onNavigate={navigate}
           onResumeSetup={() => setAdding(true)}
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
@@ -298,7 +417,10 @@ export function SentinelApp() {
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
           onRaiseAlert={raiseAlert}
+          onNavigate={navigate}
           onSetStatus={setStatus}
+          onWatchPerson={watchPerson}
+          onRejectMatch={rejectMatch}
         />
       )}
     </MotionConfig>

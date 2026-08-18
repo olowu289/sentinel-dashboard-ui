@@ -3,6 +3,7 @@ import type {
   AlertAttachment,
   AlertKind,
   CameraFeed,
+  Person,
   TimelineEvent,
   Tower,
   UnclaimedUnit,
@@ -161,6 +162,59 @@ export function findUnclaimed(serial: string, pairingCode: string) {
   );
 }
 
+/**
+ * The watchlist.
+ *
+ * Reference faces are the one asset this repo does not have and cannot invent —
+ * a stock photograph of a real person used as a fake person-of-interest is not
+ * a placeholder, it is a picture of somebody on a watchlist. So the seed points
+ * at a drawn silhouette and the names are plainly fictional. Swap them for real
+ * enrolments the moment there is a matcher to enrol into.
+ */
+const REFERENCE = "/icons/poi-face.svg";
+
+export const PEOPLE: Person[] = [
+  {
+    id: "POI-01",
+    name: "M. OKONKWO",
+    photo: REFERENCE,
+    reason: "Trespass at Gas Yard, 4 Aug. Case OP-114.",
+    addedBy: "A. Bello",
+    addedAt: ago(14 * DAY),
+    expiresAt: ago(-16 * DAY),
+  },
+  {
+    id: "POI-02",
+    name: "UNKNOWN 4",
+    /* No name because nobody has one. The alias is what the case file calls
+       them, and pretending otherwise would put a made-up name on every match. */
+    photo: REFERENCE,
+    reason: "Cut fence line at North Gate, 11 Aug. No identification.",
+    addedBy: "A. Bello",
+    addedAt: ago(7 * DAY),
+    expiresAt: ago(-2 * DAY),
+  },
+  {
+    id: "POI-03",
+    name: "J. ADEYEMI",
+    photo: REFERENCE,
+    reason: "Contractor dispute, escorted off site 2 Jul. Case OP-098.",
+    addedBy: "S. Yakubu",
+    addedAt: ago(48 * DAY),
+    expiresAt: ago(3 * DAY),
+  },
+];
+
+export function findPerson(people: Person[], id?: string) {
+  return id ? people.find((p) => p.id === id) : undefined;
+}
+
+/** Past its expiry a person stops matching, but is never deleted — a list that
+ *  quietly forgets who was on it is a list nobody can audit. */
+export function isExpired(person: Person, now = Date.now()) {
+  return person.expiresAt <= now;
+}
+
 export function feedsForTower(feeds: CameraFeed[], towerId: string) {
   return feeds.filter((f) => f.towerId === towerId);
 }
@@ -174,6 +228,9 @@ const AT_8836 = ago(5 * HOUR + 32 * MINUTE);
 const AT_8835 = ago(26 * HOUR);
 const AT_8834 = ago(3 * DAY + 4 * HOUR);
 
+const AT_8842 = ago(6 * MINUTE);
+const AT_9003 = ago(2 * HOUR + 5 * MINUTE);
+
 const AT_9002 = ago(9 * MINUTE);
 const AT_9001 = ago(1 * HOUR + 38 * MINUTE);
 
@@ -182,6 +239,26 @@ const AT_9001 = ago(1 * HOUR + 38 * MINUTE);
 type SiteAlert = Omit<Alert, "towerId">;
 
 const ALERTS_1042: SiteAlert[] = [
+  {
+    id: "ALT-8842",
+    /* `person`, not a new kind. A watchlist hit is a person detection that also
+       carries an identity — the badge, the amber and the confidence field are
+       already the right ones, and inventing a seventh kind would fork the
+       vocabulary for something the vocabulary already covers. */
+    kind: "person",
+    title: "Possible match: M. Okonkwo on Gas Yard",
+    at: AT_8842,
+    status: "triggered",
+    source: "Face match",
+    zone: "Gas Yard",
+    cameras: ["Outpost 16"],
+    confidence: 91,
+    matchedPersonId: "POI-01",
+    timeline: sequence(AT_8842, [
+      [-2, "person", "Person detected by Gas Yard camera"],
+      [0, "person", "Possible match against watchlist", clip("12s Clip Recording", 12)],
+    ]),
+  },
   {
     id: "ALT-8841",
     kind: "alert",
@@ -333,6 +410,23 @@ const ALERTS_1042: SiteAlert[] = [
 ];
 
 const ALERTS_2071: SiteAlert[] = [
+  {
+    id: "ALT-9003",
+    kind: "person",
+    title: "Possible match: Unknown 4 on North Gate",
+    at: AT_9003,
+    status: "acknowledged",
+    source: "Face match",
+    zone: "North Gate",
+    cameras: ["North Gate"],
+    confidence: 78,
+    matchedPersonId: "POI-02",
+    acknowledgedBy: "A. Bello",
+    timeline: sequence(AT_9003, [
+      [-4, "person", "Person detected by North Gate camera"],
+      [0, "person", "Possible match against watchlist"],
+    ]),
+  },
   {
     id: "ALT-9002",
     kind: "fault",

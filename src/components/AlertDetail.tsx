@@ -112,11 +112,21 @@ export function AlertDetail({
   onAcknowledge,
   onResolve,
   onPlayClip,
+  onWatchPerson,
+  onRejectMatch,
 }: {
   alert: Alert;
   onClose: () => void;
   onAcknowledge: () => void;
   onResolve: () => void;
+  /** Put the person in this detection on the watchlist. The face is already on
+   *  screen here, which is the door this feature actually gets used through —
+   *  uploading a file at a desk is the fallback, not the path. */
+  onWatchPerson?: () => void;
+  /** The operator says this is not the person. Keeps the detection, drops the
+   *  identity: the camera did see somebody. A matcher is probabilistic and this
+   *  is the only honest answer to a false positive. */
+  onRejectMatch?: () => void;
   /** Hands the clip up to the panel, which owns the player. Deliberately not
    *  held here: this panel is never remounted — arrowing through the feed
    *  swaps its content in place — so a `useState` for the open clip would
@@ -380,6 +390,27 @@ export function AlertDetail({
           <p className="flex-1 text-[0.75rem] text-terra">
             Resolved by {alert.acknowledgedBy ?? "you"}
           </p>
+        )}
+        {/* A match is a possibility, so the flat contradiction sits beside the
+            flat agreement. Without it the only way to answer a wrong match is
+            to resolve an alert that never happened. */}
+        {alert.matchedPersonId && !alert.matchRejected && (
+          <button
+            type="button"
+            onClick={onRejectMatch}
+            className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12"
+          >
+            Not them
+          </button>
+        )}
+        {alert.kind === "person" && !alert.matchedPersonId && (
+          <button
+            type="button"
+            onClick={onWatchPerson}
+            className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12"
+          >
+            Add person
+          </button>
         )}
         <button
           type="button"

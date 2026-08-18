@@ -36,9 +36,16 @@ feed, and new alert arrival. It is a review affordance, not product chrome.
 The dashboard is the landing screen and the tower view is its child. That was
 already the claim the tower view made: its breadcrumb has read `TOWERS ›
 TWR-1042` since the first build, and `TOWERS` pointed at nothing. It is a button
-now, and so are the rail's `Dashboard` and `Towers` entries — both land here,
-because the fleet screen *is* the towers list and there is no second page for
-them to disagree about. The other four rail destinations are still decorative.
+now, and so are two of the rail's entries. `Dashboard` lands here, because the
+fleet screen *is* the fleet. `Towers` drills in instead — to the site something
+last happened at, the tower carrying the newest alert of any status. A nav item
+that returns you to the screen you are already standing on is a dead control,
+and the fleet's own list is already in the panel next to it. It is deliberately
+not the same target as the header bell, which wants the newest *unclaimed*
+alert and opens the feed: the rail asks "where did something last happen", the
+bell asks "what has nobody picked up". With no alerts at all it falls back to
+the first tower, so the button always goes somewhere. The other four rail
+destinations are still decorative.
 
 There is no router. Two screens do not need URLs, and adding them would be the
 only thing in the repo pretending to be a deployment.

@@ -112,15 +112,31 @@ export function DashboardView({
      matters most. */
   const newest = alerts.find((a) => a.status === "triggered");
 
+  /* Where the Towers rail button goes. `alerts` is not guaranteed sorted once
+     the shell starts prepending new ones, so this reduces rather than trusting
+     index 0. Newest alert of any status, deliberately unlike the bell above,
+     which wants the newest *unclaimed* one — the rail is "show me the site
+     something last happened at", the bell is "show me what nobody has picked
+     up". Falls back to the first tower so the button always goes somewhere. */
+  const lastActive =
+    alerts.reduce<Alert | undefined>(
+      (best, a) => (!best || a.at > best.at ? a : best),
+      undefined,
+    )?.towerId ?? towers[0]?.id;
+
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
       <IconRail
         active="dashboard"
-        /* Both "Dashboard" and "Towers" land here, because here *is* the
-           towers list — there is no second screen for them to disagree about.
-           The other four remain decorative and are still not wired. */
+        /* "Dashboard" lands here, because here *is* the fleet — there is no
+           second screen for the two to disagree about. "Towers" drills in
+           instead, to the site something last happened at; a nav item that
+           returns you to the screen you are already on is a dead control, and
+           the fleet's own list is right there in the panel beside it. The
+           remaining four are decorative and still not wired. */
         onSelect={(id) => {
-          if (id === "dashboard" || id === "towers") setFullscreenId(null);
+          if (id === "dashboard") setFullscreenId(null);
+          if (id === "towers" && lastActive) onOpenTower(lastActive);
         }}
         className="hidden lg:block"
       />

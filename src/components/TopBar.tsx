@@ -11,6 +11,8 @@ export function TopBar({
   alertsCollapsed = false,
   alertsUnread = false,
   onExpandAlerts,
+  onOpenSettings,
+  settingsOpen = false,
 }: {
   towerId: string;
   online: boolean;
@@ -24,6 +26,9 @@ export function TopBar({
   /** An alert has landed that the operator has not been shown the feed for. */
   alertsUnread?: boolean;
   onExpandAlerts?: () => void;
+  /** Opens the tower's camera settings in the rail's column. */
+  onOpenSettings?: () => void;
+  settingsOpen?: boolean;
 }) {
   const next = layout === "landscape" ? "portrait" : "landscape";
 
@@ -82,6 +87,25 @@ export function TopBar({
             size={20}
             className="text-[#e9e9e9]"
           />
+        </button>
+
+        {/* Camera settings, where the frame puts them: in the tower's bar
+            rather than on a tile. That placement is the argument for the scope
+            — these are the tower's cameras, and the bar is the one control
+            surface that belongs to the tower rather than to one picture. */}
+        <span aria-hidden className="hidden h-[14px] w-px bg-stroke lg:block" />
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label={
+            settingsOpen ? "Close camera settings" : "Camera settings"
+          }
+          title="Camera settings"
+          className={`hidden size-[24px] items-center justify-center rounded-[4px] transition-colors hover:text-white lg:flex ${
+            settingsOpen ? "text-white" : "text-[#e9e9e9]"
+          }`}
+        >
+          <MaskIcon src="/icons/nav-settings.svg" size={20} />
         </button>
 
         {/* Only appears once the panel is collapsed — it is the sole way back,

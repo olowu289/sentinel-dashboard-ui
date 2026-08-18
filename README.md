@@ -595,6 +595,71 @@ It is hidden below 1024px, where the wall is forced to a single stacked column.
 Side by side on a phone gives each tile about 180px, too small to identify
 anyone, which is the entire job.
 
+## Camera settings
+
+Per tower, not per camera — the frame (`63:1606`) puts the gear in the tower's
+own bar, between the layout rule and the bell, and that placement *is* the
+argument for the scope. A control on a tile would imply the other tile had one
+of its own. The panel says so before it says anything else: *"These apply to
+both cameras on TWR-1042 — GAS YARD and EAST CORRIDOR."* A panel that changes
+two cameras while showing the name of one is the kind of thing an operator
+discovers by breaking the camera they were not looking at.
+
+It opens over the alerts rail rather than beside it. The operator has to see the
+pictures the settings are about, and the rail is the one thing on that screen
+they are not reading at that moment — it is a list of what already happened.
+
+### What eufy got right, and what it did not
+
+The shape follows [eufy's per-camera menu](https://smarteufy.com/how-to-set-eufy-camera/):
+detection, then picture, then audio, each row carrying its current value. Their
+[Motion Detection group](https://service.eufy.com/article-description/Motion-Detection-of-eufyCams)
+is the most worked-through version of this in a consumer product — Activity
+Zone, Detection Sensitivity, Detection Type, Motion Test Mode.
+
+Three things differ on purpose.
+
+**Sensitivity is named, not a 7-point slider.** eufy publishes the numeric
+ranges behind each of their levels, which is the tell that "level 4 of 7" means
+nothing on its own. Every option here says what it costs instead — *"High —
+catches more, and raises more false alerts."*
+
+**Rows expand in place rather than pushing a sub-screen.** On a 417px panel with
+eight settings, a stack of drill-ins is four taps to change one number and the
+operator loses the picture every time.
+
+**Every change is stamped.** Sensitivity, detection type and zones decide what
+reaches the alert feed, which makes them operational rather than preferences.
+"Why did we stop getting alerts from the gas yard" has to have an answer, and it
+is usually somebody's afternoon adjustment.
+
+Storage, power and device info are all in eufy's menu and none are here: there
+is no SD card, the tower's solar gauge already owns power, and the tower card
+carries the device info.
+
+### Zones are the exception
+
+Everything else is tower-wide. A zone cannot be: it is a shape drawn on one
+camera's own view, and the second camera points somewhere else entirely, so the
+same rectangle over its frame would fence off a piece of ground nobody chose. So
+the editor asks which camera you are drawing for, and stores zones keyed by feed.
+
+They are drawn on the frame rather than described — the one eufy pattern worth
+copying whole, because "ignore the road, watch the gate" cannot be said in a
+form field. Coordinates are normalised 0–1, never pixels: the same zone has to
+hold at 380px on the fleet wall and 1280px in a takeover. Three is the cap, as
+eufy has it; a fourth region is usually the whole frame drawn the long way
+round. Anything under 5% of the frame is discarded rather than left as a speck
+to find and delete.
+
+**The draft rectangle lives in a ref as well as in state.** `pointerup` reads
+it, and React batches state across a fast gesture — so the `draft` closed over
+by the up handler can still be the value from before the drag began, with the
+rectangle visibly on screen and the handler seeing `null`. Pointer capture is
+taken on the frame rather than `e.target` (the target is usually the `<img>`)
+and is wrapped in a try: capture keeps a drag alive past the frame's edge, and
+if it is unavailable the drawing still has to work.
+
 ## Motion
 
 All animated transitions are driven from JS through `src/lib/motion.ts`, which is

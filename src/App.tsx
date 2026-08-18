@@ -4,6 +4,7 @@ import { AddTowerView } from "@/components/AddTowerView";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
+import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import type { SimState } from "@/components/StateSimulator";
 import {
   ALERTS,
@@ -17,6 +18,7 @@ import {
 import type {
   Alert,
   CameraFeed,
+  CameraSettings,
   PendingTower,
   Person,
   Tower,
@@ -73,6 +75,35 @@ export function SentinelApp() {
   /* A detection carried out of the alert feed and into enrolment, so the face
      the operator is already looking at is the face that gets watched for. */
   const [enrolFrom, setEnrolFrom] = useState<Alert | null>(null);
+
+  /* Keyed by feed id rather than carried on the feed itself. `feeds` is rebuilt
+     on every latency tick and recording tick, and a settings object copied
+     through that loop is one more thing that can be dropped by a careless
+     `map`. Undefined means untouched, which is what `DEFAULT_CAMERA_SETTINGS`
+     is for — the shell answers "what does this camera do" so no view has to. */
+  const [settings, setSettings] = useState<Record<string, CameraSettings>>({});
+
+  const cameraSettings = useCallback(
+    (feedId: string) => settings[feedId] ?? DEFAULT_CAMERA_SETTINGS,
+    [settings],
+  );
+
+  /* Stamped on write. These decide what reaches the alert feed, so a change
+     with no name on it is an unanswerable question three shifts later. */
+  const changeSettings = useCallback(
+    (feedId: string, next: Partial<CameraSettings>) => {
+      setSettings((prev) => ({
+        ...prev,
+        [feedId]: {
+          ...(prev[feedId] ?? DEFAULT_CAMERA_SETTINGS),
+          ...next,
+          changedBy: OPERATOR,
+          changedAt: Date.now(),
+        },
+      }));
+    },
+    [],
+  );
 
   const watchPerson = useCallback((alert: Alert) => {
     setEnrolFrom(alert);
@@ -440,6 +471,8 @@ export function SentinelApp() {
           onToggleRecord={toggleRecord}
           onRaiseAlert={raiseAlert}
           onNavigate={navigate}
+          cameraSettings={cameraSettings}
+          onChangeSettings={changeSettings}
           onSetStatus={setStatus}
           onWatchPerson={watchPerson}
           onRejectMatch={rejectMatch}

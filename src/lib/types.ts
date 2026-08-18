@@ -119,6 +119,68 @@ export interface Person {
   expiresAt: number;
 }
 
+/**
+ * A region of a camera's own view that detection is confined to.
+ *
+ * Normalised 0–1 against the frame, never pixels: the same zone has to hold
+ * when the tile is 380px on a fleet wall and 1280px in a takeover, and a zone
+ * that drifts with the layout is a zone that stops covering the gate.
+ */
+export interface ActivityZone {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Eufy caps it at three, and three is right — a fourth region is usually the
+ *  whole frame drawn the long way round. */
+export const MAX_ZONES = 3;
+
+/**
+ * A tower's camera settings — every camera on it, not one.
+ *
+ * The frame puts the gear in the tower's own bar rather than on a tile, which
+ * is the argument for the scope: these are the tower's cameras, and a control
+ * that lived on a picture would imply the other picture had its own.
+ *
+ * These are not preferences. Sensitivity, detection type and zones decide what
+ * reaches the alert feed, which makes them operational — so every change is
+ * stamped with who made it. "Why did we stop getting alerts from the gas yard"
+ * has to have an answer, and it is usually somebody's afternoon adjustment.
+ */
+export interface CameraSettings {
+  /** What is worth waking somebody for. */
+  detect: "people" | "people-vehicles" | "all";
+  sensitivity: "low" | "standard" | "high";
+  /** Keyed by feed id, and the one thing here that cannot be tower-wide. A
+   *  zone is a shape drawn on one camera's own view; the second camera points
+   *  somewhere else entirely, so the same rectangle over its frame would fence
+   *  off a piece of ground nobody chose. Empty means the whole frame. */
+  zones: Record<string, ActivityZone[]>;
+  nightVision: "auto" | "on" | "off";
+  quality: "1080p30" | "1080p15" | "720p30";
+  micOn: boolean;
+  /** 0–100. */
+  speakerVolume: number;
+  changedBy?: string;
+  changedAt?: number;
+}
+
+export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
+  /* People and vehicles rather than all motion. A yard at night is full of
+     moving things that are not incidents, and a feed that cries wolf is one an
+     operator learns to ignore — which is the only failure mode that matters. */
+  detect: "people-vehicles",
+  sensitivity: "standard",
+  zones: {},
+  nightVision: "auto",
+  quality: "1080p15",
+  micOn: true,
+  speakerVolume: 70,
+};
+
 export interface CameraFeed {
   id: string;
   /** Owning tower. The fleet wall mixes cameras from several towers, so a tile

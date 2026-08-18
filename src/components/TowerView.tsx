@@ -1,6 +1,7 @@
 import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertsPanel } from "@/components/AlertsPanel";
+import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
 import { CameraTile } from "@/components/CameraTile";
 import { IconRail } from "@/components/IconRail";
 import { MobileViewBar, type MobileView } from "@/components/MobileViewBar";
@@ -8,7 +9,7 @@ import { NewAlertBanner } from "@/components/NewAlertBanner";
 import { StateSimulator, type SimState } from "@/components/StateSimulator";
 import { TopBar, type WallLayout } from "@/components/TopBar";
 import { NO_FILTER, type DateFilter } from "@/lib/dateFilter";
-import type { Alert, CameraFeed, Tower } from "@/lib/types";
+import type { Alert, CameraFeed, CameraSettings, Tower } from "@/lib/types";
 
 /**
  * One tower: its camera wall and its alerts feed.
@@ -30,6 +31,8 @@ export function TowerView({
   onToggleRecord,
   onRaiseAlert,
   onNavigate,
+  cameraSettings,
+  onChangeSettings,
   onSetStatus,
   onWatchPerson,
   onRejectMatch,
@@ -51,6 +54,10 @@ export function TowerView({
   onRaiseAlert: (towerId: string) => Alert;
   /** Rail destinations, routed by the shell. */
   onNavigate: (id: string) => void;
+  /** One camera's settings, defaulted by the shell so this view never has to
+   *  decide what an unset camera does. */
+  cameraSettings: (feedId: string) => CameraSettings;
+  onChangeSettings: (feedId: string, next: Partial<CameraSettings>) => void;
   onSetStatus: (id: string, status: Alert["status"]) => void;
   /** Enrol the person in a detection. Hands the whole alert up because the
    *  watchlist wants its frame and its zone, not just an id. */
@@ -83,6 +90,9 @@ export function TowerView({
      Desktop only. Below lg the panel is already one of two switchable views,
      so collapsing it there would just leave the operator on a blank screen. */
   const [alertsCollapsed, setAlertsCollapsed] = useState(!showAlerts);
+  /* The settings belong to the tower, not to a tile — which is why the frame
+     puts the gear in the bar above the wall rather than in a control stack. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /* The id of an alert that arrived while the feed was out of sight. Held
      separately from `alerts` because it is a notification, not a status — the
      alert stays in the list whether or not the banner is still up. */
@@ -166,6 +176,8 @@ export function TowerView({
             setAlertsCollapsed(false);
             setNewAlertId(null);
           }}
+          onOpenSettings={() => setSettingsOpen((o) => !o)}
+          settingsOpen={settingsOpen}
         />
 
         {/* Shown only where the alerts feed itself is not: collapsed on
@@ -226,6 +238,19 @@ export function TowerView({
         </main>
       </div>
 
+      {/* Over the alerts rail rather than beside it. The operator needs the
+          wall in view while they change what the camera reports, and the rail
+          is the one thing on this screen they are not reading at that moment —
+          it is a list of what already happened. */}
+      {settingsOpen ? (
+        <CameraSettingsPanel
+          tower={tower}
+          feeds={feeds}
+          settings={cameraSettings(tower.id)}
+          onChange={(next) => onChangeSettings(tower.id, next)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : (
       <AlertsPanel
         alerts={alerts}
         selectedId={selectedId}
@@ -244,6 +269,7 @@ export function TowerView({
           alertsCollapsed ? "lg:hidden" : ""
         }`}
       />
+      )}
 
       <MobileViewBar
         view={mobileView}

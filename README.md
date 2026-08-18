@@ -115,8 +115,25 @@ take their own reading's tone rather than the fill they were drawn with: the
 frame draws the sun amber, the thermometer grey and the battery green because
 that is this palette at the state it drew. Rendered as exported they would say
 that about every tower forever, which is exactly the trap the old glyph row fell
-into. The battery glyph uses the same tiers `TowerBattery` paints the cell with,
-so the reading beside the mast and the charge inside it cannot disagree.
+into.
+
+**The battery glyph fills to the charge.** The export is a single path with no
+separable outline and fill — it draws a solid battery, so there is nothing
+inside it to reveal. But `MaskIcon` paints *behind* the mask and the glyph is
+effectively a hole, so a hard-stop `linear-gradient` at the charge level lights
+the body left to right and leaves the rest at 16% white. No second export, no
+hand-drawn icon, and the same tiers `TowerBattery` paints the mast cell with, so
+the glyph and the charge inside the mast can never disagree.
+
+The charge reads across the glyph's whole width, terminal nub included: at 100%
+the nub lights with the body, which is what a full battery looks like, and below
+that it sits in the empty tone, which is where the real cell's contact is
+anyway.
+
+There is deliberately no transition on it. The tower climbs 1% a second, which
+on a 19.2px glyph is 0.19px a step — the level already moves smoothly because
+the number does, and easing a sub-pixel change would only put the bar behind the
+figure printed beside it.
 
 Temperature is new to the model. These are sealed enclosures in the sun with a
 battery inside, so heat is a reading in its own right rather than weather —

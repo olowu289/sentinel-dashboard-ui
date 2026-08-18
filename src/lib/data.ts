@@ -69,6 +69,9 @@ export const TOWERS: Tower[] = [
     tempC: 34,
     link: "good",
     serial: "SN-2208-D",
+    firmware: "4.2.1",
+    storageUsedGb: 41,
+    storageTotalGb: 128,
   },
   {
     id: "TWR-2071",
@@ -84,6 +87,9 @@ export const TOWERS: Tower[] = [
     tempC: 41,
     link: "warn",
     serial: "SN-3140-B",
+    firmware: "4.1.8",
+    storageUsedGb: 96,
+    storageTotalGb: 128,
   },
 ];
 
@@ -148,6 +154,8 @@ export const UNCLAIMED: UnclaimedUnit[] = [
     batteryPct: 62,
     tempC: 37,
     link: "good",
+    firmware: "4.2.1",
+    storageTotalGb: 128,
     cameras: [
       { id: "3318-a", poster: "/media/cam-parking-lot.jpg" },
       { id: "3318-b" },

@@ -633,9 +633,50 @@ reaches the alert feed, which makes them operational rather than preferences.
 "Why did we stop getting alerts from the gas yard" has to have an answer, and it
 is usually somebody's afternoon adjustment.
 
-Storage, power and device info are all in eufy's menu and none are here: there
-is no SD card, the tower's solar gauge already owns power, and the tower card
-carries the device info.
+Storage, power and device info are eufy's too, adapted rather than copied:
+there is no SD card, so `STORAGE` is the rolling on-tower buffer and the two
+levers on it; `POWER` is a working mode, because these towers are off-grid and
+the panel is the only thing refilling the battery; `DEVICE INFO` is read-only
+and exists because when a camera misbehaves the first two questions are which
+box it is and what it is running.
+
+### Layout
+
+Six groups and fifteen rows in a 417px column, so the shape is doing most of
+the work. One card per group with hairlines inside it, not a stack of tiles —
+[alias](https://mobbin.com/screens/59ae5210-ba18-4656-9d77-44492499e263),
+[Apple Fitness](https://mobbin.com/screens/552d43ea-2598-4822-aef2-52e767f5da79)
+and [Character AI](https://mobbin.com/screens/0a65f4fd-71b8-4fdd-9572-b088b0568e5e)
+all do this, and it is what makes a group heading mean anything at 12px muted.
+Group headers get a rule and real air above them for the same reason.
+
+A group with exactly one number to report carries it on its own header line —
+`STORAGE … 41 GB of 128 GB`, `POWER … 100%`. That halves the height and drops a
+label the heading already carried. `DEVICE INFO` has four and keeps them as
+rows.
+
+Those rows are `Reading`s: same card, same shape as a control row, and **no
+chevron** — which is the whole signal. They were styled the other way for a
+while (no card, inverted label and value, sitting on the panel ground) so they
+could not be mistaken for something pressable, which was right while readings
+sat *among* controls. Once the two single readings moved onto their headers,
+`DEVICE INFO` was the only group holding any — and a group with no card was the
+one group that looked broken.
+
+The scope line rides the panel title rather than the content flow. As a
+paragraph it sat immediately above the first group header and read as that
+group's introduction rather than the panel's.
+
+**No leading icons, and that is a gap rather than a decision.** Every reference
+in the corpus uses one per row, and the asset set has honest glyphs for maybe
+seven of the ten — nothing for sensitivity, night vision or stream quality.
+Seven icons and three blanks is a worse column than none. Commission those three
+and the rest follows.
+
+Changes are still stamped with `changedBy` / `changedAt`, but the panel does not
+print them: a settings screen is where you change something, and a provenance
+line at the bottom of one is read by nobody at the moment it matters. It belongs
+in an audit view.
 
 ### Zones are the exception
 

@@ -53,6 +53,13 @@ export interface Tower {
    *  what is physically stamped on the box, and it is the only handle an
    *  installer standing at the tower has. */
   serial: string;
+  /** Running firmware. Read-only here; updating one is a field operation. */
+  firmware: string;
+  /** On-tower recording, in GB. Off-grid sites buffer locally and ship on the
+   *  uplink, so this fills and empties on its own — it is a reading, not a
+   *  quota the operator manages. */
+  storageUsedGb: number;
+  storageTotalGb: number;
 }
 
 /**
@@ -73,6 +80,8 @@ export interface UnclaimedUnit {
   batteryPct: number;
   tempC: number;
   link: LinkQuality;
+  firmware: string;
+  storageTotalGb: number;
   /** Always `CAMERAS_PER_TOWER` of them. `poster` absent means the camera is
    *  wired but not returning frames — it is still named during setup, because a
    *  dead camera you cannot label is a dead camera you cannot report. */
@@ -164,6 +173,15 @@ export interface CameraSettings {
   micOn: boolean;
   /** 0–100. */
   speakerVolume: number;
+  /** Continuous costs storage and uplink; on-detection costs the seconds
+   *  before the trigger. Neither is free, which is why both say so. */
+  recording: "detection" | "continuous";
+  /** Days of footage kept on the tower before it rolls over. */
+  retentionDays: 7 | 30 | 90;
+  /** What the camera is allowed to spend. These towers are off-grid and the
+   *  panel is the only thing refilling the battery, so this is the setting a
+   *  dark winter week is actually managed with. */
+  powerMode: "performance" | "balanced" | "saver";
   changedBy?: string;
   changedAt?: number;
 }
@@ -179,6 +197,9 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
   quality: "1080p15",
   micOn: true,
   speakerVolume: 70,
+  recording: "detection",
+  retentionDays: 30,
+  powerMode: "balanced",
 };
 
 export interface CameraFeed {

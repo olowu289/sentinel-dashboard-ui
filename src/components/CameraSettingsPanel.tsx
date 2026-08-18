@@ -1,7 +1,6 @@
 import { motion } from "motion/react";
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ENTER, FADE } from "@/lib/motion";
-import { formatClockShort } from "@/lib/time";
 import {
   MAX_ZONES,
   type ActivityZone,
@@ -31,9 +30,12 @@ import {
  * eight settings, a stack of drill-ins is four taps to change one number, and
  * the operator loses the picture every time.
  *
- * And every change is stamped. These settings decide what reaches the alert
- * feed, so they are operational rather than preferences — the panel says who
- * touched it last for the same reason the watchlist says who enrolled somebody.
+ * Changes are still stamped with who made them — these decide what reaches the
+ * alert feed, so an adjustment with no name on it is an unanswerable question
+ * three shifts later. The panel no longer prints it: a settings screen is where
+ * you change something, and a provenance line at the bottom of one is read by
+ * nobody at the moment it matters. It belongs in an audit view, which is where
+ * `changedBy` and `changedAt` are waiting.
  */
 
 const DETECT: { value: CameraSettings["detect"]; label: string; note: string }[] =
@@ -94,6 +96,51 @@ const QUALITY: { value: CameraSettings["quality"]; label: string; note: string }
     },
   ];
 
+const RECORDING: {
+  value: CameraSettings["recording"];
+  label: string;
+  note: string;
+}[] = [
+  {
+    value: "detection",
+    label: "On detection",
+    note: "The default. Keeps the buffer long and the uplink quiet.",
+  },
+  {
+    value: "continuous",
+    label: "Continuous",
+    note: "Nothing is missed, and the tower fills its storage far faster.",
+  },
+];
+
+const RETENTION: { value: CameraSettings["retentionDays"]; label: string }[] = [
+  { value: 7, label: "7 days" },
+  { value: 30, label: "30 days" },
+  { value: 90, label: "90 days" },
+];
+
+/* These towers are off-grid and the solar panel is the only thing refilling the
+   battery, so this is the setting a dark week is actually managed with. Every
+   option names what it gives up, because the whole point of the choice is the
+   trade. */
+const POWER: {
+  value: CameraSettings["powerMode"];
+  label: string;
+  note: string;
+}[] = [
+  {
+    value: "performance",
+    label: "Performance",
+    note: "Full frame rate and the fastest wake. Heaviest on the battery.",
+  },
+  { value: "balanced", label: "Balanced", note: "The default." },
+  {
+    value: "saver",
+    label: "Battery saver",
+    note: "Wakes slower, so the first second of an event can be missed.",
+  },
+];
+
 export function CameraSettingsPanel({
   tower,
   feeds,
@@ -121,6 +168,11 @@ export function CameraSettingsPanel({
   const sensitivity = SENSITIVITY.find((s) => s.value === settings.sensitivity);
   const night = NIGHT.find((n) => n.value === settings.nightVision);
   const quality = QUALITY.find((q) => q.value === settings.quality);
+  const recording = RECORDING.find((r) => r.value === settings.recording);
+  const power = POWER.find((p) => p.value === settings.powerMode);
+  const usedPct = Math.round(
+    (tower.storageUsedGb / Math.max(1, tower.storageTotalGb)) * 100,
+  );
 
   if (editingZones) {
     return (
@@ -141,10 +193,18 @@ export function CameraSettingsPanel({
       transition={ENTER}
       className="flex w-full min-w-0 flex-col border-l border-line-panel bg-ink lg:w-[417px] lg:shrink-0"
     >
-      <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-line pl-[16px] pr-[14px]">
-        <h2 className="min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
-          CAMERA SETTINGS
-        </h2>
+      <header className="flex h-[52px] shrink-0 items-center justify-between gap-[12px] border-b border-line pl-[16px] pr-[14px]">
+        {/* The scope rides the title. As a paragraph in the content flow it
+            sat immediately above the first group header and read as that
+            group's introduction rather than the panel's. */}
+        <div className="flex min-w-0 flex-col">
+          <h2 className="truncate font-display text-[0.875rem] leading-[18px] tracking-[0.14px] text-white">
+            CAMERA SETTINGS
+          </h2>
+          <p className="truncate text-[0.6875rem] leading-[14px] text-muted">
+            Both cameras on {tower.id} · {feeds.map((f) => f.name).join(", ")}
+          </p>
+        </div>
         <button
           type="button"
           onClick={onClose}
@@ -162,15 +222,7 @@ export function CameraSettingsPanel({
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-[20px] overflow-y-auto px-[15px] pb-[24px] pt-[16px]">
-        {/* Said once, at the top. A panel that changes two cameras while
-            showing the name of one is the kind of thing an operator discovers
-            by breaking the camera they were not looking at. */}
-        <p className="text-[0.8125rem] leading-[20px] text-sub">
-          These apply to both cameras on {tower.id} —{" "}
-          {feeds.map((f) => f.name).join(" and ")}.
-        </p>
-
+      <div className="flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[15px] pb-[24px] pt-[18px]">
         <Group title="DETECTION">
           <Row
             label="Detect"
@@ -206,7 +258,7 @@ export function CameraSettingsPanel({
           <button
             type="button"
             onClick={() => setEditingZones(true)}
-            className="flex h-[48px] w-full items-center justify-between gap-[12px] rounded-[8px] bg-card px-[14px] text-left transition-colors hover:bg-card-hover"
+            className="flex h-[48px] w-full items-center justify-between gap-[12px] px-[14px] text-left transition-colors hover:bg-card-hover"
           >
             <span className="text-[0.875rem] text-white">Activity zones</span>
             <span className="flex items-center gap-[8px] text-[0.875rem] text-muted">
@@ -251,7 +303,7 @@ export function CameraSettingsPanel({
         </Group>
 
         <Group title="AUDIO">
-          <div className="flex h-[48px] items-center justify-between gap-[12px] rounded-[8px] bg-card px-[14px]">
+          <div className="flex h-[48px] items-center justify-between gap-[12px] px-[14px]">
             <span className="text-[0.875rem] text-white">Microphone</span>
             <Switch
               on={settings.micOn}
@@ -259,7 +311,7 @@ export function CameraSettingsPanel({
               onToggle={() => onChange({ micOn: !settings.micOn })}
             />
           </div>
-          <div className="flex flex-col gap-[10px] rounded-[8px] bg-card px-[14px] py-[12px]">
+          <div className="flex flex-col gap-[10px] px-[14px] py-[12px]">
             <div className="flex items-center justify-between">
               <span className="text-[0.875rem] text-white">Speaker volume</span>
               <span className="font-display text-[0.875rem] text-muted tabular-nums">
@@ -281,13 +333,97 @@ export function CameraSettingsPanel({
           </div>
         </Group>
 
-        {/* Who moved it last. These settings decide what reaches the feed, so
-            a change with no name on it is an unanswerable question later. */}
-        {settings.changedBy && settings.changedAt && (
-          <p className="text-[0.75rem] leading-[16px] text-muted">
-            Changed by {settings.changedBy} · {formatClockShort(settings.changedAt)}
-          </p>
-        )}
+        {/* The storage figure is a reading, not a quota. The tower buffers
+            locally and ships on the uplink, so it fills and empties on its own
+            — the operator's only levers on it are the two rows above. */}
+        <Group
+          title="STORAGE"
+          value={`${tower.storageUsedGb} GB of ${tower.storageTotalGb} GB`}
+          tone={usedPct >= 90 ? "text-warn" : undefined}
+        >
+          <Row
+            label="Recording"
+            value={recording?.label ?? ""}
+            expanded={open === "recording"}
+            onToggle={() => toggle("recording")}
+          >
+            <Choices
+              name="recording"
+              options={RECORDING}
+              value={settings.recording}
+              onPick={(v) => onChange({ recording: v })}
+            />
+          </Row>
+          <Row
+            label="Keep footage for"
+            value={`${settings.retentionDays} days`}
+            expanded={open === "retention"}
+            onToggle={() => toggle("retention")}
+          >
+            <Choices
+              name="retention"
+              options={RETENTION}
+              value={settings.retentionDays}
+              onPick={(v) => onChange({ retentionDays: v })}
+            />
+          </Row>
+        </Group>
+
+        <Group
+          title="POWER"
+          value={`${tower.batteryPct}%${tower.solar === "charging" && tower.batteryPct < 100 ? " and rising" : ""}`}
+          tone={
+            tower.batteryPct < 20
+              ? "text-critical"
+              : tower.batteryPct < 40
+                ? "text-warn"
+                : undefined
+          }
+        >
+          <Row
+            label="Working mode"
+            value={power?.label ?? ""}
+            expanded={open === "power"}
+            onToggle={() => toggle("power")}
+          >
+            <Choices
+              name="power"
+              options={POWER}
+              value={settings.powerMode}
+              onPick={(v) => onChange({ powerMode: v })}
+            />
+          </Row>
+        </Group>
+
+        {/* Read-only, and the reason this group exists at all: when a camera
+            misbehaves the first two questions are which box it is and what it
+            is running. */}
+        {/* Passed as children, not as `readings`: every row here is a reading,
+            so the group can wear the same card as the others and the absent
+            chevron is what marks them read-only. */}
+        <Group title="DEVICE INFO">
+          <Reading label="Serial" value={tower.serial} />
+          <Reading label="Firmware" value={tower.firmware} />
+          <Reading label="Cameras" value={`${feeds.length}`} />
+          <Reading
+            label="Uplink"
+            value={
+              tower.link === "good"
+                ? "Good"
+                : tower.link === "warn"
+                  ? "Fair"
+                  : "Poor"
+            }
+            tone={
+              tower.link === "bad"
+                ? "text-critical"
+                : tower.link === "warn"
+                  ? "text-warn"
+                  : undefined
+            }
+          />
+        </Group>
+
       </div>
     </motion.aside>
   );
@@ -295,19 +431,87 @@ export function CameraSettingsPanel({
 
 /* ---------------------------------------------------------------- pieces */
 
+/** A value the tower reports. No control, and it never renders blank — an
+ *  absent reading says why, the way the alert fields do. */
+/**
+ * A value the tower reports, in the same card and the same shape as a control
+ * row — the missing chevron is what says it does not open.
+ *
+ * It was styled the other way round for a while: no card, muted label, white
+ * value, sitting on the panel's own ground so it could not be mistaken for
+ * something pressable. That was right while readings sat *among* controls. Once
+ * the two single readings moved up onto their group headers, the only group
+ * left holding any was DEVICE INFO — where every row is a reading, so there is
+ * nothing to be mistaken for, and a group with no card was the one group that
+ * looked broken.
+ *
+ * Never renders blank — an absent reading says why, the way the alert fields do.
+ */
+function Reading({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="flex h-[48px] items-center justify-between gap-[12px] px-[14px]">
+      <span className="text-[0.875rem] text-white">{label}</span>
+      <span className={`text-[0.875rem] tabular-nums ${tone ?? "text-muted"}`}>
+        {value || "Not reported"}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A group is one card with hairlines inside it, not a stack of tiles.
+ *
+ * Six separate cards with 8px between them made every row float at the same
+ * weight and left the group headings doing all the work of grouping, which at
+ * 12px muted they cannot. One surface per group is what alias, Apple Fitness
+ * and Character AI all do, and it is what makes DETECTION mean something.
+ *
+ * `readings` sit *below* the card rather than inside it — see `Reading`.
+ */
 function Group({
   title,
+  value,
+  tone,
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  /** The group's own reading, on the header line. A group with one number to
+   *  report does not need a row for it — "STORAGE … 96 GB of 128 GB" says the
+   *  same thing in half the height, and drops a label the heading already
+   *  carried. Only where the group has exactly one; DEVICE INFO has four and
+   *  keeps them as rows. */
+  value?: string;
+  tone?: string;
+  children?: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-[8px]">
-      <h3 className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-        {title}
-      </h3>
-      {children}
+    <section className="flex flex-col">
+      <div className="flex items-baseline justify-between gap-[12px]">
+        <h3 className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
+          {title}
+        </h3>
+        {value && (
+          <span
+            className={`font-display text-[0.75rem] tracking-[0.12px] tabular-nums ${tone ?? "text-white"}`}
+          >
+            {value}
+          </span>
+        )}
+      </div>
+      <span aria-hidden className="mb-[12px] mt-[8px] h-px bg-line" />
+      {children && (
+        <div className="flex flex-col overflow-hidden rounded-[10px] bg-card [&>*+*]:border-t [&>*+*]:border-line">
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -326,7 +530,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-[8px] bg-card">
+    <div>
       <button
         type="button"
         onClick={onToggle}
@@ -359,7 +563,7 @@ function Row({
   );
 }
 
-function Choices<T extends string>({
+function Choices<T extends string | number>({
   name,
   options,
   value,
@@ -376,7 +580,7 @@ function Choices<T extends string>({
         const picked = o.value === value;
         return (
           <button
-            key={o.value}
+            key={String(o.value)}
             type="button"
             role="radio"
             aria-checked={picked}

@@ -91,6 +91,11 @@ export function AddTowerView({
       tempC: claim.tempC,
       link: claim.link,
       serial: claim.serial,
+      firmware: claim.firmware,
+      /* A tower joins with an empty buffer, which is the honest reading — it
+         has not recorded anything yet. */
+      storageUsedGb: 0,
+      storageTotalGb: claim.storageTotalGb,
     };
     const feeds: CameraFeed[] = claim.cameras.map((cam) => ({
       id: cam.id,
@@ -553,6 +558,9 @@ function NameSite({
     tempC: claim.tempC,
     link: claim.link,
     serial: claim.serial,
+    firmware: claim.firmware,
+    storageUsedGb: 0,
+    storageTotalGb: claim.storageTotalGb,
   };
 
   return (

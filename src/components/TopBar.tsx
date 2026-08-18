@@ -110,14 +110,11 @@ export function TopBar({
 
         {/* Only appears once the panel is collapsed — it is the sole way back,
             so it lives in the bar that is always on screen rather than in the
-            surface it restores. The rule separates it from the view control:
-            they act on different things. */}
+            surface it restores. No rule before it: the frame draws one, after
+            the view control, and the settings gear now sits on the far side of
+            it. A second rule would divide two glyphs that belong together. */}
         {alertsCollapsed && onExpandAlerts && (
           <>
-            <span
-              aria-hidden
-              className="hidden h-[14px] w-px bg-stroke lg:block"
-            />
             <button
               type="button"
               onClick={onExpandAlerts}

@@ -12,10 +12,12 @@ const STATUS: Record<TowerStatus, { label: string; dot: string }> = {
   offline: { label: "OFFLINE", dot: "bg-critical" },
 };
 
+/* "Uplink", not "Link" — the type calls it uplink quality and so does the
+   settings panel, and one radio word for one thing is the whole point. */
 const LINK_LABEL = {
-  good: "Link good",
-  warn: "Link fair",
-  bad: "Link poor",
+  good: "Uplink good",
+  warn: "Uplink fair",
+  bad: "Uplink poor",
 } as const;
 
 const SOLAR_LABEL = {

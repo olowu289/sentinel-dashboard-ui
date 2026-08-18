@@ -1,5 +1,6 @@
 import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
+import { AddTowerView } from "@/components/AddTowerView";
 import { DashboardView } from "@/components/DashboardView";
 import { TowerView } from "@/components/TowerView";
 import type { SimState } from "@/components/StateSimulator";
@@ -40,6 +41,21 @@ export function SentinelApp() {
      feeds for the same reason they are — both screens show towers, and two
      copies of a moving number disagree within a second. */
   const [towers, setTowers] = useState<Tower[]>(TOWERS);
+  /* The setup flow is a third screen rather than a modal. It is six steps deep
+     with a phone hand-off in the middle — a dialog that size is a screen
+     wearing a scrim, and it would put the fleet behind it pretending the
+     operator could still reach it. */
+  const [adding, setAdding] = useState(false);
+
+  /* A claimed tower arrives whole: the unit reported its own readings and the
+     operator named the site and the cameras. Landing straight on it is the
+     honest end of the flow — "added" is a claim you should be able to check. */
+  const addTower = useCallback((tower: Tower, feeds: CameraFeed[]) => {
+    setTowers((prev) => [...prev, tower]);
+    setFeeds((prev) => [...prev, ...feeds]);
+    setAdding(false);
+    setOpen({ id: tower.id, showAlerts: false });
+  }, []);
   /* null is the fleet. The dashboard is the landing screen because it is the
      parent the tower view's breadcrumb has always named.
 
@@ -236,13 +252,16 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
-      {open === null ? (
+      {adding ? (
+        <AddTowerView onCancel={() => setAdding(false)} onAdd={addTower} />
+      ) : open === null ? (
         <DashboardView
           towers={towers}
           feeds={feeds}
           alerts={alerts}
           order={wallOrder}
           onReorder={reorderWall}
+          onAddTower={() => setAdding(true)}
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
         />

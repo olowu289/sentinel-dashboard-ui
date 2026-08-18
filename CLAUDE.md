@@ -59,6 +59,11 @@ Springs overshoot, which on a wall of cameras reads as the stream glitching.
 There are deliberately no CSS motion tokens — the standing keyframes in
 `index.css` own their own timings.
 
+**A tower has exactly two cameras.** `CAMERAS_PER_TOWER` in `types.ts`. It is
+the hardware, and the fleet wall is built on it — a band is one site's header
+over one row of two tiles, which is what the design draws and why the wall caps
+its columns at two. Seed a third camera and the wall stops being a row per site.
+
 **The wall's bands are derived, never stored.** `DashboardView` groups the flat
 `order` by `towerId` — a tower sits where its first camera does. Adding a second
 piece of state for band order gives you two arrangements that drift apart the

@@ -107,10 +107,15 @@ export function TowerCard({
         latest ? "h-[173px]" : "h-[129px]"
       }`}
     >
+      {/* No `title` here on purpose. It used to carry the telemetry string, and
+          the browser drew it as an OS tooltip over the card the moment a
+          pointer crossed the name or the status word — a second, uglier copy of
+          what the mast panel now shows, arriving first and in the wrong place.
+          The reading still lives in `aria-label`, which is where it was always
+          doing the real work. */}
       <button
         type="button"
         onClick={onOpen}
-        title={telemetry}
         aria-label={`${tower.id}, ${tower.site} — ${status.label}. ${telemetry}.`}
         className="absolute inset-0 rounded-[12px]"
       />

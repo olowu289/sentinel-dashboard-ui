@@ -309,6 +309,90 @@ the entire job. On a phone the fleet *is* the list, and the wall you actually
 want belongs to one tower, one tap away, already laid out for the screen. Band
 reordering goes with it: HTML5 drag never fires on touch.
 
+## Adding a tower
+
+Adding a tower is a **claim**, not a create. The design's own copy says the unit
+is installed and powered on before anyone opens this screen, so nothing in the
+flow asks the operator to describe their own hardware — charge, temperature,
+uplink and camera count all come off the box. It asks for the two things the box
+cannot know, the site's name and each camera's zone, and then shows the readings
+arriving so the operator can see it is actually live.
+
+Six steps: intro (`108:1150`, built as drawn) → phone hand-off *or* manual
+entry → name the site → name the cameras → bringing it online → the tower view.
+It is a screen, not a modal: six steps deep with a device hand-off in the middle
+is a screen wearing a scrim, and a dialog would put the fleet behind it
+pretending the operator could still reach it.
+
+### The hand-off
+
+The QR is printed inside a cabinet door, in a field, and this is a desktop
+console. So `Scan QR Code` cannot mean "point this machine at it" — every
+comparable pattern has the desktop *displaying* a QR for a phone, which is the
+opposite direction. It means hand the job to a phone: the desktop shows a link,
+the phone does the scanning, and **this page advances by itself** when the claim
+lands. A Continue button after work that already happened on the phone would
+make one flow read as two.
+
+The QR encodes nothing. There is no backend to point it at, and a real-looking
+code that resolves to nothing is a more convincing lie than an obviously fake
+one — the module grid is derived from the pairing code so it is at least stable
+across renders. Swap it for a real encoder when there is a link worth encoding.
+
+Manual entry is one input behind six boxes, not six inputs: six fields need
+focus-shuttling, break paste, and turn a backspace into a puzzle. The caret is a
+ring on the active box instead.
+
+### Naming
+
+The site step renders a **live `TowerCard`** of what you are typing. `PLACE:
+ZONE` — `WAREHOUSE: PARKING LOT` — is a two-part convention nobody infers from a
+placeholder, and one keystroke against the real card teaches it in a way helper
+text cannot. Above it
+sits the claimed unit read-only — the point is not the metadata, it is
+confirming you have hold of the right box before you name it.
+
+The camera step puts the first frame beside each field, because you name what
+you can see. A camera returning nothing says `NO SIGNAL` and is still named: a
+dead camera you cannot label is a dead camera you cannot report. Both names are
+required — they end up in every chip on both walls.
+
+### Bringing it online
+
+Four readings resolving in order, in the fleet's own green/amber/red, rather than
+a spinner or a `Done ✓`. This is a monitoring product; the honest last screen is
+the tower reporting itself, and it is the first thing that teaches an operator
+what the card colours mean.
+
+**Amber does not block.** The tower is already claimed and real by this point;
+refusing to finish because a camera is down would leave the operator holding a
+site they cannot see. `status` is derived from the readings, not chosen — a new
+tower with a dead camera joins the fleet `degraded`, because saying `online`
+because it is new is exactly the lie the dashboard exists to catch.
+
+### Copy
+
+The flow was reviewed against Material's UX writing guidance and rewritten in
+places. The pattern the review caught is worth remembering: three screens were
+explaining *why the design is right* rather than what to do — no camera on the
+console, not a progress bar, the tower cannot know its own name. That reasoning
+is correct and it belongs here, in this file. On screen it cost the operator a
+sentence before they learned what to press.
+
+The intro's secondary button now reads `Enter serial instead` rather than the
+frame's `Manually Enter` — verb-first, and the same words the hand-off uses for
+the same destination. Worth pushing back into `108:1150`.
+
+### Not built
+
+Three states still have no copy because they have no code: a unit already
+claimed by another organisation, a unit claimed with no uplink, and a blocked
+clipboard. Abandoning the flow after the claim currently drops it. The honest behaviour is
+that the claim is real from the moment the phone scans, so the tower should
+already exist as an unnamed row in the panel with a `Finish setup` action — that
+needs a pending state in `TowersPanel` first, and a half-built one would be a
+button that goes nowhere.
+
 ## Tower view layout
 
 Three panes at 1024px and up: a 71px icon rail, the camera wall, and a 417px

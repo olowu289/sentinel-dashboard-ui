@@ -5,6 +5,7 @@ import type {
   CameraFeed,
   TimelineEvent,
   Tower,
+  UnclaimedUnit,
 } from "./types";
 
 const CLIP_THUMB = "/media/clip-thumb.jpg";
@@ -66,6 +67,7 @@ export const TOWERS: Tower[] = [
     batteryPct: 87,
     tempC: 34,
     link: "good",
+    serial: "SN-2208-D",
   },
   {
     id: "TWR-2071",
@@ -80,6 +82,7 @@ export const TOWERS: Tower[] = [
     batteryPct: 5,
     tempC: 41,
     link: "warn",
+    serial: "SN-3140-B",
   },
 ];
 
@@ -128,6 +131,36 @@ export const FEEDS: CameraFeed[] = [
 ];
 
 /** Cameras belonging to one tower, in seed order. */
+/**
+ * Standing in for the units the platform knows about but nobody has claimed.
+ *
+ * Two cameras, because that is what the hardware carries — see `CAMERAS_PER_TOWER`.
+ * One of them ships with no poster on purpose: a tower where every feed comes up
+ * first time is not the tower setup has to survive.
+ */
+export const UNCLAIMED: UnclaimedUnit[] = [
+  {
+    towerId: "TWR-3318",
+    serial: "SN-4471-A",
+    pairingCode: "481027",
+    solar: "charging",
+    batteryPct: 62,
+    tempC: 37,
+    link: "good",
+    cameras: [
+      { id: "3318-a", poster: "/media/cam-parking-lot.jpg" },
+      { id: "3318-b" },
+    ],
+  },
+];
+
+export function findUnclaimed(serial: string, pairingCode: string) {
+  const wanted = serial.trim().toUpperCase();
+  return UNCLAIMED.find(
+    (u) => u.serial.toUpperCase() === wanted && u.pairingCode === pairingCode,
+  );
+}
+
 export function feedsForTower(feeds: CameraFeed[], towerId: string) {
   return feeds.filter((f) => f.towerId === towerId);
 }

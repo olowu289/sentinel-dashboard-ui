@@ -24,6 +24,14 @@ export type LinkQuality = "good" | "warn" | "bad";
  */
 export type TowerStatus = "online" | "degraded" | "offline";
 
+/**
+ * A tower carries exactly two cameras. This is the hardware, not a layout
+ * choice, and the fleet wall is built on it: a band is one site's header over
+ * one row of two tiles, which is what the design draws and why the wall caps
+ * its columns at two. Change this and the wall stops being a row per site.
+ */
+export const CAMERAS_PER_TOWER = 2;
+
 export interface Tower {
   id: string;
   /** Site the tower watches, e.g. "WAREHOUSE: PARKING LOT". */
@@ -40,6 +48,35 @@ export interface Tower {
   tempC: number;
   /** Uplink quality — the same three tiers the tile chips use. */
   link: LinkQuality;
+  /** Chassis serial, printed on the cabinet label beside the QR. The id is
+   *  assigned by the platform and is what gets spoken on the radio; this is
+   *  what is physically stamped on the box, and it is the only handle an
+   *  installer standing at the tower has. */
+  serial: string;
+}
+
+/**
+ * A unit that exists in the field and has not been claimed by anyone yet.
+ *
+ * Everything a tower knows about itself — charge, temperature, uplink, how many
+ * cameras it has — comes off the hardware at claim time. The setup flow asks a
+ * human for exactly two things it cannot read: what to call the site, and what
+ * to call each camera. Anything else on this screen would be a field the
+ * operator can get wrong about their own equipment.
+ */
+export interface UnclaimedUnit {
+  towerId: string;
+  serial: string;
+  /** Printed under the QR inside the cabinet door. */
+  pairingCode: string;
+  solar: Tower["solar"];
+  batteryPct: number;
+  tempC: number;
+  link: LinkQuality;
+  /** Always `CAMERAS_PER_TOWER` of them. `poster` absent means the camera is
+   *  wired but not returning frames — it is still named during setup, because a
+   *  dead camera you cannot label is a dead camera you cannot report. */
+  cameras: { id: string; poster?: string }[];
 }
 
 export interface CameraFeed {

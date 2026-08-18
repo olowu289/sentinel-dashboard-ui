@@ -29,6 +29,7 @@ export function DashboardView({
   alerts,
   order,
   onReorder,
+  onAddTower,
   onOpenTower,
   onRetryFeed,
 }: {
@@ -44,6 +45,8 @@ export function DashboardView({
    *  it, and stepping through that one tile at a time would walk the wall
    *  through arrangements nobody asked for. */
   onReorder: (next: string[]) => void;
+  /** The rail's `+`. Claiming a tower is a screen, not a dialog. */
+  onAddTower: () => void;
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
   onRetryFeed: (feedId: string) => void;
 }) {
@@ -133,10 +136,12 @@ export function DashboardView({
            instead, to the site something last happened at; a nav item that
            returns you to the screen you are already on is a dead control, and
            the fleet's own list is right there in the panel beside it. The
-           remaining four are decorative and still not wired. */
+           `+` opens the setup flow. The remaining three are decorative and
+           still not wired. */
         onSelect={(id) => {
           if (id === "dashboard") setFullscreenId(null);
           if (id === "towers" && lastActive) onOpenTower(lastActive);
+          if (id === "add") onAddTower();
         }}
         className="hidden lg:block"
       />

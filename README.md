@@ -383,11 +383,31 @@ The intro's secondary button now reads `Enter serial instead` rather than the
 frame's `Manually Enter` — verb-first, and the same words the hand-off uses for
 the same destination. Worth pushing back into `108:1150`.
 
+### Leaving before you finish
+
+The claim is real from the moment the phone scans — that is what claiming
+means — so leaving the flow cannot throw it away. It would strand a tower
+nobody can see and nobody else can claim. Every exit runs through one `leave()`
+that hands the draft back to the shell, and the tower waits at the top of the
+towers panel with whatever naming was done. `Finish setup` resumes at the site
+step with the typed name still in the field; making an operator re-scan a tower
+they have already claimed is asking them to prove something they have proved.
+
+`PendingTowerCard` is deliberately **not** a `TowerCard`. That card is a set of
+readings, and this tower has none yet, because nobody has told it what it is
+watching. Rendering it as a fleet card with the readings blanked would be the
+one thing this dashboard must never do — show a site that looks monitored and
+is not. So it takes no status dot and no hue: green, amber and red are readings
+here, and a dashed edge says "not yet real" without spending a colour. It stays
+off the wall entirely until its cameras have names.
+
 ### Not built
 
 Three states still have no copy because they have no code: a unit already
 claimed by another organisation, a unit claimed with no uplink, and a blocked
-clipboard. Abandoning the flow after the claim currently drops it. The honest behaviour is
+clipboard. There is also no way to release a claim — a pending tower can only be
+finished, not handed back — because releasing one is a destructive operation
+that needs a confirmation step, and a half-built one would be worse than none. The honest behaviour is
 that the claim is real from the moment the phone scans, so the tower should
 already exist as an unnamed row in the panel with a `Finish setup` action — that
 needs a pending state in `TowersPanel` first, and a half-built one would be a

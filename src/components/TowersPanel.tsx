@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { Alert, Tower } from "@/lib/types";
+import type { Alert, PendingTower, Tower } from "@/lib/types";
+import { PendingTowerCard } from "./PendingTowerCard";
 import { TowerCard } from "./TowerCard";
 
 /**
@@ -10,11 +11,17 @@ import { TowerCard } from "./TowerCard";
 export function TowersPanel({
   towers,
   alerts,
+  pending,
+  onResumeSetup,
   onOpenTower,
   className = "",
 }: {
   towers: Tower[];
   alerts: Alert[];
+  /** Claimed, not finished. Sits at the top because it is the only card on
+   *  this panel with something outstanding on it. */
+  pending?: PendingTower | null;
+  onResumeSetup?: () => void;
   /** `showAlerts` lands the tower view on its alerts feed rather than its
    *  wall — the count on a card is a question about alerts, so answering it
    *  should not cost a second click once you are inside. */
@@ -57,6 +64,13 @@ export function TowersPanel({
           of the 46px bar. Extra bottom padding on small screens so the last
           card scrolls clear of the home indicator. */}
       <div className="flex min-h-0 flex-1 flex-col gap-[8px] overflow-y-auto px-[15px] pb-[calc(20px+env(safe-area-inset-bottom))] pt-[12px]">
+        {pending && (
+          <PendingTowerCard
+            pending={pending}
+            onResume={() => onResumeSetup?.()}
+          />
+        )}
+
         {towers.map((tower) => (
           <TowerCard
             key={tower.id}

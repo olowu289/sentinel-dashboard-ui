@@ -4,7 +4,7 @@ import { MaskIcon } from "@/components/Icon";
 import { MonitorTile } from "@/components/MonitorTile";
 import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
-import type { Alert, CameraFeed, Tower } from "@/lib/types";
+import type { Alert, CameraFeed, PendingTower, Tower } from "@/lib/types";
 
 /**
  * The fleet view: every tower on the left, every camera on the right.
@@ -29,7 +29,9 @@ export function DashboardView({
   alerts,
   order,
   onReorder,
+  pending,
   onAddTower,
+  onResumeSetup,
   onOpenTower,
   onRetryFeed,
 }: {
@@ -45,8 +47,11 @@ export function DashboardView({
    *  it, and stepping through that one tile at a time would walk the wall
    *  through arrangements nobody asked for. */
   onReorder: (next: string[]) => void;
+  /** A claim that has landed but not been finished, if there is one. */
+  pending: PendingTower | null;
   /** The rail's `+`. Claiming a tower is a screen, not a dialog. */
   onAddTower: () => void;
+  onResumeSetup: () => void;
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
   onRetryFeed: (feedId: string) => void;
 }) {
@@ -149,6 +154,8 @@ export function DashboardView({
       <TowersPanel
         towers={towers}
         alerts={alerts}
+        pending={pending}
+        onResumeSetup={onResumeSetup}
         onOpenTower={onOpenTower}
         className="flex"
       />

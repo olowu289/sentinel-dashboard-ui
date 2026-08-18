@@ -12,7 +12,7 @@ import {
   feedsForTower,
   findTower,
 } from "@/lib/data";
-import type { Alert, CameraFeed, Tower } from "@/lib/types";
+import type { Alert, CameraFeed, PendingTower, Tower } from "@/lib/types";
 
 const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
 
@@ -46,6 +46,11 @@ export function SentinelApp() {
      wearing a scrim, and it would put the fleet behind it pretending the
      operator could still reach it. */
   const [adding, setAdding] = useState(false);
+  /* A claim survives leaving the flow. The unit belongs to this operator from
+     the moment the phone scans, so dropping it on a navigation would strand a
+     tower nobody can see and nobody else can claim — it waits in the panel
+     instead, with whatever naming was done. */
+  const [pending, setPending] = useState<PendingTower | null>(null);
 
   /* A claimed tower arrives whole: the unit reported its own readings and the
      operator named the site and the cameras. Landing straight on it is the
@@ -53,6 +58,7 @@ export function SentinelApp() {
   const addTower = useCallback((tower: Tower, feeds: CameraFeed[]) => {
     setTowers((prev) => [...prev, tower]);
     setFeeds((prev) => [...prev, ...feeds]);
+    setPending(null);
     setAdding(false);
     setOpen({ id: tower.id, showAlerts: false });
   }, []);
@@ -253,7 +259,14 @@ export function SentinelApp() {
   return (
     <MotionConfig reducedMotion="user">
       {adding ? (
-        <AddTowerView onCancel={() => setAdding(false)} onAdd={addTower} />
+        <AddTowerView
+          pending={pending}
+          onCancel={(draft) => {
+            setPending(draft);
+            setAdding(false);
+          }}
+          onAdd={addTower}
+        />
       ) : open === null ? (
         <DashboardView
           towers={towers}
@@ -261,7 +274,9 @@ export function SentinelApp() {
           alerts={alerts}
           order={wallOrder}
           onReorder={reorderWall}
+          pending={pending}
           onAddTower={() => setAdding(true)}
+          onResumeSetup={() => setAdding(true)}
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
         />

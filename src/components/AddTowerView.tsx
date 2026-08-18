@@ -5,7 +5,12 @@ import { MaskIcon } from "@/components/Icon";
 import { TowerCard } from "@/components/TowerCard";
 import { ENTER, FADE } from "@/lib/motion";
 import { findUnclaimed, UNCLAIMED } from "@/lib/data";
-import type { CameraFeed, Tower, UnclaimedUnit } from "@/lib/types";
+import type {
+  CameraFeed,
+  PendingTower,
+  Tower,
+  UnclaimedUnit,
+} from "@/lib/types";
 
 /**
  * Adding a tower is a *claim*, not a create.
@@ -31,18 +36,33 @@ const HANDOFF_MS = 4500;
 const CHECKS = ["UPLINK", "SOLAR", "BATTERY", "FIRST FRAME"] as const;
 
 export function AddTowerView({
+  pending,
   onCancel,
   onAdd,
 }: {
-  /** Back to the fleet. Anything claimed but unnamed is dropped — see the note
-   *  in the README; a half-set-up tower needs a home in the panel first. */
-  onCancel: () => void;
+  /** A claim left unfinished on a previous visit. Setup resumes from it rather
+   *  than starting over — the unit is already this operator's, and making them
+   *  re-scan a tower they have already claimed is asking them to prove
+   *  something they have proved. */
+  pending?: PendingTower | null;
+  /** Back to the fleet, carrying whatever has been claimed and typed so far.
+   *  `null` only when nothing was claimed. */
+  onCancel: (draft: PendingTower | null) => void;
   onAdd: (tower: Tower, feeds: CameraFeed[]) => void;
 }) {
-  const [step, setStep] = useState<Step>("intro");
-  const [claim, setClaim] = useState<UnclaimedUnit | null>(null);
-  const [site, setSite] = useState("");
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [step, setStep] = useState<Step>(pending ? "site" : "intro");
+  const [claim, setClaim] = useState<UnclaimedUnit | null>(
+    pending?.unit ?? null,
+  );
+  const [site, setSite] = useState(pending?.site ?? "");
+  const [names, setNames] = useState<Record<string, string>>(
+    pending?.names ?? {},
+  );
+
+  /* Every exit runs through here. A claim in hand becomes a draft in the panel;
+     nothing claimed leaves nothing behind. */
+  const leave = () =>
+    onCancel(claim ? { unit: claim, site, names } : null);
 
   const claimed = (unit: UnclaimedUnit) => {
     setClaim(unit);
@@ -91,7 +111,7 @@ export function AddTowerView({
           >
             <button
               type="button"
-              onClick={onCancel}
+              onClick={leave}
               title="Back to all towers"
               className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
             >
@@ -553,7 +573,10 @@ function NameSite({
           </dd>
           <dt className="sr-only">Serial</dt>
           <dd className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">
-            {claim.serial} · claimed just now
+            {/* No "claimed just now" — it stops being true the moment setup
+                is resumed, and the CONNECTED chip beside it already says the
+                state. A time nobody can act on is not worth being wrong about. */}
+            {claim.serial}
           </dd>
         </div>
         <span className="flex items-center gap-[6px] font-display text-[0.75rem] tracking-[0.12px] text-terra">

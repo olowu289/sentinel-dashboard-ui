@@ -79,6 +79,21 @@ export interface UnclaimedUnit {
   cameras: { id: string; poster?: string }[];
 }
 
+/**
+ * A claim that has landed but has not been finished.
+ *
+ * The unit is already this operator's from the moment the phone scans — that is
+ * what claiming means — so dropping it because they navigated away would strand
+ * a tower nobody can see and nobody else can claim. It waits in the panel with
+ * whatever naming was done, and setup resumes where it stopped.
+ */
+export interface PendingTower {
+  unit: UnclaimedUnit;
+  /** Whatever the operator had typed. Empty until they reach the site step. */
+  site: string;
+  names: Record<string, string>;
+}
+
 export interface CameraFeed {
   id: string;
   /** Owning tower. The fleet wall mixes cameras from several towers, so a tile

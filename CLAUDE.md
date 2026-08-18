@@ -35,8 +35,10 @@ comments at the site. Changing one is a real decision, not a cleanup.
 fault or live transmission. Nothing else gets a hue. Do not reach for `terra` to
 mean "selected", "primary" or "success" — selection and primary actions are
 white-on-black. A green pill on a monitoring screen reads as a signal, not a
-setting. `--color-drag` is the one blue, and it is allowed *because* it is
-outside that set: a held band has to say "you have this" without also seeming to
+setting. The one extension is `PendingTowerCard`, which the design washes in
+20% detect amber for a tower whose setup is unfinished — not a reading, but the
+same claim amber always makes: *this needs you*. `--color-drag` is the one blue,
+and it is allowed *because* it is outside that set: a held band has to say "you have this" without also seeming to
 report on the site. It exists for the length of a gesture. Do not spend it on
 anything that persists.
 

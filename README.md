@@ -397,9 +397,27 @@ they have already claimed is asking them to prove something they have proved.
 readings, and this tower has none yet, because nobody has told it what it is
 watching. Rendering it as a fleet card with the readings blanked would be the
 one thing this dashboard must never do — show a site that looks monitored and
-is not. So it takes no status dot and no hue: green, amber and red are readings
-here, and a dashed edge says "not yet real" without spending a colour. It stays
-off the wall entirely until its cameras have names.
+is not. It takes no status dot, and it stays off the wall entirely until its
+cameras have names.
+
+The frame (`152:3386`) gives it a 20% wash of detect amber and a white pill.
+That stretches the palette one notch — amber has meant "degraded or a
+detection", and this is neither — but the underlying claim is the same in both
+cases: *something here is unfinished and it is on you*. It is the only card on
+the panel carrying an outstanding action. The mast is drawn without its battery
+cell, because a tower nobody has named is not reporting a charge either, and
+`twr-mast.svg` is exactly that drawing.
+
+The pill is inert. The whole card is the target, so if `FINISH SETUP` captured
+the pointer the most obviously clickable thing on the card would be its one dead
+spot.
+
+Two copy changes against the frame. It writes "finish set up" on the first line
+and "FINISH SETUP" on the button — two words is the verb, one word is the noun,
+and *finish* takes the noun. And `Step 3/4 remaining` reads as "step 3 of 4",
+which is which-step-you-are-on, while meaning the opposite: after a claim you
+are on step 2 and three are left. It reads `3 of 4 steps left`, and it counts
+down as the site and the cameras get named rather than sitting on 3.
 
 ### Not built
 

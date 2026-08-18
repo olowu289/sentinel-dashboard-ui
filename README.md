@@ -467,9 +467,34 @@ matching on their own and have to be extended deliberately. Extending runs from
 *now*, not from the old expiry: renewing a lapsed entry is a fresh decision to
 watch somebody, not a correction of a clerical slip.
 
-Expired entries are never deleted. They drop to their own section, stop
-matching, and stay readable — a list that quietly forgets who was on it is a
-list nobody can audit. `addedBy` is on every entry for the same reason.
+Expired entries drop to their own section, stop matching, and stay readable — a
+list that quietly forgets who was on it is a list nobody can audit. `addedBy` is
+on every entry for the same reason.
+
+### Taking somebody off
+
+Two halves, and the split is the point. **Stop watching** is what an operator
+does when somebody should not be watched any more: matching ends immediately and
+the entry drops to `EXPIRED`, where it can still be read. **Delete entry** is
+only offered once it is already stopped — you cannot erase the record of
+somebody the fleet is still looking for, and by then the entry is a record
+rather than an instruction. Deleting never touches the alerts a person's matches
+raised: those record what a camera saw, which happened whether or not the entry
+still exists.
+
+Both confirm inline rather than in a dialog. This app has no dialog primitive,
+and inventing one for a two-line consequence would be a bigger decision than the
+action it guards — but the consequence is still read before the second press.
+
+The confirm closes when the action fires, and that is load-bearing. It is keyed
+to the person rather than to the action, so leaving it open re-armed it as
+`Delete entry` the instant watching stopped: the second press of a two-press
+guard landing on a different and worse action than the one it was aimed at.
+
+Deleting lands on whoever is next in the list, not on nothing. The panel also
+distinguishes an empty list from an empty selection — telling an operator that
+nobody is on the list while three people sit in the panel beside it is the kind
+of wrong that makes them distrust the rest of the screen.
 
 ### Enrolment has two doors, and the obvious one is secondary
 

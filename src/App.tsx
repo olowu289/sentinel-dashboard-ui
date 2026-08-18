@@ -140,6 +140,26 @@ export function SentinelApp() {
     ]);
   }, []);
 
+  /* Two halves of one removal, and the split is the point. Stopping is what an
+     operator does when somebody should not be watched any more: matching ends
+     immediately, and the entry drops to EXPIRED where it can still be read.
+     Deleting is only offered once it is already stopped — you cannot erase the
+     record of somebody the fleet is still looking for, and by then the entry is
+     a record rather than an instruction. */
+  const stopWatching = useCallback((personId: string) => {
+    setPeople((prev) =>
+      prev.map((p) =>
+        p.id === personId ? { ...p, expiresAt: Date.now() } : p,
+      ),
+    );
+  }, []);
+
+  /* The alerts a person's matches raised are not touched. They record what a
+     camera saw, which happened whether or not the entry still exists. */
+  const deletePerson = useCallback((personId: string) => {
+    setPeople((prev) => prev.filter((p) => p.id !== personId));
+  }, []);
+
   /* Extending is always a deliberate act, and always from *now* rather than
      from the old expiry — renewing a lapsed entry is a fresh decision to watch
      somebody, not a correction of a clerical slip. */
@@ -375,6 +395,8 @@ export function SentinelApp() {
             setEnrolFrom(null);
           }}
           onExtend={extendWatch}
+          onStopWatching={stopWatching}
+          onDelete={deletePerson}
         />
       ) : adding ? (
         <AddTowerView

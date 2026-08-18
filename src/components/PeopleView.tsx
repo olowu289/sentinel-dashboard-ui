@@ -34,6 +34,8 @@ export function PeopleView({
   onBack,
   onEnrol,
   onExtend,
+  onStopWatching,
+  onDelete,
 }: {
   people: Person[];
   /** Every alert in the fleet. Sightings are found in here by
@@ -51,6 +53,10 @@ export function PeopleView({
   onBack: () => void;
   onEnrol: (person: Omit<Person, "id">) => void;
   onExtend: (personId: string, days: number) => void;
+  /** Take somebody off the list. Matching ends now; the entry stays, expired. */
+  onStopWatching: (personId: string) => void;
+  /** Erase the entry. Only offered once it is already stopped. */
+  onDelete: (personId: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(
     people[0]?.id ?? null,
@@ -173,15 +179,32 @@ export function PeopleView({
           />
         ) : selected ? (
           <PersonDetail
+            /* Keyed so the confirm state below cannot survive a swap and
+               appear against the next person — the same trap `AlertDetail`
+               documents. */
+            key={selected.id}
             person={selected}
             sightings={sightingsFor(selected.id)}
             onExtend={(days) => onExtend(selected.id, days)}
+            onStopWatching={() => onStopWatching(selected.id)}
+            onDelete={() => {
+              /* Land on whoever is next rather than on nothing. Deleting one
+                 entry is not a reason to be shown an empty panel. */
+              const next = people.find((p) => p.id !== selected.id);
+              onDelete(selected.id);
+              setSelectedId(next?.id ?? null);
+            }}
           />
         ) : (
+          /* Two different nothings. An empty list is a state to act on; no
+             selection against a full list is just a panel waiting, and telling
+             an operator the list is empty while three people sit beside it is
+             the kind of wrong that makes them distrust the rest of it. */
           <div className="flex flex-1 items-center justify-center px-[24px] text-center">
             <p className="max-w-[360px] text-[0.875rem] leading-[20px] text-muted">
-              Nobody is on the list yet. Add a person and the fleet raises an
-              alert when a camera sees a possible match.
+              {people.length === 0
+                ? "Nobody is on the list yet. Add a person and the fleet raises an alert when a camera sees a possible match."
+                : "Choose somebody to see why they are watched for and where they have been seen."}
             </p>
           </div>
         )}
@@ -251,12 +274,21 @@ function PersonDetail({
   person,
   sightings,
   onExtend,
+  onStopWatching,
+  onDelete,
 }: {
   person: Person;
   sightings: Alert[];
   onExtend: (days: number) => void;
+  onStopWatching: () => void;
+  onDelete: () => void;
 }) {
   const expired = isExpired(person);
+  /* An inline confirm rather than a dialog. This app has no dialog primitive,
+     and inventing one for a two-line consequence would be a bigger decision
+     than the action it guards — but the consequence still has to be read
+     before the second press, so the step is not skippable. */
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <motion.div
@@ -304,17 +336,63 @@ function PersonDetail({
 
         {/* Extending is the deliberate act. Nothing renews on its own, which is
             the whole point of having an expiry at all. */}
-        <div className="flex items-center gap-[8px]">
-          <button
-            type="button"
-            onClick={() => onExtend(DEFAULT_DAYS)}
-            className="h-[36px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
-          >
-            {expired
-              ? `Watch again for ${DEFAULT_DAYS} days`
-              : `Extend by ${DEFAULT_DAYS} days`}
-          </button>
-        </div>
+        {confirming ? (
+          <div className="flex flex-col gap-[10px] rounded-[12px] bg-critical/12 p-[14px]">
+            <p className="text-[0.875rem] leading-[20px] text-white">
+              {expired
+                ? `Delete ${person.name}'s entry? This cannot be undone. The alerts their matches raised are kept.`
+                : `Stop watching ${person.name}? Cameras stop matching straight away. The entry stays on the list, marked expired.`}
+            </p>
+            <div className="flex items-center gap-[8px]">
+              <button
+                type="button"
+                /* Closing after the stop is load-bearing. The panel is keyed to
+                   the person, not to the action, so leaving it open re-armed it
+                   as `Delete entry` the instant watching stopped — the second
+                   press of a two-press guard landing on a different, worse
+                   action than the one it was aimed at. */
+                onClick={() => {
+                  setConfirming(false);
+                  if (expired) onDelete();
+                  else onStopWatching();
+                }}
+                className="h-[36px] rounded-[8px] bg-critical px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
+              >
+                {expired ? "Delete entry" : "Stop watching"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="h-[36px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-[8px]">
+            <button
+              type="button"
+              onClick={() => onExtend(DEFAULT_DAYS)}
+              className="h-[36px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+            >
+              {expired
+                ? `Watch again for ${DEFAULT_DAYS} days`
+                : `Extend by ${DEFAULT_DAYS} days`}
+            </button>
+            {/* Deleting is only reachable once watching has stopped. You cannot
+                erase the record of somebody the fleet is still looking for; by
+                the time it is expired the entry is a record, not an
+                instruction. */}
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="h-[36px] rounded-[8px] px-[14px] text-[0.8125rem] font-medium text-critical transition-colors hover:bg-critical/12"
+            >
+              {expired ? "Delete entry" : "Stop watching"}
+            </button>
+          </div>
+        )}
 
         <section className="flex flex-col gap-[10px]">
           <h2 className="font-display text-[0.75rem] tracking-[0.12px] text-muted">

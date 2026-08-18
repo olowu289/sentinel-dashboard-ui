@@ -135,6 +135,20 @@ on a 19.2px glyph is 0.19px a step — the level already moves smoothly because
 the number does, and easing a sub-pixel change would only put the bar behind the
 figure printed beside it.
 
+**The sun pulses while the array is charging** — two seconds, brightening and
+swelling, the same heartbeat the live dot keeps. Only while charging: an idle or
+faulted array is a still sun, and the stillness is the reading.
+
+Two seconds rather than the four the battery sweep uses, and that is the whole
+consideration. This glyph is only ever on screen while a pointer is parked on
+the mast, so it has to read inside a *hover* rather than over a shift — matching
+the sweep was the tidier idea and the wrong one, because nobody hovers long
+enough to see half of a four-second cycle.
+
+It brightens rather than turning. A sun does not rotate, and a rotating one
+reads as a spinner, which would say "working on it" about a thing that is simply
+happening.
+
 Temperature is new to the model. These are sealed enclosures in the sun with a
 battery inside, so heat is a reading in its own right rather than weather —
 amber from 45°C, red from 55.

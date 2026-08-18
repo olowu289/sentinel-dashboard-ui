@@ -221,8 +221,16 @@ export function TowerCard({
           className="pointer-events-none absolute bottom-[24px] right-[-18px] flex h-[32px] origin-bottom-right scale-95 items-center rounded-[8px] bg-black/60 opacity-0 backdrop-blur-[4px] transition-[opacity,transform] duration-150 ease-out group-hover/mast:scale-100 group-hover/mast:opacity-100 group-focus-visible/mast:scale-100 group-focus-visible/mast:opacity-100"
         >
           <span className="flex items-center gap-[6px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/78">
+            {/* Only while it is actually taking charge. An idle or faulted
+                array is a still sun, which is the reading. */}
             <span className={SOLAR_TONE[tower.solar]}>
-              <MaskIcon src="/icons/twr-solar.svg" size={16} />
+              <MaskIcon
+                src="/icons/twr-solar.svg"
+                size={16}
+                className={
+                  tower.solar === "charging" ? "solar-charging" : undefined
+                }
+              />
             </span>
             {SOLAR_LABEL[tower.solar].toUpperCase()}
           </span>

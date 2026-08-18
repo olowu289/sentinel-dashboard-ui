@@ -281,6 +281,32 @@
   animation: sentinel-bell-swing 450ms ease-out;
 }
 
+/* The sun on the mast hover panel, while the panel is taking on charge.
+   Two seconds, the same heartbeat the live dot keeps — and unlike the dot this
+   one is only ever on screen while a pointer is parked on the mast, so it has
+   to read inside a hover rather than over a shift. A four-second cycle matched
+   to the battery sweep was the tidier idea and the wrong one: nobody hovers
+   long enough to see half of it.
+
+   It brightens and swells rather than turning. A sun does not rotate, and a
+   rotating one reads as a spinner — which would say "working on it" about a
+   thing that is simply happening. */
+@keyframes sentinel-solar {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.7;
+  }
+}
+
+.solar-charging {
+  animation: sentinel-solar 2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot,
   .sweep,
@@ -297,6 +323,9 @@
     transition: none;
   }
   .group\/bell:hover .bell-swing {
+    animation: none;
+  }
+  .solar-charging {
     animation: none;
   }
 

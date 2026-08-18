@@ -196,13 +196,21 @@ export function CameraSettingsPanel({
       <header className="flex h-[52px] shrink-0 items-center justify-between gap-[12px] border-b border-line pl-[16px] pr-[14px]">
         {/* The scope rides the title. As a paragraph in the content flow it
             sat immediately above the first group header and read as that
-            group's introduction rather than the panel's. */}
-        <div className="flex min-w-0 flex-col">
+            group's introduction rather than the panel's.
+
+            The tower id alone, without the two camera names after it. The names
+            made the line wrap and truncate at this width, and "both cameras"
+            already says the count — an operator who wants to know which two is
+            looking at the wall they are named on. */}
+        <div className="flex min-w-0 flex-col gap-[2px]">
           <h2 className="truncate font-display text-[0.875rem] leading-[18px] tracking-[0.14px] text-white">
             CAMERA SETTINGS
           </h2>
-          <p className="truncate text-[0.6875rem] leading-[14px] text-muted">
-            Both cameras on {tower.id} · {feeds.map((f) => f.name).join(", ")}
+          {/* 12px, not 11 — this was the smallest type in the product and it
+              carries the panel's most consequential fact. 12/15 is the scale
+              the tower card's status line already uses. */}
+          <p className="truncate text-[0.75rem] leading-[15px] tracking-[0.12px] text-muted">
+            Both cameras on {tower.id}
           </p>
         </div>
         <button

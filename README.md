@@ -665,7 +665,14 @@ one group that looked broken.
 
 The scope line rides the panel title rather than the content flow. As a
 paragraph it sat immediately above the first group header and read as that
-group's introduction rather than the panel's.
+group's introduction rather than the panel's. It reads `Both cameras on
+TWR-1042` and stops there — listing the two camera names after it made the line
+truncate at this width, and "both cameras" already carries the count. An
+operator who wants to know which two is looking at the wall they are named on.
+
+It is 12px, not the 11 it started at. That was the smallest type in the product
+and it carries the panel's most consequential fact; 12/15 is the scale the tower
+card's status line already uses.
 
 **No leading icons, and that is a gap rather than a decision.** Every reference
 in the corpus uses one per row, and the asset set has honest glyphs for maybe

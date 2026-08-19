@@ -260,7 +260,12 @@ export function CameraTile({
       icon: "/icons/ctl-talk.svg",
       tone: "critical",
       active: talking,
-      onSelect: () => setTalking((t) => !t),
+      /* Held, not toggled — see `hold` on `TileControl`. The label has always
+         said "release to stop"; it is now true. */
+      hold: {
+        onStart: () => setTalking(true),
+        onEnd: () => setTalking(false),
+      },
     },
     {
       id: "siren",

@@ -174,9 +174,16 @@ export const UNCLAIMED: UnclaimedUnit[] = [
   },
 ];
 
-export function findUnclaimed(serial: string, pairingCode: string) {
+/** `pool` defaults to everything, but the setup flow passes the units that are
+ *  not on the fleet yet — a serial that has already been claimed must fail the
+ *  lookup rather than hand out a second tower under the same id. */
+export function findUnclaimed(
+  serial: string,
+  pairingCode: string,
+  pool: UnclaimedUnit[] = UNCLAIMED,
+) {
   const wanted = serial.trim().toUpperCase();
-  return UNCLAIMED.find(
+  return pool.find(
     (u) => u.serial.toUpperCase() === wanted && u.pairingCode === pairingCode,
   );
 }

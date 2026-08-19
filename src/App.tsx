@@ -1,5 +1,5 @@
 import { MotionConfig } from "motion/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
@@ -25,6 +25,13 @@ import type {
 } from "@/lib/types";
 
 const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
+
+/* How long a live session runs before the tower's battery is worth mentioning.
+   Ten minutes is the design's number and it is a reasonable one: long enough
+   that the operator is watching rather than checking, short enough to still be
+   useful on a site that is running down. Counted only while a camera is
+   actually streaming, so a wall of dead feeds never accrues it. */
+const LIVE_VIEW_WARNING_SEC = 10 * 60;
 
 /** Whose name goes on an enrolment. Stands in for the signed-in operator —
  *  putting somebody on a watchlist is an act with an author. */
@@ -76,9 +83,42 @@ export function SentinelApp() {
      tower id and renaming a tower therefore remounts it — a settings panel
      that closes the moment you use it is the flaw the rename introduced. */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /* null is the fleet. The dashboard is the landing screen because it is the
+     parent the tower view's breadcrumb has always named.
+
+     `showAlerts` rides along because there are two reasons to open a tower —
+     to watch it, or to read what it has raised — and the fleet card offers
+     both as separate targets. It is part of the key below, so arriving with a
+     different intent is a fresh entry rather than a stale panel. */
+  const [open, setOpen] = useState<{ id: string; showAlerts: boolean } | null>(
+    null,
+  );
+
+  /* Every change of screen goes through here, and it closes the settings
+     panel on the way. The panel belongs to the tower the operator opened it
+     on: `TowerView` renders it *instead of* the alerts feed, so leaving it
+     armed meant the next tower opened on its settings with no alerts at all —
+     an operator who asked for a site's cameras got its configuration. Reset it
+     beside `setOpen` rather than in each caller, so a new destination cannot
+     forget. */
+  const show = useCallback((next: { id: string; showAlerts: boolean } | null) => {
+    setSettingsOpen(false);
+    setOpen(next);
+  }, []);
+
   /* A detection carried out of the alert feed and into enrolment, so the face
      the operator is already looking at is the face that gets watched for. */
   const [enrolFrom, setEnrolFrom] = useState<Alert | null>(null);
+
+  /* Seconds the open tower has been streaming to this operator, and whether
+     they have waved the notice away. Up here rather than in `TowerView`
+     because that view is keyed on the tower and remounts on every drill-in —
+     left down there, ducking out to the fleet and straight back would reset
+     the clock, which is a way to watch a camera all afternoon and never be
+     told. It resets when the *tower* changes, because then it is a different
+     battery. */
+  const [liveViewSec, setLiveViewSec] = useState(0);
+  const [liveViewDismissed, setLiveViewDismissed] = useState(false);
 
   /* Keyed by feed id rather than carried on the feed itself. `feeds` is rebuilt
      on every latency tick and recording tick, and a settings object copied
@@ -122,11 +162,14 @@ export function SentinelApp() {
     [],
   );
 
-  const watchPerson = useCallback((alert: Alert) => {
-    setEnrolFrom(alert);
-    setOpen(null);
-    setOnPeople(true);
-  }, []);
+  const watchPerson = useCallback(
+    (alert: Alert) => {
+      setEnrolFrom(alert);
+      show(null);
+      setOnPeople(true);
+    },
+    [show],
+  );
 
   /* Rejecting keeps the alert and drops the identity — the camera did see
      somebody, and deleting the detection would lose that. */
@@ -142,18 +185,18 @@ export function SentinelApp() {
       if (id === "dashboard") {
         setOnPeople(false);
         setAdding(false);
-        setOpen(null);
+        show(null);
         return;
       }
       if (id === "add") {
         setOnPeople(false);
-        setOpen(null);
+        show(null);
         setAdding(true);
         return;
       }
       if (id === "poi") {
         setAdding(false);
-        setOpen(null);
+        show(null);
         setOnPeople(true);
         return;
       }
@@ -168,11 +211,11 @@ export function SentinelApp() {
         if (!target) return;
         setOnPeople(false);
         setAdding(false);
-        setOpen({ id: target, showAlerts: false });
+        show({ id: target, showAlerts: false });
       }
       /* `alerts` and `settings` are drawn by the frame and go nowhere yet. */
     },
-    [alerts, towers],
+    [alerts, show, towers],
   );
 
   const rejectMatch = useCallback((id: string) => {
@@ -181,11 +224,22 @@ export function SentinelApp() {
     );
   }, []);
 
+  /* Monotonic, and deliberately not derived from the list. Numbering off
+     `people.length` reused an id the moment anything was deleted — remove the
+     first of three and the next enrolment is issued the id the third already
+     holds, after which one lookup answers for two people and a stopped watch
+     stops both. Reusing the id of somebody *deleted* is no better: their
+     sightings are still in the alert feed under `matchedPersonId`, and they
+     would silently re-attach to whoever inherited the number. The counter only
+     ever goes up. */
+  const nextPoi = useRef(
+    PEOPLE.reduce((max, p) => Math.max(max, Number(p.id.slice(4)) || 0), 0),
+  );
+
   const enrolPerson = useCallback((person: Omit<Person, "id">) => {
-    setPeople((prev) => [
-      { ...person, id: `POI-${String(prev.length + 1).padStart(2, "0")}` },
-      ...prev,
-    ]);
+    nextPoi.current += 1;
+    const id = `POI-${String(nextPoi.current).padStart(2, "0")}`;
+    setPeople((prev) => [{ ...person, id }, ...prev]);
   }, []);
 
   /* Two halves of one removal, and the split is the point. Stopping is what an
@@ -229,22 +283,11 @@ export function SentinelApp() {
     setFeeds((prev) => [...prev, ...feeds]);
     setPending(null);
     setAdding(false);
-    setOpen({ id: tower.id, showAlerts: false });
-  }, []);
-  /* null is the fleet. The dashboard is the landing screen because it is the
-     parent the tower view's breadcrumb has always named.
-
-     `showAlerts` rides along because there are two reasons to open a tower —
-     to watch it, or to read what it has raised — and the fleet card offers
-     both as separate targets. It is part of the key below, so arriving with a
-     different intent is a fresh entry rather than a stale panel. */
-  const [open, setOpen] = useState<{ id: string; showAlerts: boolean } | null>(
-    null,
-  );
-
+    show({ id: tower.id, showAlerts: false });
+  }, [show]);
   const openTower = useCallback(
-    (id: string, showAlerts = false) => setOpen({ id, showAlerts }),
-    [],
+    (id: string, showAlerts = false) => show({ id, showAlerts }),
+    [show],
   );
 
   /* The fleet wall's arrangement, as feed ids. Up here rather than in the
@@ -275,6 +318,39 @@ export function SentinelApp() {
         : [...kept, ...added];
     });
   }, [fleet]);
+
+  /* Only counts while something is actually on air. A tower whose cameras are
+     offline or reconnecting is not being streamed from and its battery is not
+     being spent on this operator, so the clock holds rather than running. The
+     dependency is the boolean, not `feeds` — the latency walk rebuilds that
+     array every 1.4s and would restart the interval before it ever fired. */
+  const streaming =
+    open !== null &&
+    feeds.some(
+      (f) =>
+        f.towerId === open.id &&
+        (f.state === "live" || f.state === "recording"),
+    );
+
+  /* Reset on a different tower, not on leaving one. Keying this to `open?.id`
+     would have reset it every time that went null — which is exactly the trip
+     to the fleet and back that the clock lives up here to survive. Stepping
+     out genuinely stops the stream and the clock holds, because `streaming`
+     below is false with no tower open; stepping back in resumes the same
+     session, dismissal included. */
+  const watchedTower = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open || watchedTower.current === open.id) return;
+    watchedTower.current = open.id;
+    setLiveViewSec(0);
+    setLiveViewDismissed(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!streaming) return;
+    const t = setInterval(() => setLiveViewSec((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [streaming]);
 
   /* Solar charge, 1% a second, stopping at full. The gauge on the mast sweeps
      on its own to say "taking on charge"; this is the number underneath it
@@ -374,9 +450,23 @@ export function SentinelApp() {
   const retryFeed = useCallback(
     (feedId: string) => {
       setFeedState(feedId, "connecting");
-      // A retry that resolves instantly reads as a no-op; hold the connecting
-      // state long enough for the operator to see the attempt.
-      setTimeout(() => setFeedState(feedId, "live"), 2400);
+      /* A retry that resolves instantly reads as a no-op; hold the connecting
+         state long enough for the operator to see the attempt.
+
+         The timer promotes the feed only if it is still the one this retry put
+         in `connecting`. It used to fire unconditionally, so a camera the
+         operator marked offline in the 2.4s after pressing Retry came back
+         reporting itself live — the pending attempt overwriting a later, more
+         deliberate decision about the same camera. */
+      setTimeout(() => {
+        setFeeds((prev) =>
+          prev.map((f) =>
+            f.id === feedId && f.state === "connecting" && !f.error
+              ? { ...f, state: "live", elapsedSec: undefined }
+              : f,
+          ),
+        );
+      }, 2400);
     },
     [setFeedState],
   );
@@ -405,10 +495,20 @@ export function SentinelApp() {
 
   /* Returns the alert so the caller can arm its own banner against it —
      arrival and acknowledgement stay separate concerns. */
+  /* Same rule as the watchlist counter above. The id used to be the clock
+     truncated to seconds, which collides for two alerts raised inside one
+     second — and the simulator's button can be pressed twice that fast — and
+     wraps every 27.8 hours besides. Two alerts sharing an id acknowledge
+     together and the feed cannot arrow onto the second of them. */
+  const nextAlert = useRef(
+    ALERTS.reduce((max, a) => Math.max(max, Number(a.id.slice(4)) || 0), 0),
+  );
+
   const raiseAlert = useCallback((towerId: string) => {
     const at = Date.now();
+    nextAlert.current += 1;
     const alert: Alert = {
-      id: `ALT-${Math.floor(at / 1000) % 100000}`,
+      id: `ALT-${nextAlert.current}`,
       towerId,
       kind: "alert",
       title: "Alert raised by Motion Sensor on Gas Yard",
@@ -449,6 +549,7 @@ export function SentinelApp() {
       ) : adding ? (
         <AddTowerView
           pending={pending}
+          taken={towers.map((t) => t.id)}
           onNavigate={navigate}
           onCancel={(draft) => {
             setPending(draft);
@@ -482,7 +583,7 @@ export function SentinelApp() {
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
           showAlerts={open.showAlerts}
-          onBack={() => setOpen(null)}
+          onBack={() => show(null)}
           onSetFeedState={setFeedState}
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
@@ -497,6 +598,19 @@ export function SentinelApp() {
           onSetStatus={setStatus}
           onWatchPerson={watchPerson}
           onRejectMatch={rejectMatch}
+          liveViewWarning={
+            liveViewSec >= LIVE_VIEW_WARNING_SEC && !liveViewDismissed
+          }
+          onDismissLiveViewWarning={() => setLiveViewDismissed(true)}
+          /* Winds the clock rather than overriding the banner, so everything
+             downstream of it — the dismissal, the wall reflow — behaves the
+             way it does for an operator who actually waited. */
+          onToggleLiveViewWarning={() => {
+            setLiveViewDismissed(false);
+            setLiveViewSec((s) =>
+              s >= LIVE_VIEW_WARNING_SEC ? 0 : LIVE_VIEW_WARNING_SEC,
+            );
+          }}
         />
       )}
     </MotionConfig>

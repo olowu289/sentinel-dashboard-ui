@@ -5,6 +5,7 @@ import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
 import { CameraTile } from "@/components/CameraTile";
 import { IconRail } from "@/components/IconRail";
 import { MobileViewBar, type MobileView } from "@/components/MobileViewBar";
+import { LiveViewBanner } from "@/components/LiveViewBanner";
 import { NewAlertBanner } from "@/components/NewAlertBanner";
 import { StateSimulator, type SimState } from "@/components/StateSimulator";
 import { TopBar, type WallLayout } from "@/components/TopBar";
@@ -40,6 +41,9 @@ export function TowerView({
   onSetStatus,
   onWatchPerson,
   onRejectMatch,
+  liveViewWarning = false,
+  onDismissLiveViewWarning,
+  onToggleLiveViewWarning,
 }: {
   tower: Tower;
   /** This tower's cameras, already filtered by the shell. */
@@ -73,6 +77,14 @@ export function TowerView({
    *  watchlist wants its frame and its zone, not just an id. */
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
+  /** This tower has been streaming for long enough to be worth mentioning —
+   *  the shell keeps the clock, because this view remounts on every drill-in.
+   *  See `LIVE_VIEW_WARNING_SEC` in App. */
+  liveViewWarning?: boolean;
+  onDismissLiveViewWarning?: () => void;
+  /** Wind the viewing clock to the threshold and back — the simulator's only
+   *  way to reach a state that otherwise takes ten real minutes. */
+  onToggleLiveViewWarning?: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
@@ -209,6 +221,18 @@ export function TowerView({
           )}
         </AnimatePresence>
 
+        {/* Under the alert banner when both are up. They are the same bar in
+            two tones and the order is the priority: something that just
+            happened at the site outranks a standing note about the battery,
+            so the red stays against the top bar and the amber gives way. */}
+        <AnimatePresence>
+          {liveViewWarning && (
+            <LiveViewBanner
+              onDismiss={() => onDismissLiveViewWarning?.()}
+            />
+          )}
+        </AnimatePresence>
+
         {/* Always stacked below lg — side-by-side would give each tile ~180px,
             too small to identify anyone, which is the whole job. The bottom
             bar overlays the last ~60px, so the wall pads clear of it. */}
@@ -232,7 +256,7 @@ export function TowerView({
                  open the measurement gate or the toggle jumps. Same for
                  collapsing the alerts panel — anything that changes a tile's
                  box belongs in this key. */
-              layoutKey={`${fullscreenId ?? ""}|${layout}|${alertsCollapsed}|${newAlertId ?? ""}`}
+              layoutKey={`${fullscreenId ?? ""}|${layout}|${alertsCollapsed}|${newAlertId ?? ""}|${liveViewWarning}`}
               canSwitch={feeds.length > 1}
               onFocus={() => setFocusedFeed(feed.id)}
               onRetry={() => onRetryFeed(feed.id)}
@@ -258,6 +282,14 @@ export function TowerView({
           onRename={(next) => onRenameTower(tower.id, next)}
           onChange={(next) => onChangeSettings(tower.id, next)}
           onClose={onCloseSettings}
+          /* It stands where the alerts feed stands, so it obeys the same
+             rules: below lg this column is one of two switchable views, and a
+             panel that ignored that rendered *beside* the wall with both
+             squeezed to half a phone. The gear is desktop-only, so this is
+             reached by narrowing a window that already had settings open. */
+          className={`${mobileView === "alerts" ? "flex" : "hidden lg:flex"} ${
+            alertsCollapsed ? "lg:hidden" : ""
+          }`}
         />
       ) : (
       <AlertsPanel
@@ -290,8 +322,10 @@ export function TowerView({
         <StateSimulator
           feeds={feeds}
           alertsEmpty={alertsEmpty}
+          liveViewWarning={liveViewWarning}
           onSetFeedState={onSetFeedState}
           onToggleAlertsEmpty={() => setAlertsEmpty((e) => !e)}
+          onToggleLiveViewWarning={() => onToggleLiveViewWarning?.()}
           onRaiseAlert={raiseAlert}
           onClose={() => setSimOpen(false)}
         />

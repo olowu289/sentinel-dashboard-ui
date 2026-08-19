@@ -30,6 +30,17 @@ export function DateFilterPopover({
         e.stopPropagation();
         onClose(); // closes without applying
       } else if (e.key === "Enter") {
+        /* Never over a control. This is bound in the capture phase, so a bare
+           `preventDefault` here cancelled the activation click of whatever
+           button had focus — Enter on a preset applied the *previous* draft
+           without ever selecting the preset, and Enter on the × applied the
+           filter that button exists to walk away from. Enter is the shortcut
+           for "apply what is staged", which only means anything when the
+           operator is not standing on something that does its own thing. */
+        const el = e.target as HTMLElement | null;
+        if (el?.closest("button, input, select, textarea, [role='button']")) {
+          return;
+        }
         e.preventDefault();
         onApply(draft);
         onClose();

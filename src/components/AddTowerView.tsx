@@ -40,6 +40,7 @@ export function AddTowerView({
   onNavigate,
   onCancel,
   onAdd,
+  taken,
 }: {
   /** A claim left unfinished on a previous visit. Setup resumes from it rather
    *  than starting over — the unit is already this operator's, and making them
@@ -49,11 +50,22 @@ export function AddTowerView({
   /** Back to the fleet, carrying whatever has been claimed and typed so far.
    *  `null` only when nothing was claimed. */
   onCancel: (draft: PendingTower | null) => void;
+  /** Ids already on the fleet. A unit is claimed once, and nothing in the
+   *  prototype removes it from `UNCLAIMED` — so the flow has to do the
+   *  removing itself or it hands out the same tower twice. */
+  taken: string[];
   /** Rail destinations, routed by the shell. Leaving this way still saves the
    *  claim — a rail click is an exit like any other. */
   onNavigate: (id: string) => void;
   onAdd: (tower: Tower, feeds: CameraFeed[]) => void;
 }) {
+  /* Everything the platform is still holding for this operator. Claiming does
+     not consume a unit here, so completing setup twice used to add a second
+     tower under the id of the first: two towers keyed the same, two cameras
+     per feed id, `setFeedState` moving both at once, and the second site
+     unreachable because every lookup resolved the first. */
+  const available = UNCLAIMED.filter((u) => !taken.includes(u.towerId));
+
   const [step, setStep] = useState<Step>(pending ? "site" : "intro");
   const [claim, setClaim] = useState<UnclaimedUnit | null>(
     pending?.unit ?? null,
@@ -164,12 +176,17 @@ export function AddTowerView({
             )}
             {step === "handoff" && (
               <Handoff
+                unit={available[0]}
                 onClaimed={claimed}
                 onManual={() => setStep("manual")}
               />
             )}
             {step === "manual" && (
-              <Manual onClaimed={claimed} onBack={() => setStep("intro")} />
+              <Manual
+                available={available}
+                onClaimed={claimed}
+                onBack={() => setStep("intro")}
+              />
             )}
             {step === "site" && claim && (
               <NameSite
@@ -337,15 +354,17 @@ function FakeQr({ seed }: { seed: string }) {
 }
 
 function Handoff({
+  unit,
   onClaimed,
   onManual,
 }: {
+  /** Undefined once every unit on the account has been claimed. */
+  unit?: UnclaimedUnit;
   onClaimed: (unit: UnclaimedUnit) => void;
   onManual: () => void;
 }) {
-  const unit = UNCLAIMED[0];
   const [copied, setCopied] = useState(false);
-  const link = `sentinel.app/p/${unit.pairingCode}`;
+  const link = unit ? `sentinel.app/p/${unit.pairingCode}` : "";
 
   /* Stands in for polling the claim. The real version is a subscription that
      fires when the phone posts the scan; what matters for the design is that
@@ -355,9 +374,29 @@ function Handoff({
   const done = useRef(onClaimed);
   done.current = onClaimed;
   useEffect(() => {
+    if (!unit) return;
     const t = setTimeout(() => done.current(unit), HANDOFF_MS);
     return () => clearTimeout(t);
   }, [unit]);
+
+  /* Nothing left to claim. Said here rather than by leaving the code on screen
+     for a unit that is already on the fleet — a pairing code that will never
+     resolve is worse than an empty state. */
+  if (!unit) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={FADE}
+        className="flex flex-col items-center gap-[16px] text-center"
+      >
+        <Heading
+          title="NOTHING LEFT TO ADD"
+          body="Every tower on this account is already on the fleet. A new unit shows up here once it reports in from the field."
+        />
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -418,9 +457,13 @@ function Handoff({
 /* ---------------------------------------------------------------- 2b */
 
 function Manual({
+  available,
   onClaimed,
   onBack,
 }: {
+  /** Only unclaimed units. A serial already on the fleet has to fail the same
+   *  way a wrong one does, or the flow issues a duplicate tower. */
+  available: UnclaimedUnit[];
   onClaimed: (unit: UnclaimedUnit) => void;
   onBack: () => void;
 }) {
@@ -440,7 +483,7 @@ function Manual({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const unit = findUnclaimed(serial, code);
+    const unit = findUnclaimed(serial, code, available);
     if (!unit) {
       /* On the fields, never as a page banner: the operator is reading a label
          off a cabinet door and the answer is "one of these two is wrong". */

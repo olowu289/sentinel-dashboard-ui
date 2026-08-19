@@ -90,10 +90,11 @@ const BATTERY_HEX = {
  * at the charge level fills the body left to right and leaves the rest dim,
  * without a second export or a hand-drawn icon.
  *
- * The charge is read across the glyph's whole width, terminal nub included. At
- * 100% the nub lights with the body, which is what a full battery should look
- * like; below that it sits in the empty tone, which is where the real cell's
- * contact is anyway.
+ * The charge is read across the *body*, `BODY_START` to `BODY_END` above — not
+ * across the glyph's box, which also contains the gap and the terminal. The
+ * whole nub is the 100% case and nothing else: at full the gradient runs the
+ * entire width and lights it with the body, and below that it stays in the
+ * empty tone, which is where the real cell's contact sits anyway.
  *
  * No transition on it. The tower climbs 1% a second, which on a 19.2px glyph is
  * 0.19px a step — the level already moves smoothly because the number does, and

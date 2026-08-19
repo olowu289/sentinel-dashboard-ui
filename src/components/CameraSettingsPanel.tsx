@@ -182,6 +182,7 @@ export function CameraSettingsPanel({
   onChange,
   onRename,
   onClose,
+  className = "",
 }: {
   tower: Tower;
   feeds: CameraFeed[];
@@ -190,6 +191,9 @@ export function CameraSettingsPanel({
   /** Commit a new id for this tower. */
   onRename: (next: string) => void;
   onClose: () => void;
+  /** The panel stands in the alerts column, so it answers to the same
+   *  breakpoint rules — see the call site in `TowerView`. */
+  className?: string;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [editingZones, setEditingZones] = useState(false);
@@ -219,6 +223,7 @@ export function CameraSettingsPanel({
       <ZoneEditor
         feeds={feeds}
         zones={settings.zones}
+        className={className}
         onChange={(zones) => onChange({ zones })}
         onDone={() => setEditingZones(false)}
       />
@@ -231,7 +236,7 @@ export function CameraSettingsPanel({
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       transition={ENTER}
-      className="flex w-full min-w-0 flex-col border-l border-line-panel bg-ink lg:w-[417px] lg:shrink-0"
+      className={`w-full min-w-0 flex-col border-l border-line-panel bg-ink lg:w-[417px] lg:shrink-0 ${className}`}
     >
       {/* The frame's own bar: 46px, both glyphs at 24. Back and close are two
           different exits and it draws both — back collapses an expanded row,
@@ -463,10 +468,20 @@ export function CameraSettingsPanel({
                     ? "text-warn"
                     : "text-terra"
               }
+              /* The exported set is two-tier — there is no `wifi-bad.svg` —
+                  so a poor uplink took the amber glyph and the row said red in
+                  words beside amber in the picture, on the one reading in this
+                  panel whose colour carries the meaning. Better no glyph than
+                  one reporting a tier above the truth: the value itself is
+                  present, explicit and in the right colour, and the icon was
+                  only ever reinforcing it. Give it the third export and it
+                  belongs back here. */
               icon={
                 tower.link === "good"
                   ? "/icons/wifi-good.svg"
-                  : "/icons/wifi-warn.svg"
+                  : tower.link === "warn"
+                    ? "/icons/wifi-warn.svg"
+                    : undefined
               }
             />
             <RowReading label="IP Address" value={tower.ipAddress} />
@@ -923,11 +938,13 @@ function Switch({
 function ZoneEditor({
   feeds,
   zones,
+  className = "",
   onChange,
   onDone,
 }: {
   feeds: CameraFeed[];
   zones: Record<string, ActivityZone[]>;
+  className?: string;
   onChange: (zones: Record<string, ActivityZone[]>) => void;
   onDone: () => void;
 }) {
@@ -966,7 +983,7 @@ function ZoneEditor({
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       transition={ENTER}
-      className="flex w-full min-w-0 flex-col border-l border-line-panel bg-ink lg:w-[417px] lg:shrink-0"
+      className={`w-full min-w-0 flex-col border-l border-line-panel bg-ink lg:w-[417px] lg:shrink-0 ${className}`}
     >
       <header className="flex h-[46px] shrink-0 items-center gap-[8px] border-b border-line pl-[12px] pr-[14px]">
         <button
@@ -1047,6 +1064,26 @@ function ZoneEditor({
               h: Math.abs(p.y - start.current.y),
             };
             setDraft(draftRef.current);
+          }}
+          /* Nothing to commit and nothing left armed. `pointerup` is not the
+             only way a gesture ends: a touch device fires `pointercancel` when
+             the system takes the pointer back mid-drag, and without this the
+             anchor stayed set — the next drag across the frame was read as a
+             continuation and rubber-banded a rectangle from the *old* corner,
+             committing a zone nobody drew. `lostpointercapture` covers the
+             same hole when capture is unavailable and the release lands
+             outside the frame; after a normal release it is a no-op, because
+             the anchor is already cleared. */
+          onPointerCancel={() => {
+            start.current = null;
+            draftRef.current = null;
+            setDraft(null);
+          }}
+          onLostPointerCapture={() => {
+            if (!start.current) return;
+            start.current = null;
+            draftRef.current = null;
+            setDraft(null);
           }}
           onPointerUp={() => {
             /* A stray click is not a zone. Anything under 5% of the frame in

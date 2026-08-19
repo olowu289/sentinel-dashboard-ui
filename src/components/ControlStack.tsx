@@ -17,6 +17,18 @@ export interface TileControl {
    */
   tone?: "neutral" | "critical" | "alarm";
   active?: boolean;
+  /**
+   * A control that is held rather than switched.
+   *
+   * Talk-down was a click toggle wearing a hold label: it said "Release to
+   * stop talking" and releasing did nothing, so an operator who let go and
+   * walked away left a microphone open into a live yard. A control whose
+   * consequence is *ongoing transmission* has to end when the hand does, which
+   * means it cannot be an `onSelect` — the browser has no click event for
+   * letting go. Keyboard gets the same shape through keydown/keyup, and blur
+   * ends it too, because focus can leave without a key ever coming back up.
+   */
+  hold?: { onStart: () => void; onEnd: () => void };
   /** Survives the hover reveal — the tile's one permanent affordance. */
   persistent?: boolean;
   disabled?: boolean;
@@ -33,9 +45,22 @@ export interface TileControl {
    reveal makes every camera control unreachable on a phone. Below lg the
    controls are simply always present — there is no pointer to reveal them. */
 const REVEAL =
-  "tile-reveal max-lg:visible max-lg:opacity-100 invisible opacity-0 " +
-  "group-hover:visible group-hover:opacity-100 " +
-  "group-focus-within:visible group-focus-within:opacity-100";
+  "tile-reveal max-lg:visible invisible " +
+  "group-hover:visible group-focus-within:visible";
+
+/* Opacity is kept apart from visibility above so the disabled ceiling can be a
+   different utility rather than a competing value for the same one. It was
+   written as a bare `opacity-40` alongside `group-hover:opacity-100`, and a
+   variant beats a base utility — so the one control that had something to say
+   about itself lost the ability to say it at exactly the moment it appeared.
+   `zoom-out` is disabled on every tile at rest, so this was every tile. */
+const REVEAL_OPACITY =
+  "max-lg:opacity-100 opacity-0 " +
+  "group-hover:opacity-100 group-focus-within:opacity-100";
+
+const REVEAL_OPACITY_DISABLED =
+  "max-lg:opacity-40 opacity-0 " +
+  "group-hover:opacity-40 group-focus-within:opacity-40";
 
 /* One transition list for the whole button, and the order matters: `index.css`
    delays the first two and leaves the last two alone, so the stagger belongs to
@@ -94,7 +119,40 @@ export function ControlStack({
             aria-pressed={c.active}
             title={c.label}
             disabled={c.disabled}
-            onClick={c.onSelect}
+            onClick={c.hold ? undefined : c.onSelect}
+            onPointerDown={
+              c.hold &&
+              ((e) => {
+                /* Capture so the release still lands here when the pointer has
+                   wandered off a 32px button mid-sentence. */
+                try {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                } catch {
+                  /* no capture; onPointerLeave below is the backstop */
+                }
+                c.hold?.onStart();
+              })
+            }
+            onPointerUp={c.hold && (() => c.hold?.onEnd())}
+            onPointerCancel={c.hold && (() => c.hold?.onEnd())}
+            onPointerLeave={c.hold && (() => c.hold?.onEnd())}
+            onKeyDown={
+              c.hold &&
+              ((e) => {
+                if (e.repeat) return;
+                if (e.key === " " || e.key === "Enter") {
+                  e.preventDefault();
+                  c.hold?.onStart();
+                }
+              })
+            }
+            onKeyUp={
+              c.hold &&
+              ((e) => {
+                if (e.key === " " || e.key === "Enter") c.hold?.onEnd();
+              })
+            }
+            onBlur={c.hold && (() => c.hold?.onEnd())}
             style={
               c.persistent
                 ? undefined
@@ -116,7 +174,15 @@ export function ControlStack({
                     ? "bg-white/20 text-white"
                     : "bg-black/45 text-white hover:bg-black/65"
             } ${c.persistent ? "" : REVEAL} ${
-              c.disabled ? "cursor-not-allowed opacity-40" : ""
+              c.disabled ? "cursor-not-allowed" : ""
+            } ${
+              c.persistent
+                ? c.disabled
+                  ? "opacity-40"
+                  : ""
+                : c.disabled
+                  ? REVEAL_OPACITY_DISABLED
+                  : REVEAL_OPACITY
             }`}
           >
             {/* Two heartbeats, both on the 2s cadence the recording and live

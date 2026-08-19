@@ -51,6 +51,13 @@
      banner red is under 3:1; this is the design's lighter tint, which clears
      it. */
   --color-alert-ink: #ffaea9;
+  /* The live-viewing notice, and the amber counterpart to the pair above. It
+     is not --color-warn: that tone is a reading on a dark surface, and this is
+     a full-width bar carrying near-black text, which wants the design's deeper
+     amber to hold its contrast. Same claim amber always makes — this needs
+     you — one step below the red the alert banner spends. */
+  --color-advice-banner: #f5cc45;
+  --color-advice-ink: #110d00;
 
   /* The only blue in the app, and the reason it is allowed: it is the fill a
      band takes while it is being dragged. Status is green/amber/red and nothing

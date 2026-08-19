@@ -22,15 +22,20 @@ const STATES: { id: SimState; label: string }[] = [
 export function StateSimulator({
   feeds,
   alertsEmpty,
+  liveViewWarning,
   onSetFeedState,
   onToggleAlertsEmpty,
+  onToggleLiveViewWarning,
   onRaiseAlert,
   onClose,
 }: {
   feeds: CameraFeed[];
   alertsEmpty: boolean;
+  /** Whether the extended-viewing banner is currently up. */
+  liveViewWarning: boolean;
   onSetFeedState: (feedId: string, state: SimState) => void;
   onToggleAlertsEmpty: () => void;
+  onToggleLiveViewWarning: () => void;
   onRaiseAlert: () => void;
   onClose: () => void;
 }) {
@@ -114,6 +119,22 @@ export function StateSimulator({
           }`}
         >
           Empty alerts feed
+        </button>
+        {/* The only state on this wall that costs ten real minutes to reach.
+            The switch winds the viewing clock to the threshold rather than
+            forcing the banner past it, so dismissing behaves exactly as it
+            does for an operator who waited — which is the half worth
+            reviewing. Off winds it back to zero. */}
+        <button
+          type="button"
+          onClick={onToggleLiveViewWarning}
+          className={`w-full rounded-[4px] px-[6px] py-[5px] text-[0.75rem] lg:text-[0.6875rem] transition-colors ${
+            liveViewWarning
+              ? "bg-white text-black"
+              : "bg-white/6 text-white/60 hover:bg-white/12 hover:text-white"
+          }`}
+        >
+          Extended viewing banner
         </button>
       </div>
     </div>

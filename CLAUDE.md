@@ -123,11 +123,22 @@ list — spaces make it invalid and the whole declaration is dropped silently.
 `STATE_DOT`, and both walls render `FeedChip` itself. Add a seventh `FeedState`
 and both pick it up; restate the switch locally and only one of them will.
 
-**The two views' tiles are deliberately different components.** `CameraTile`
-carries the actuators, `MonitorTile` carries a picture, a `FeedChip` and an
-expand button. They wear the same chip and that is on purpose; do not go further
-and "unify" the components — the split is the reason a talk-down button is not
-one stray click from four yards at once on the fleet screen.
+**Both walls carry the actuators, and the set lives in `useTileControls`.**
+This reversed on 2026-08-19. `MonitorTile` used to be a picture, a `FeedChip`
+and an expand button, deliberately, so that a talk-down was not one stray click
+from four yards at once on the fleet screen. That was overruled: the fleet tile
+now renders the same eight controls, from the same hook, revealed by the same
+cascade. The guard is the one the tower wall already relies on — nothing but the
+expand button exists until the pointer is on the tile, the siren keeps its
+saturated fill and its pulse, and a dead feed disables everything that reaches
+the site. If the fleet screen ever needs a *narrower* set, cut it in the hook
+behind a flag rather than rebuilding a second list, or the two walls will drift
+the way `FeedChip` was written to stop.
+
+The *components* are still separate and should stay that way. `CameraTile`
+wraps the picture in a PTZ pad, a talk timer and a zoom readout; a 380px cell in
+a grid of four has room for none of it. What is shared is what a control is, not
+how a tile is laid out.
 
 **Native drag handlers cannot go on a `motion.*` element.** Motion replaces
 `onDragStart`/`onDragEnd` with its own pan handlers, which have no

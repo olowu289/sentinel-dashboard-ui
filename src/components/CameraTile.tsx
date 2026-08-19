@@ -1,14 +1,9 @@
 import { motion } from "motion/react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
-import { ControlStack, type TileControl } from "./ControlStack";
+import { useTileControls, ZOOM_MIN } from "@/lib/useTileControls";
+import { ControlStack } from "./ControlStack";
 import { FeedChip, formatElapsed } from "./FeedChip";
 import { PtzPad } from "./PtzPad";
 import { SirenOverlay } from "./SirenOverlay";
@@ -17,34 +12,8 @@ import {
   ErrorFallback,
   OfflineFallback,
 } from "./TileFallback";
-import { useSiren } from "@/lib/useSiren";
 
 const DEAD_STATES = new Set(["connecting", "offline"]);
-
-/* The feed renders slightly over-scaled at rest so the PTZ head has somewhere
-   to travel before any letterboxing shows. Without it, panning a 1x image just
-   drags black in from the edge. */
-const BASE_SCALE = 1.15;
-const PAN_STEP = 2.5;
-const ZOOM_STEP = 0.35;
-const ZOOM_MIN = 1;
-const ZOOM_MAX = 3;
-
-interface View {
-  x: number;
-  y: number;
-  zoom: number;
-}
-
-const HOME: View = { x: 0, y: 0, zoom: 1 };
-
-/** Furthest the media can travel before its own edge enters the frame. */
-function maxPan(scale: number) {
-  return ((scale - 1) / (2 * scale)) * 100;
-}
-
-const clamp = (v: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, v));
 
 export function CameraTile({
   feed,
@@ -75,13 +44,7 @@ export function CameraTile({
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const fsBtnRef = useRef<HTMLButtonElement>(null);
-  const [siren, setSiren] = useState(false);
-  const [overlays, setOverlays] = useState(false);
-  const [talking, setTalking] = useState(false);
-  const [talkSec, setTalkSec] = useState(0);
   const [firstFrame, setFirstFrame] = useState(false);
-  const [flash, setFlash] = useState(false);
-  const [view, setView] = useState<View>(HOME);
   /* Exiting the takeover drops `z-100` immediately, but the tile still covers
      the viewport for the length of the animation — and the alerts panel is a
      later sibling, so it would paint straight through the closing frame. */
@@ -89,12 +52,8 @@ export function CameraTile({
 
   const hasError = Boolean(feed.error);
   const isDead = hasError || DEAD_STATES.has(feed.state);
-  const isRecording = feed.state === "recording";
   const reconnecting =
     feed.state === "connecting" && feed.elapsedSec !== undefined;
-
-  const scale = BASE_SCALE * view.zoom;
-  const limit = maxPan(scale);
 
   /* Always fill, in the wall and in the takeover. Contain would collapse a 4:3
      source to a strip in a tile, and letterbox ~350px a side on an ultrawide
@@ -102,57 +61,28 @@ export function CameraTile({
      public/icons) but deliberately not wired up yet. */
   const objectFit = "object-cover";
 
-  // A dead feed cannot be sounding an alarm at the site.
-  const alarming = siren && !isDead;
-  useSiren(alarming);
-
-  const move = useCallback((dir: "up" | "down" | "left" | "right" | "home") => {
-    setView((v) => {
-      if (dir === "home") return HOME;
-      const bound = maxPan(BASE_SCALE * v.zoom);
-      const dx = dir === "left" ? PAN_STEP : dir === "right" ? -PAN_STEP : 0;
-      const dy = dir === "up" ? PAN_STEP : dir === "down" ? -PAN_STEP : 0;
-      return {
-        ...v,
-        x: clamp(v.x + dx, -bound, bound),
-        y: clamp(v.y + dy, -bound, bound),
-      };
-    });
-  }, []);
-
-  const zoomBy = useCallback((delta: number) => {
-    setView((v) => {
-      const zoom = clamp(v.zoom + delta, ZOOM_MIN, ZOOM_MAX);
-      // Zooming out shrinks the travel envelope, so pull the pan back inside it
-      // rather than leaving the frame parked past its own edge.
-      const bound = maxPan(BASE_SCALE * zoom);
-      return {
-        zoom,
-        x: clamp(v.x, -bound, bound),
-        y: clamp(v.y, -bound, bound),
-      };
-    });
-  }, []);
-
-  /* Talk-down is push-to-hold: transmitting is the state with consequences,
-     so it is the one that gets the saturated fill and a running timer. */
-  const talkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    if (!talking) {
-      setTalkSec(0);
-      return;
-    }
-    talkTimer.current = setInterval(() => setTalkSec((s) => s + 1), 1000);
-    return () => {
-      if (talkTimer.current) clearInterval(talkTimer.current);
-    };
-  }, [talking]);
+  /* The actuators, shared with the fleet tile — see `useTileControls`. */
+  const {
+    controls,
+    view,
+    scale,
+    limit,
+    move,
+    flash,
+    alarming,
+    talking,
+    talkSec,
+  } = useTileControls({
+    feed,
+    isDead,
+    fullscreen,
+    fsBtnRef,
+    onToggleFullscreen,
+    onToggleRecord,
+  });
 
   useEffect(() => {
-    if (isDead) {
-      setFirstFrame(false);
-      setView(HOME);
-    }
+    if (isDead) setFirstFrame(false);
   }, [isDead]);
 
   /* Handlers live in a ref because the parent rebuilds them on every latency
@@ -217,95 +147,6 @@ export function CameraTile({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen, canSwitch]);
-
-  const captureStill = useCallback(() => {
-    setFlash(true);
-    setTimeout(() => setFlash(false), 180);
-  }, []);
-
-  const controls: TileControl[] = [
-    {
-      id: "fullscreen",
-      label: fullscreen ? "Exit fullscreen" : "Fullscreen",
-      icon: "/icons/ctl-fullscreen.svg",
-      /* 17, not the 20 the rest of the stack uses. This glyph was exported on a
-         16.86 canvas with the artwork bled to the edge, so its ink is 100% of
-         its box where every sibling sits at 67-88%. At size 20 it rendered 20px
-         of ink against their ~16.7, reading 20% heavier than record or siren
-         and 50% heavier than the zoom pair — and it is the one control that is
-         always visible. Sizing to 17 matches their ink, not their box.
-         Delete this once the Figma set has a consistent ink margin. */
-      size: 17,
-      persistent: true,
-      active: fullscreen,
-      onSelect: onToggleFullscreen,
-      // Never unmounts, so it is the one safe place to return focus to.
-      buttonRef: fsBtnRef,
-    },
-    {
-      id: "record",
-      label: isRecording ? "Stop recording" : "Start recording",
-      /* Shape changes with state, not just colour: a ring around a circle to
-         start, a ring around a square to stop. Colour alone would leave the
-         two states indistinguishable to anyone who cannot separate red from
-         white, and it is the control that decides whether evidence exists. */
-      icon: isRecording ? "/icons/ctl-stop.svg" : "/icons/ctl-record.svg",
-      tone: "critical",
-      active: isRecording,
-      onSelect: onToggleRecord,
-    },
-    {
-      id: "talk",
-      label: talking ? "Release to stop talking" : "Hold to talk",
-      icon: "/icons/ctl-talk.svg",
-      tone: "critical",
-      active: talking,
-      /* Held, not toggled — see `hold` on `TileControl`. The label has always
-         said "release to stop"; it is now true. */
-      hold: {
-        onStart: () => setTalking(true),
-        onEnd: () => setTalking(false),
-      },
-    },
-    {
-      id: "siren",
-      label: siren ? "Silence alarm" : "Sound alarm",
-      icon: "/icons/ctl-siren.svg",
-      /* The only control here that reaches the physical site. Record and talk
-         are consequential but reversible from this desk; a speaker left wailing
-         in a yard is not, so it keeps the saturated fill. */
-      tone: "alarm",
-      active: siren,
-      onSelect: () => setSiren((s) => !s),
-    },
-    {
-      id: "screenshot",
-      label: "Capture still",
-      icon: "/icons/ctl-screenshot.svg",
-      onSelect: captureStill,
-    },
-    {
-      id: "zoom-in",
-      label: "Zoom in",
-      icon: "/icons/ctl-zoom-in.svg",
-      disabled: view.zoom >= ZOOM_MAX,
-      onSelect: () => zoomBy(ZOOM_STEP),
-    },
-    {
-      id: "zoom-out",
-      label: "Zoom out",
-      icon: "/icons/ctl-zoom-out.svg",
-      disabled: view.zoom <= ZOOM_MIN,
-      onSelect: () => zoomBy(-ZOOM_STEP),
-    },
-    {
-      id: "overlays",
-      label: "Camera overlays",
-      icon: "/icons/ctl-overlays.svg",
-      active: overlays,
-      onSelect: () => setOverlays((o) => !o),
-    },
-  ];
 
   const mediaStyle = {
     transform: `scale(${scale}) translate(${view.x}%, ${view.y}%)`,

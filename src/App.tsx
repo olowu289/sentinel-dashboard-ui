@@ -569,6 +569,7 @@ export function SentinelApp() {
           onResumeSetup={() => setAdding(true)}
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
+          onToggleRecord={toggleRecord}
         />
       ) : (
         <TowerView

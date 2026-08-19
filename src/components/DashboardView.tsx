@@ -34,6 +34,7 @@ export function DashboardView({
   onResumeSetup,
   onOpenTower,
   onRetryFeed,
+  onToggleRecord,
 }: {
   towers: Tower[];
   feeds: CameraFeed[];
@@ -56,6 +57,8 @@ export function DashboardView({
   onResumeSetup: () => void;
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
   onRetryFeed: (feedId: string) => void;
+  /** The shell's, not this view's — both walls act on one set of feeds. */
+  onToggleRecord: (feedId: string) => void;
 }) {
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
   const [draggingBand, setDraggingBand] = useState<string | null>(null);
@@ -286,6 +289,7 @@ export function DashboardView({
                       setFullscreenId((id) => (id === feed.id ? null : feed.id))
                     }
                     onRetry={() => onRetryFeed(feed.id)}
+                    onToggleRecord={() => onToggleRecord(feed.id)}
                   />
                 ))}
               </div>

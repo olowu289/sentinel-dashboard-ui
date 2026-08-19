@@ -2,8 +2,10 @@ import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
+import { useTileControls } from "@/lib/useTileControls";
+import { ControlStack } from "./ControlStack";
 import { FeedChip } from "./FeedChip";
-import { MaskIcon } from "./Icon";
+import { SirenOverlay } from "./SirenOverlay";
 import {
   ConnectingFallback,
   ErrorFallback,
@@ -15,12 +17,20 @@ const DEAD_STATES = new Set(["connecting", "offline"]);
 /**
  * A fleet-wall tile: picture, one chip, one button.
  *
- * Deliberately not `CameraTile`. That one carries the actuators — PTZ, record,
- * talk-down, siren — and they are guarded there by a hover reveal on a wall the
- * operator has already drilled into. This wall shows four cameras across two
- * sites at once, and putting a talk-down button one stray click from four
- * different yards is exactly the reflex the tower view is careful not to train.
- * The picture is the whole job here; the actuators live one level in.
+ * Still not `CameraTile` — that one wraps the picture in a PTZ pad, a talk
+ * timer and a zoom readout, and a 380px cell in a grid of four has room for
+ * none of it. What the two now share is the *actuators*: both walls carry the
+ * same eight controls, from the same `useTileControls`, revealed by the same
+ * cascade. Two walls showing the same four cameras must not offer two
+ * vocabularies for acting on them.
+ *
+ * This was a single expand button until 2026-08-19, on the argument that a
+ * talk-down one stray click from four different yards is a reflex worth not
+ * training. That was overruled deliberately: the controls are here, and the
+ * guard is the one the tower wall already relies on — nothing but the expand
+ * button exists until the pointer is on the tile, the siren keeps its
+ * saturated fill and its pulse, and a dead feed disables everything that
+ * reaches the site.
  *
  * This used to be a 40px header bar bolted above the picture, on the argument
  * that four bars in a grid read as a column of labels a chip could not. The
@@ -45,6 +55,7 @@ export function MonitorTile({
   fullscreen = false,
   layoutKey = "",
   onToggleFullscreen,
+  onToggleRecord,
   onRetry,
 }: {
   feed: CameraFeed;
@@ -57,6 +68,9 @@ export function MonitorTile({
    *  and motion cuts an in-flight layout animation that reports no change. */
   layoutKey?: string;
   onToggleFullscreen?: () => void;
+  /** Owned by the shell, like every other piece of feed state — the tower wall
+   *  and this one must not disagree about whether a camera is recording. */
+  onToggleRecord?: () => void;
   onRetry?: () => void;
 }) {
   const expandRef = useRef<HTMLButtonElement>(null);
@@ -69,6 +83,15 @@ export function MonitorTile({
   const isDead = hasError || DEAD_STATES.has(feed.state);
   const reconnecting =
     feed.state === "connecting" && feed.elapsedSec !== undefined;
+
+  const { controls, view, scale, flash, alarming } = useTileControls({
+    feed,
+    isDead,
+    fullscreen,
+    fsBtnRef: expandRef,
+    onToggleFullscreen,
+    onToggleRecord,
+  });
 
   useEffect(() => {
     if (isDead) setFirstFrame(false);
@@ -159,6 +182,9 @@ export function MonitorTile({
                   if (el?.complete && el.naturalWidth > 0) setFirstFrame(true);
                 }}
                 onLoad={() => setFirstFrame(true)}
+                style={{
+                  transform: `scale(${scale}) translate(${view.x}%, ${view.y}%)`,
+                }}
                 className={`absolute inset-0 size-full object-cover transition-opacity duration-300 ease-out ${
                   firstFrame ? "opacity-100" : "opacity-0"
                 }`}
@@ -173,6 +199,17 @@ export function MonitorTile({
             </>
           )}
         </div>
+
+        {alarming && <SirenOverlay />}
+
+        {/* The capture flash. Nothing is written anywhere, but the frame
+            blanking is what tells an operator the still was taken. */}
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 bg-white transition-opacity ${
+            flash ? "opacity-70 duration-0" : "opacity-0 duration-300"
+          }`}
+        />
 
         {/* Position-only layout on both overlays, for the same reason
             `CameraTile` does it: the section animates its box with a transform,
@@ -196,37 +233,20 @@ export function MonitorTile({
           />
         </motion.div>
 
+        {/* The same stack the tower wall carries, revealed by the same
+            cascade — `ControlStack` owns both, so the reveal, the stagger and
+            the tones cannot fork between the two walls. Only the expand button
+            survives at rest, which is what the fleet screen looked like before
+            the actuators arrived. */}
         <motion.div
           layout="position"
           layoutDependency={layoutKey}
           transition={transition}
-          className="absolute right-[16px] top-[7px] flex items-center gap-[4px]"
+          className={`absolute transition-opacity ${
+            fullscreen ? "right-[20px] top-[76px]" : "right-[9px] top-[10px]"
+          } ${isDead ? "pointer-events-none opacity-40" : "opacity-100"}`}
         >
-          <button
-            ref={expandRef}
-            type="button"
-            onClick={onToggleFullscreen}
-            aria-label={
-              fullscreen
-                ? `Exit fullscreen, ${feed.name}`
-                : `Fullscreen ${feed.name}`
-            }
-            title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
-            /* Revealed on hover, so at rest the tile is picture and chip and
-               nothing else. Transparent rather than `invisible`, so Tab still
-               reaches it — landing on it is what reveals it, and that is the
-               only route to the takeover for anyone not using a mouse.
-
-               Always lit in fullscreen: it is the way out, and a way out that
-               has to be found by hovering is not one. */
-            className={`flex size-[24px] items-center justify-center rounded-[4.364px] bg-black/64 text-white transition-[opacity,background-color] hover:bg-black/80 ${
-              fullscreen
-                ? ""
-                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-            }`}
-          >
-            <MaskIcon src="/icons/tile-expand.svg" size={11.589} />
-          </button>
+          <ControlStack controls={controls} />
         </motion.div>
       </motion.section>
     </div>

@@ -18,6 +18,9 @@
   --color-card-hover: #1b1b1d;
   --color-pill: #262626;
   --color-pill-line: #333333;
+  /* The settings panel's row hairline. Lighter than --color-line because it
+     sits inside a card rather than between surfaces. */
+  --color-row-line: #252528;
 
   /* Lines — the design uses three distinct near-black strokes */
   --color-line-rail: #161616;
@@ -120,6 +123,35 @@
     clip-path: inset(50%);
     white-space: nowrap;
     border: 0;
+  }
+
+  /* A pointer over anything that can be pressed.
+
+     Tailwind v4's preflight sets `button { cursor: default }`, which is the
+     spec-correct default and the wrong one for this app: nothing here looked
+     clickable until it was clicked. Set once in the base layer rather than as a
+     class on eighty buttons — a rule everybody has to remember is a rule that
+     gets forgotten on the eighty-first.
+
+     Utilities still win, which is the point: the deliberate exceptions keep
+     their own cursor — `cursor-text` on the editable tower name, `cursor-grab`
+     on the band and tile handles, `cursor-crosshair` in the zone editor. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="radio"],
+  [role="switch"],
+  [role="tab"],
+  a[href],
+  summary,
+  input[type="range"],
+  label:has(> input[type="file"]) {
+    cursor: pointer;
+  }
+
+  /* A control that cannot act says so before it is pressed. */
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
   }
 }
 

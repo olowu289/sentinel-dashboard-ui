@@ -48,6 +48,15 @@ export interface Tower {
   tempC: number;
   /** Uplink quality — the same three tiers the tile chips use. */
   link: LinkQuality;
+  /** Where it stands, as the settings panel prints it. One region, one zone —
+   *  see the note at the top of `time.ts`; the offset is part of the string
+   *  because it never varies. */
+  location: string;
+  /** Hardware model, for the About group. */
+  model: string;
+  ipAddress: string;
+  /** What it falls back to when the primary uplink drops. */
+  backupConnection: string;
   /** Chassis serial, printed on the cabinet label beside the QR. The id is
    *  assigned by the platform and is what gets spoken on the radio; this is
    *  what is physically stamped on the box, and it is the only handle an
@@ -82,6 +91,9 @@ export interface UnclaimedUnit {
   link: LinkQuality;
   firmware: string;
   storageTotalGb: number;
+  model: string;
+  ipAddress: string;
+  backupConnection: string;
   /** Always `CAMERAS_PER_TOWER` of them. `poster` absent means the camera is
    *  wired but not returning frames — it is still named during setup, because a
    *  dead camera you cannot label is a dead camera you cannot report. */
@@ -168,8 +180,15 @@ export interface CameraSettings {
    *  somewhere else entirely, so the same rectangle over its frame would fence
    *  off a piece of ground nobody chose. Empty means the whole frame. */
   zones: Record<string, ActivityZone[]>;
-  nightVision: "auto" | "on" | "off";
+  nightVision: "auto" | "infrared" | "off";
+  /** What goes out over the uplink. Separate from what is written to the
+   *  tower's own buffer — the link is the constraint on one and the storage is
+   *  the constraint on the other, so they are not one setting. */
   quality: "1080p30" | "1080p15" | "720p30";
+  recordingQuality: "4k" | "1080p" | "720p";
+  /** The master switch in the panel's header card. Off means the tower keeps
+   *  streaming but raises nothing. */
+  monitoring: boolean;
   micOn: boolean;
   /** 0–100. */
   speakerVolume: number;
@@ -194,6 +213,8 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
   sensitivity: "standard",
   zones: {},
   nightVision: "auto",
+  recordingQuality: "4k",
+  monitoring: true,
   quality: "1080p15",
   micOn: true,
   speakerVolume: 70,

@@ -72,6 +72,10 @@ export function SentinelApp() {
      sightings still name them. */
   const [people, setPeople] = useState<Person[]>(PEOPLE);
   const [onPeople, setOnPeople] = useState(false);
+  /* Up here rather than in the tower view, because that view is keyed on the
+     tower id and renaming a tower therefore remounts it — a settings panel
+     that closes the moment you use it is the flaw the rename introduced. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /* A detection carried out of the alert feed and into enrolment, so the face
      the operator is already looking at is the face that gets watched for. */
   const [enrolFrom, setEnrolFrom] = useState<Alert | null>(null);
@@ -90,6 +94,19 @@ export function SentinelApp() {
 
   /* Stamped on write. These decide what reaches the alert feed, so a change
      with no name on it is an unanswerable question three shifts later. */
+  /* One name, everywhere it is shown. The id stays the key — feeds, alerts and
+     the settings map all hang off it, and renaming a key to fix a typo is how a
+     site loses its cameras — so what an operator edits is the *name*, which is
+     the same field the fleet card, the band header and the breadcrumb already
+     read. Editing it in settings changes all four because there is only one. */
+  const renameTower = useCallback((towerId: string, to: string) => {
+    const next = to.trim().toUpperCase();
+    if (!next) return;
+    setTowers((prev) =>
+      prev.map((t) => (t.id === towerId ? { ...t, site: next } : t)),
+    );
+  }, []);
+
   const changeSettings = useCallback(
     (feedId: string, next: Partial<CameraSettings>) => {
       setSettings((prev) => ({
@@ -472,6 +489,10 @@ export function SentinelApp() {
           onRaiseAlert={raiseAlert}
           onNavigate={navigate}
           cameraSettings={cameraSettings}
+          onRenameTower={renameTower}
+          settingsOpen={settingsOpen}
+          onToggleSettings={() => setSettingsOpen((o) => !o)}
+          onCloseSettings={() => setSettingsOpen(false)}
           onChangeSettings={changeSettings}
           onSetStatus={setStatus}
           onWatchPerson={watchPerson}

@@ -47,6 +47,67 @@ const TIERS = [
   { min: 0, front: "#c44949", side: "#9e3b3b" },
 ] as const;
 
+/**
+ * The charge tier as a text colour, for everything that names a battery beside
+ * the cell — the fleet card's hover panel, the settings identity, the tower
+ * bar. It lives here because this file already owns `TIERS`, and three copies
+ * of the same two thresholds is how a product ends up disagreeing with itself
+ * about when a battery is low.
+ */
+export function batteryTone(pct: number) {
+  return pct < 20 ? "text-critical" : pct < 40 ? "text-warn" : "text-terra";
+}
+
+/* Where the battery's body starts and ends as a fraction of the icon's box —
+   0.8→16.4 of 19.2 in `twr-battery.svg`, 1→20.5 of 24 in `set-battery.svg`, the
+   same proportions in both. The charge is read across the body alone, so the
+   whole 0–100 range is spent on the part that can show it. Run the gradient
+   across the raw box instead and everything from 86% up draws an identical
+   full body, with only the terminal nub left to distinguish them.
+
+   The nub is the exception, and it is what 100% looks like: it lights only when
+   the tower is topped off, which is the frame at 194:2565 — glyph fully green,
+   nothing left dim. Below that it stays in the empty tone, where the real
+   cell's contact sits anyway. */
+const BODY_START = 4.17;
+const BODY_END = 85.42;
+
+/* Same tiers `TowerBattery` paints the cell with, so the glyph beside the mast
+   and the charge inside it can never disagree. Tokens rather than class names,
+   because a gradient cannot read a Tailwind text colour. */
+const BATTERY_HEX = {
+  critical: "var(--color-critical)",
+  warn: "var(--color-warn)",
+  ok: "var(--color-terra)",
+} as const;
+
+/**
+ * The battery glyph, filled to the charge.
+ *
+ * The export is a single path with no separable outline and fill — it draws a
+ * solid battery, so there is nothing inside it to reveal. But `MaskIcon` paints
+ * *behind* the mask, and the glyph is effectively a hole: a hard-stop gradient
+ * at the charge level fills the body left to right and leaves the rest dim,
+ * without a second export or a hand-drawn icon.
+ *
+ * The charge is read across the glyph's whole width, terminal nub included. At
+ * 100% the nub lights with the body, which is what a full battery should look
+ * like; below that it sits in the empty tone, which is where the real cell's
+ * contact is anyway.
+ *
+ * No transition on it. The tower climbs 1% a second, which on a 19.2px glyph is
+ * 0.19px a step — the level already moves smoothly because the number does, and
+ * animating a sub-pixel change would only add lag between the figure beside it
+ * and the bar.
+ */
+export function batteryFill(pct: number) {
+  const level = Math.min(100, Math.max(0, pct));
+  const lit = BATTERY_HEX[pct < 20 ? "critical" : pct < 40 ? "warn" : "ok"];
+  const stop =
+    level >= 100 ? 100 : BODY_START + (BODY_END - BODY_START) * (level / 100);
+  return `linear-gradient(to right, ${lit} 0 ${stop}%, rgba(255,255,255,0.16) ${stop}% 100%)`;
+}
+
 export function TowerBattery({
   pct,
   charging = false,

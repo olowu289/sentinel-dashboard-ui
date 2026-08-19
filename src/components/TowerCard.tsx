@@ -2,7 +2,7 @@ import type { Alert, Tower, TowerStatus } from "@/lib/types";
 import { solarState } from "@/lib/data";
 import { formatRelative } from "@/lib/time";
 import { MaskIcon } from "./Icon";
-import { TowerBattery } from "./TowerBattery";
+import { batteryFill, TowerBattery } from "./TowerBattery";
 
 /* Status is the same three-tier grammar the tiles use, one level up. Nothing
    here gets a hue for being a card: green is a healthy site, amber a degraded
@@ -43,41 +43,6 @@ const SOLAR_TONE = {
  *  a fault waiting to happen. */
 function tempTone(c: number) {
   return c >= 55 ? "text-critical" : c >= 45 ? "text-warn" : "text-[#cccccc]";
-}
-
-/* Same tiers `TowerBattery` paints the cell with, so the glyph beside the mast
-   and the charge inside it can never disagree. Tokens rather than class names,
-   because a gradient cannot read a Tailwind text colour. */
-const BATTERY_HEX = {
-  critical: "var(--color-critical)",
-  warn: "var(--color-warn)",
-  ok: "var(--color-terra)",
-} as const;
-
-/**
- * The battery glyph, filled to the charge.
- *
- * The export is a single path with no separable outline and fill — it draws a
- * solid battery, so there is nothing inside it to reveal. But `MaskIcon` paints
- * *behind* the mask, and the glyph is effectively a hole: a hard-stop gradient
- * at the charge level fills the body left to right and leaves the rest dim,
- * without a second export or a hand-drawn icon.
- *
- * The charge is read across the glyph's whole width, terminal nub included. At
- * 100% the nub lights with the body, which is what a full battery should look
- * like; below that it sits in the empty tone, which is where the real cell's
- * contact is anyway.
- *
- * No transition on it. The tower climbs 1% a second, which on a 19.2px glyph is
- * 0.19px a step — the level already moves smoothly because the number does, and
- * animating a sub-pixel change would only add lag between the figure beside it
- * and the bar.
- */
-function batteryFill(pct: number) {
-  const level = Math.min(100, Math.max(0, pct));
-  const lit =
-    BATTERY_HEX[pct < 20 ? "critical" : pct < 40 ? "warn" : "ok"];
-  return `linear-gradient(to right, ${lit} 0 ${level}%, rgba(255,255,255,0.16) ${level}% 100%)`;
 }
 
 export function TowerCard({

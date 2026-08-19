@@ -138,6 +138,21 @@ everything above the artwork group before committing an exported illustration,
 and check the fill list for the surface colours (`#1e1e1e`, `#202022`) as the
 tell.
 
+**Figma and the browser disagree about winding.** The battery glyph exported
+with three subpaths: the body, a notch near the cap, and the terminal nub.
+Figma renders that notch *filled*; every browser renders it as a hole. Painted
+as a colour it makes no difference, but `MaskIcon` masks on alpha, so the hole
+punched a slot straight through the glyph and the panel showed through it —
+node `194:2565` is a solid body at 100%. The notch is stripped from both
+`twr-battery.svg` and `set-battery.svg`, with a comment in each. Check a new
+mask asset against its Figma render, not against the export opened in a browser.
+
+**The battery glyph's level maps to the body, not the box.** `batteryFill` in
+`TowerBattery.tsx` runs its gradient from `BODY_START` to `BODY_END` (4.17%
+to 85.42% of the icon's width) because the rest of the box is the gap and the
+terminal. Span the raw box and everything from 86% up draws an identical full
+body. The nub lights only at exactly 100%, which is what the frame shows.
+
 **The battery cell renders *under* `twr-mast.svg`, not over it.** The fill is the
 first thing the export paints and all 133 mast strokes come after, so the cage
 struts cross in front of the cell. Two absolutely positioned layers on the same

@@ -92,6 +92,12 @@ export function AddTowerView({
       link: claim.link,
       serial: claim.serial,
       firmware: claim.firmware,
+      /* Location is the one field the box cannot report, so it inherits the
+         fleet's single region until somebody edits it — see `time.ts`. */
+      location: "Abuja GMT +1",
+      model: claim.model,
+      ipAddress: claim.ipAddress,
+      backupConnection: claim.backupConnection,
       /* A tower joins with an empty buffer, which is the honest reading — it
          has not recorded anything yet. */
       storageUsedGb: 0,
@@ -572,6 +578,10 @@ function NameSite({
     link: claim.link,
     serial: claim.serial,
     firmware: claim.firmware,
+    location: "Abuja GMT +1",
+    model: claim.model,
+    ipAddress: claim.ipAddress,
+    backupConnection: claim.backupConnection,
     storageUsedGb: 0,
     storageTotalGb: claim.storageTotalGb,
   };

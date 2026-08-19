@@ -1,11 +1,13 @@
 import { AnimatePresence, motion } from "motion/react";
 import { ENTER, FADE } from "@/lib/motion";
 import { MaskIcon } from "./Icon";
+import { batteryFill, batteryTone } from "./TowerBattery";
 
 export type WallLayout = "landscape" | "portrait";
 
 export function TopBar({
-  towerId,
+  towerName,
+  batteryPct,
   online,
   onNavigateUp,
   layout,
@@ -16,7 +18,14 @@ export function TopBar({
   onOpenSettings,
   settingsOpen = false,
 }: {
-  towerId: string;
+  /** What the fleet card and the band header call this site. The breadcrumb
+   *  shows the same string, so renaming it in settings changes every place a
+   *  tower is named rather than just the one the operator was looking at. */
+  towerName: string;
+  /** Charge, shown beside the status pill. The bar is on screen for the whole
+   *  visit, so it carries the reading rather than making an operator open a
+   *  panel to learn whether the site is running down. */
+  batteryPct: number;
   online: boolean;
   /** Up to the fleet dashboard. The crumb named a parent long before one
    *  existed; now that it does, it is a real control rather than an anchor to
@@ -55,7 +64,38 @@ export function TopBar({
             aria-current="page"
             className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white"
           >
-            {towerId}
+            {towerName}
+          </span>
+          {/* The glyph carries the reading and the number stays out of the
+              way until asked for. A percentage sitting permanently in the bar
+              is a second figure competing with the site name for a row an
+              operator reads at a glance; the fill says "low" on its own, which
+              is the only part that needs to be seen without looking.
+
+              No charging bolt either, unlike the settings identity — that glyph
+              pulses, and this bar is on screen for the whole visit. A pulse in
+              permanent chrome is the thing the per-row age counters were thrown
+              out for. */}
+          <span
+            role="img"
+            aria-label={`Battery ${batteryPct}%`}
+            title={`Battery ${batteryPct}%`}
+            className="group/batt flex shrink-0 items-center"
+          >
+            <MaskIcon
+              src="/icons/set-battery.svg"
+              size={20}
+              background={batteryFill(batteryPct)}
+            />
+            {/* The number takes the tier the fill is already painted in, so
+                the two never say different things about the same charge — a
+                white 12% beside a red cell reads as two separate facts. */}
+            <span
+              aria-hidden
+              className={`max-w-0 overflow-hidden font-display text-[0.875rem] leading-[20px] tracking-[0.14px] whitespace-nowrap tabular-nums opacity-0 transition-[max-width,opacity] duration-150 ease-out group-hover/batt:max-w-[4rem] group-hover/batt:opacity-100 ${batteryTone(batteryPct)}`}
+            >
+              <span className="pl-[4px]">{batteryPct}%</span>
+            </span>
           </span>
           <span
             className={`flex items-center justify-center rounded-[2px] px-[6px] py-px font-display text-[0.75rem] uppercase tracking-[0.12px] ${
@@ -137,9 +177,9 @@ export function TopBar({
           type="button"
           onClick={onOpenSettings}
           aria-label={
-            settingsOpen ? "Close camera settings" : "Camera settings"
+            settingsOpen ? "Close camera settings" : "Tower settings"
           }
-          title="Camera settings"
+          title="Tower settings"
           className={`group/gear hidden size-[24px] items-center justify-center rounded-[4px] transition-colors hover:text-white lg:flex ${
             settingsOpen ? "text-white" : "text-[#e9e9e9]"
           }`}

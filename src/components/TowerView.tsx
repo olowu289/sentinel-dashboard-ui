@@ -33,6 +33,10 @@ export function TowerView({
   onNavigate,
   cameraSettings,
   onChangeSettings,
+  onRenameTower,
+  settingsOpen,
+  onToggleSettings,
+  onCloseSettings,
   onSetStatus,
   onWatchPerson,
   onRejectMatch,
@@ -56,8 +60,14 @@ export function TowerView({
   onNavigate: (id: string) => void;
   /** One camera's settings, defaulted by the shell so this view never has to
    *  decide what an unset camera does. */
-  cameraSettings: (feedId: string) => CameraSettings;
-  onChangeSettings: (feedId: string, next: Partial<CameraSettings>) => void;
+  cameraSettings: (towerId: string) => CameraSettings;
+  onChangeSettings: (towerId: string, next: Partial<CameraSettings>) => void;
+  /** Rename the tower. Sweeps every reference — see App. */
+  onRenameTower: (from: string, to: string) => void;
+  /** Owned by the shell — see the note there on renaming. */
+  settingsOpen: boolean;
+  onToggleSettings: () => void;
+  onCloseSettings: () => void;
   onSetStatus: (id: string, status: Alert["status"]) => void;
   /** Enrol the person in a detection. Hands the whole alert up because the
    *  watchlist wants its frame and its zone, not just an id. */
@@ -90,9 +100,6 @@ export function TowerView({
      Desktop only. Below lg the panel is already one of two switchable views,
      so collapsing it there would just leave the operator on a blank screen. */
   const [alertsCollapsed, setAlertsCollapsed] = useState(!showAlerts);
-  /* The settings belong to the tower, not to a tile — which is why the frame
-     puts the gear in the bar above the wall rather than in a control stack. */
-  const [settingsOpen, setSettingsOpen] = useState(false);
   /* The id of an alert that arrived while the feed was out of sight. Held
      separately from `alerts` because it is a notification, not a status — the
      alert stays in the list whether or not the banner is still up. */
@@ -162,7 +169,8 @@ export function TowerView({
         }`}
       >
         <TopBar
-          towerId={tower.id}
+          towerName={tower.site}
+          batteryPct={tower.batteryPct}
           online={tower.status !== "offline"}
           onNavigateUp={onBack}
           layout={layout}
@@ -176,7 +184,7 @@ export function TowerView({
             setAlertsCollapsed(false);
             setNewAlertId(null);
           }}
-          onOpenSettings={() => setSettingsOpen((o) => !o)}
+          onOpenSettings={onToggleSettings}
           settingsOpen={settingsOpen}
         />
 
@@ -247,8 +255,9 @@ export function TowerView({
           tower={tower}
           feeds={feeds}
           settings={cameraSettings(tower.id)}
+          onRename={(next) => onRenameTower(tower.id, next)}
           onChange={(next) => onChangeSettings(tower.id, next)}
-          onClose={() => setSettingsOpen(false)}
+          onClose={onCloseSettings}
         />
       ) : (
       <AlertsPanel

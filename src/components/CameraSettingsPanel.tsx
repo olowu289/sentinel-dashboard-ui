@@ -1,6 +1,13 @@
 import { motion } from "motion/react";
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { solarState } from "@/lib/data";
+import { MaskIcon } from "./Icon";
+import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import {
   MAX_ZONES,
@@ -11,7 +18,7 @@ import {
 } from "@/lib/types";
 
 /**
- * A tower's camera settings, over the alerts rail rather than on a screen of
+ * A tower's settings, over the alerts rail rather than on a screen of
  * their own — the operator has to see the pictures the settings are about.
  *
  * Tower-wide, because the frame puts the gear in the tower's bar rather than
@@ -43,17 +50,17 @@ const DETECT: { value: CameraSettings["detect"]; label: string; note: string }[]
   [
     {
       value: "people",
-      label: "People only",
+      label: "People Only",
       note: "Quietest. Vehicles moving through the frame are ignored.",
     },
     {
       value: "people-vehicles",
-      label: "People and vehicles",
+      label: "People & Vehicles",
       note: "The default. Catches most of what a yard cares about.",
     },
     {
       value: "all",
-      label: "All motion",
+      label: "All Motion",
       note: "Everything that moves, including weather and animals.",
     },
   ];
@@ -76,23 +83,49 @@ const SENSITIVITY: {
   },
 ];
 
-const NIGHT: { value: CameraSettings["nightVision"]; label: string }[] = [
-  { value: "auto", label: "Auto" },
-  { value: "on", label: "Always on" },
-  { value: "off", label: "Off" },
+const NIGHT: { value: CameraSettings["nightVision"]; label: string; note?: string }[] =
+  [
+    { value: "auto", label: "Auto", note: "The default." },
+    {
+      value: "infrared",
+      label: "Infrared",
+      note: "Always on. Reaches further after dark, at the cost of colour.",
+    },
+    { value: "off", label: "Off", note: "Nothing after dusk." },
+  ];
+
+/* What is written to the tower's own buffer, as opposed to what goes out over
+   the uplink. The link constrains one and the storage constrains the other, so
+   the frame is right to make them two rows. */
+const RECORDING_QUALITY: {
+  value: CameraSettings["recordingQuality"];
+  label: string;
+  note: string;
+}[] = [
+  {
+    value: "4k",
+    label: "4K HD",
+    note: "The default. Best for evidence, and fills the buffer fastest.",
+  },
+  { value: "1080p", label: "Full HD (1080P)", note: "Half the storage." },
+  { value: "720p", label: "HD (720P)", note: "For a tower that fills up." },
 ];
 
 const QUALITY: { value: CameraSettings["quality"]; label: string; note: string }[] =
   [
     {
       value: "1080p30",
-      label: "1080p · 30 fps",
+      label: "Full HD (1080P) · 30 fps",
       note: "Sharpest, and the heaviest on the uplink.",
     },
-    { value: "1080p15", label: "1080p · 15 fps", note: "The default." },
+    {
+      value: "1080p15",
+      label: "Full HD (1080P)",
+      note: "The default. 15 fps.",
+    },
     {
       value: "720p30",
-      label: "720p · 30 fps",
+      label: "HD (720P) · 30 fps",
       note: "Smoother motion on a poor link, less detail.",
     },
   ];
@@ -104,7 +137,7 @@ const RECORDING: {
 }[] = [
   {
     value: "detection",
-    label: "On detection",
+    label: "On Detection",
     note: "The default. Keeps the buffer long and the uplink quiet.",
   },
   {
@@ -147,12 +180,15 @@ export function CameraSettingsPanel({
   feeds,
   settings,
   onChange,
+  onRename,
   onClose,
 }: {
   tower: Tower;
   feeds: CameraFeed[];
   settings: CameraSettings;
   onChange: (next: Partial<CameraSettings>) => void;
+  /** Commit a new id for this tower. */
+  onRename: (next: string) => void;
   onClose: () => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -171,6 +207,9 @@ export function CameraSettingsPanel({
   const quality = QUALITY.find((q) => q.value === settings.quality);
   const recording = RECORDING.find((r) => r.value === settings.recording);
   const power = POWER.find((p) => p.value === settings.powerMode);
+  const recordingQuality = RECORDING_QUALITY.find(
+    (r) => r.value === settings.recordingQuality,
+  );
   const usedPct = Math.round(
     (tower.storageUsedGb / Math.max(1, tower.storageTotalGb)) * 100,
   );
@@ -188,39 +227,42 @@ export function CameraSettingsPanel({
 
   return (
     <motion.aside
-      aria-label={`${tower.id} camera settings`}
+      aria-label={`${tower.id} tower settings`}
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       transition={ENTER}
       className="flex w-full min-w-0 flex-col border-l border-line-panel bg-ink lg:w-[417px] lg:shrink-0"
     >
-      <header className="flex h-[52px] shrink-0 items-center justify-between gap-[12px] border-b border-line pl-[16px] pr-[14px]">
-        {/* The scope rides the title. As a paragraph in the content flow it
-            sat immediately above the first group header and read as that
-            group's introduction rather than the panel's.
-
-            The tower id alone, without the two camera names after it. The names
-            made the line wrap and truncate at this width, and "both cameras"
-            already says the count — an operator who wants to know which two is
-            looking at the wall they are named on. */}
-        <div className="flex min-w-0 flex-col gap-[2px]">
-          <h2 className="truncate font-display text-[0.875rem] leading-[18px] tracking-[0.14px] text-white">
-            CAMERA SETTINGS
-          </h2>
-          {/* 12px, not 11 — this was the smallest type in the product and it
-              carries the panel's most consequential fact. 12/15 is the scale
-              the tower card's status line already uses. */}
-          <p className="truncate text-[0.75rem] leading-[15px] tracking-[0.12px] text-muted">
-            Both cameras on {tower.id}
-          </p>
-        </div>
+      {/* The frame's own bar: 46px, both glyphs at 24. Back and close are two
+          different exits and it draws both — back collapses an expanded row,
+          close leaves the panel. */}
+      <header className="flex h-[46px] shrink-0 items-center border-b border-line px-[16px]">
+        <button
+          type="button"
+          onClick={() => (open ? setOpen(null) : onClose())}
+          aria-label={open ? "Collapse this setting" : "Close tower settings"}
+          className="flex size-[24px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+            <path
+              d="M12 4 6 10l6 6"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <h2 className="ml-[12px] min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          TOWER SETTINGS
+        </h2>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close camera settings"
-          className="flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-muted transition-colors hover:text-white"
+          aria-label="Close tower settings"
+          className="ml-auto flex size-[24px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+          <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden>
             <path
               d="m3 3 8 8M11 3l-8 8"
               stroke="currentColor"
@@ -231,331 +273,433 @@ export function CameraSettingsPanel({
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[15px] pb-[24px] pt-[18px]">
-        <Group title="DETECTION">
-          <Row
-            label="Detect"
-            value={detect?.label ?? ""}
-            expanded={open === "detect"}
-            onToggle={() => toggle("detect")}
-          >
-            <Choices
-              name="detect"
-              options={DETECT}
-              value={settings.detect}
-              onPick={(v) => onChange({ detect: v })}
-            />
-          </Row>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[24px]">
+        {/* The mast at the frame's size. It is the one thing here that says
+            *which* tower without being read, and its cell fills to the charge
+            like every other drawing of it. */}
+        <div className="relative mx-auto mt-[25px] block h-[282px] w-[163px] shrink-0">
+          <TowerBattery
+            pct={tower.batteryPct}
+            charging={solarState(tower) === "charging"}
+            className="absolute inset-0 size-full"
+          />
+          <img
+            src="/icons/twr-mast.svg"
+            alt=""
+            className="absolute inset-0 block size-full"
+          />
+        </div>
 
-          <Row
-            label="Sensitivity"
-            value={sensitivity?.label ?? ""}
-            expanded={open === "sensitivity"}
-            onToggle={() => toggle("sensitivity")}
-          >
-            <Choices
-              name="sensitivity"
-              options={SENSITIVITY}
-              value={settings.sensitivity}
-              onPick={(v) => onChange({ sensitivity: v })}
-            />
-          </Row>
-
-          {/* Drawn on the frame, not described. It is the one eufy pattern
-              worth copying whole: "ignore the road, watch the gate" cannot be
-              said in a form field. */}
-          <button
-            type="button"
-            onClick={() => setEditingZones(true)}
-            className="flex h-[48px] w-full items-center justify-between gap-[12px] px-[14px] text-left transition-colors hover:bg-card-hover"
-          >
-            <span className="text-[0.875rem] text-white">Activity zones</span>
-            <span className="flex items-center gap-[8px] text-[0.875rem] text-muted">
-              {zoneCount === 0 ? "Whole frame" : `${zoneCount} set`}
-              <img
-                src="/icons/chevron-right.svg"
-                alt=""
-                width={16}
-                height={16}
-              />
-            </span>
-          </button>
-        </Group>
-
-        <Group title="PICTURE">
-          <Row
-            label="Night vision"
-            value={night?.label ?? ""}
-            expanded={open === "night"}
-            onToggle={() => toggle("night")}
-          >
-            <Choices
-              name="night"
-              options={NIGHT}
-              value={settings.nightVision}
-              onPick={(v) => onChange({ nightVision: v })}
-            />
-          </Row>
-          <Row
-            label="Stream quality"
-            value={quality?.label ?? ""}
-            expanded={open === "quality"}
-            onToggle={() => toggle("quality")}
-          >
-            <Choices
-              name="quality"
-              options={QUALITY}
-              value={settings.quality}
-              onPick={(v) => onChange({ quality: v })}
-            />
-          </Row>
-        </Group>
-
-        <Group title="AUDIO">
-          <div className="flex h-[48px] items-center justify-between gap-[12px] px-[14px]">
-            <span className="text-[0.875rem] text-white">Microphone</span>
-            <Switch
-              on={settings.micOn}
-              label="Microphone"
-              onToggle={() => onChange({ micOn: !settings.micOn })}
-            />
-          </div>
-          <div className="flex flex-col gap-[10px] px-[14px] py-[12px]">
-            <div className="flex items-center justify-between">
-              <span className="text-[0.875rem] text-white">Speaker volume</span>
-              <span className="font-display text-[0.875rem] text-muted tabular-nums">
-                {settings.speakerVolume}%
+        <div className="flex flex-col gap-[20px] px-[15px] pt-[32px]">
+          <div className="flex h-[65px] items-center justify-between gap-[12px] rounded-[8px] bg-panel px-[15px]">
+            <div className="flex min-w-0 flex-col gap-[2px]">
+              <TowerName name={tower.site} onRename={onRename} />
+              <span className="flex min-w-0 items-center gap-[6px] text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted">
+                {/* No id on this line. The name above it is what the fleet
+                    card, the band header and the breadcrumb all show, so the
+                    id was a third value competing for a 417px row beside a
+                    switch — and it was the one nobody came here to read. */}
+                <span className="truncate">{tower.location}</span>
+                <span
+                  aria-hidden
+                  className="size-[2px] shrink-0 rounded-full bg-muted"
+                />
+                <span className="flex shrink-0 items-center gap-[4px]">
+                  {/* Filled to the charge, not tinted by it. A flat tint draws
+                      a *full* battery in amber, and a full battery is a claim —
+                      the glyph at 194:2565 is what 100% looks like, so anything
+                      short of it has to read short. The tier colour still comes
+                      through: `batteryFill` picks the same three. */}
+                  <MaskIcon
+                    src="/icons/set-battery.svg"
+                    size={24}
+                    background={batteryFill(tower.batteryPct)}
+                  />
+                  <span
+                    className={`flex items-center gap-[2px] font-display text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] tabular-nums ${batteryTone(tower.batteryPct)}`}
+                  >
+                    {tower.batteryPct}%
+                    {solarState(tower) === "charging" && (
+                      <MaskIcon
+                        src="/icons/set-bolt.svg"
+                        size={20}
+                        className="solar-charging"
+                      />
+                    )}
+                  </span>
+                </span>
               </span>
             </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={settings.speakerVolume}
-              onChange={(e) =>
-                onChange({ speakerVolume: Number(e.target.value) })
-              }
-              aria-label="Speaker volume"
-              className="w-full accent-white"
+            {/* The only control here that can silence a whole site, so it says
+                which site it is silencing. */}
+            <Switch
+              on={settings.monitoring}
+              label={`Monitoring on ${tower.id}`}
+              onToggle={() => onChange({ monitoring: !settings.monitoring })}
             />
           </div>
-        </Group>
 
-        {/* The storage figure is a reading, not a quota. The tower buffers
-            locally and ships on the uplink, so it fills and empties on its own
-            — the operator's only levers on it are the two rows above. */}
-        <Group
-          title="STORAGE"
-          value={`${tower.storageUsedGb} GB of ${tower.storageTotalGb} GB`}
-          tone={usedPct >= 90 ? "text-warn" : undefined}
-        >
-          <Row
-            label="Recording"
-            value={recording?.label ?? ""}
-            expanded={open === "recording"}
-            onToggle={() => toggle("recording")}
-          >
-            <Choices
-              name="recording"
-              options={RECORDING}
-              value={settings.recording}
-              onPick={(v) => onChange({ recording: v })}
+          {!settings.monitoring && (
+            <p className="text-[0.875rem] leading-[20px] text-warn">
+              Monitoring is off. Both cameras keep streaming and neither will
+              raise an alert.
+            </p>
+          )}
+
+          <Group title="Detection">
+            <Row
+              label="Motion"
+              value={detect?.label ?? ""}
+              expanded={open === "detect"}
+              onToggle={() => toggle("detect")}
+            >
+              <Choices
+                name="motion"
+                options={DETECT}
+                value={settings.detect}
+                onPick={(v) => onChange({ detect: v })}
+              />
+            </Row>
+
+            {/* Drawn on the frame, not described. The one eufy pattern worth
+                copying whole: "ignore the road, watch the gate" cannot be said
+                in a form field. */}
+            <RowLink
+              label="Activity Zones"
+              value={zoneCount === 0 ? "Whole Frame" : `${zoneCount} set`}
+              onClick={() => setEditingZones(true)}
             />
-          </Row>
-          <Row
-            label="Keep footage for"
-            value={`${settings.retentionDays} days`}
-            expanded={open === "retention"}
-            onToggle={() => toggle("retention")}
-          >
-            <Choices
-              name="retention"
-              options={RETENTION}
-              value={settings.retentionDays}
-              onPick={(v) => onChange({ retentionDays: v })}
+
+            <Row
+              label="Sensitivity"
+              value={sensitivity?.label ?? ""}
+              expanded={open === "sensitivity"}
+              onToggle={() => toggle("sensitivity")}
+              last
+            >
+              <Choices
+                name="sensitivity"
+                options={SENSITIVITY}
+                value={settings.sensitivity}
+                onPick={(v) => onChange({ sensitivity: v })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="Camera">
+            <Row
+              label="Night Vision"
+              value={night?.label ?? ""}
+              expanded={open === "night"}
+              onToggle={() => toggle("night")}
+            >
+              <Choices
+                name="night vision"
+                options={NIGHT}
+                value={settings.nightVision}
+                onPick={(v) => onChange({ nightVision: v })}
+              />
+            </Row>
+            <Row
+              label="Stream Quality"
+              value={quality?.label ?? ""}
+              expanded={open === "quality"}
+              onToggle={() => toggle("quality")}
+            >
+              <Choices
+                name="stream quality"
+                options={QUALITY}
+                value={settings.quality}
+                onPick={(v) => onChange({ quality: v })}
+              />
+            </Row>
+            <Row
+              label="Recording Settings"
+              value={recordingQuality?.label ?? ""}
+              expanded={open === "recq"}
+              onToggle={() => toggle("recq")}
+              last
+            >
+              <Choices
+                name="recording settings"
+                options={RECORDING_QUALITY}
+                value={settings.recordingQuality}
+                onPick={(v) => onChange({ recordingQuality: v })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="Audio">
+            <RowSwitch
+              label="Microphone"
+              on={settings.micOn}
+              onToggle={() => onChange({ micOn: !settings.micOn })}
             />
-          </Row>
-        </Group>
-
-        <Group
-          title="POWER"
-          value={`${tower.batteryPct}%${solarState(tower) === "charging" ? " and rising" : ""}`}
-          tone={
-            tower.batteryPct < 20
-              ? "text-critical"
-              : tower.batteryPct < 40
-                ? "text-warn"
-                : undefined
-          }
-        >
-          <Row
-            label="Working mode"
-            value={power?.label ?? ""}
-            expanded={open === "power"}
-            onToggle={() => toggle("power")}
-          >
-            <Choices
-              name="power"
-              options={POWER}
-              value={settings.powerMode}
-              onPick={(v) => onChange({ powerMode: v })}
+            <RowSlider
+              label="Speaker Volume"
+              value={settings.speakerVolume}
+              onChange={(v) => onChange({ speakerVolume: v })}
+              last
             />
-          </Row>
-        </Group>
+          </Group>
 
-        {/* Read-only, and the reason this group exists at all: when a camera
-            misbehaves the first two questions are which box it is and what it
-            is running. */}
-        {/* Passed as children, not as `readings`: every row here is a reading,
-            so the group can wear the same card as the others and the absent
-            chevron is what marks them read-only. */}
-        <Group title="DEVICE INFO">
-          <Reading label="Serial" value={tower.serial} />
-          <Reading label="Firmware" value={tower.firmware} />
-          <Reading label="Cameras" value={`${feeds.length}`} />
-          <Reading
-            label="Uplink"
-            value={
-              tower.link === "good"
-                ? "Good"
-                : tower.link === "warn"
-                  ? "Fair"
-                  : "Poor"
-            }
-            tone={
-              tower.link === "bad"
-                ? "text-critical"
-                : tower.link === "warn"
-                  ? "text-warn"
-                  : undefined
-            }
-          />
-        </Group>
+          <Group title="Network">
+            {/* No chevron on the frame, and rightly — an uplink is a reading,
+                not a setting. It keeps its colour, which makes it the only
+                value on this panel that is not white. */}
+            <RowReading
+              label="Uplink"
+              value={
+                tower.link === "good"
+                  ? "Great"
+                  : tower.link === "warn"
+                    ? "Fair"
+                    : "Poor"
+              }
+              tone={
+                tower.link === "bad"
+                  ? "text-critical"
+                  : tower.link === "warn"
+                    ? "text-warn"
+                    : "text-terra"
+              }
+              icon={
+                tower.link === "good"
+                  ? "/icons/wifi-good.svg"
+                  : "/icons/wifi-warn.svg"
+              }
+            />
+            <RowReading label="IP Address" value={tower.ipAddress} />
+            <RowReading
+              label="Backup Connection"
+              value={tower.backupConnection}
+              last
+            />
+          </Group>
 
+          <Group title="Storage">
+            <RowReading
+              label="Memory"
+              value={`${tower.storageUsedGb}GB / ${tower.storageTotalGb}GB Used`}
+              tone={usedPct >= 90 ? "text-warn" : undefined}
+            />
+            <Row
+              label="Recording"
+              value={recording?.label ?? ""}
+              expanded={open === "recording"}
+              onToggle={() => toggle("recording")}
+            >
+              <Choices
+                name="recording"
+                options={RECORDING}
+                value={settings.recording}
+                onPick={(v) => onChange({ recording: v })}
+              />
+            </Row>
+            <Row
+              label="Keep Footage for"
+              value={`${settings.retentionDays} days`}
+              expanded={open === "retention"}
+              onToggle={() => toggle("retention")}
+              last
+            >
+              <Choices
+                name="retention"
+                options={RETENTION}
+                value={settings.retentionDays}
+                onPick={(v) => onChange({ retentionDays: v })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="Power">
+            <Row
+              label="Working Mode"
+              value={power?.label ?? ""}
+              expanded={open === "power"}
+              onToggle={() => toggle("power")}
+              last
+            >
+              <Choices
+                name="working mode"
+                options={POWER}
+                value={settings.powerMode}
+                onPick={(v) => onChange({ powerMode: v })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="About Device">
+            <RowReading label="Model Name" value={tower.model} />
+            <RowReading label="Serial Number" value={tower.serial} />
+            <RowReading label="Cameras" value={`${feeds.length}`} />
+            {/* The frame puts an action beside the version. It is the only
+                thing on this panel that reaches the hardware, so it is its own
+                target rather than a row you can land on by accident. */}
+            <RowReading
+              label="Firmware"
+              value={tower.firmware}
+              action="Update Firmware"
+              last
+            />
+          </Group>
+        </div>
       </div>
     </motion.aside>
   );
 }
 
-/* ---------------------------------------------------------------- pieces */
-
-/** A value the tower reports. No control, and it never renders blank — an
- *  absent reading says why, the way the alert fields do. */
 /**
- * A value the tower reports, in the same card and the same shape as a control
- * row — the missing chevron is what says it does not open.
+ * The tower's name, editable where it is displayed.
  *
- * It was styled the other way round for a while: no card, muted label, white
- * value, sitting on the panel's own ground so it could not be mistaken for
- * something pressable. That was right while readings sat *among* controls. Once
- * the two single readings moved up onto their group headers, the only group
- * left holding any was DEVICE INFO — where every row is a reading, so there is
- * nothing to be mistaken for, and a group with no card was the one group that
- * looked broken.
+ * A button until it is clicked, then the same text in an input at the same
+ * size and position — nothing moves, which is the point of editing in place.
+ * Enter and blur commit, Escape abandons.
  *
- * Never renders blank — an absent reading says why, the way the alert fields do.
+ * It is the tower's *name*, not its id. The id is a key — feeds, alerts and the
+ * settings map all hang off it — and renaming a key to fix a typo is how a site
+ * loses its cameras. The name is what the fleet card, the band header and the
+ * breadcrumb already show, so editing it here changes all four.
  */
-function Reading({
-  label,
-  value,
-  tone,
+function TowerName({
+  name,
+  onRename,
 }: {
-  label: string;
-  value: string;
-  tone?: string;
+  name: string;
+  onRename: (next: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) ref.current?.select();
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim().toUpperCase();
+    if (next && next !== name) onRename(next);
+    else setDraft(name);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            setDraft(name);
+            setEditing(false);
+          }
+        }}
+        aria-label="Tower name"
+        className="w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[1rem] leading-[20px] font-medium tracking-[0.16px] text-white uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra"
+      />
+    );
+  }
+
   return (
-    <div className="flex h-[48px] items-center justify-between gap-[12px] px-[14px]">
-      <span className="text-[0.875rem] text-white">{label}</span>
-      <span className={`text-[0.875rem] tabular-nums ${tone ?? "text-muted"}`}>
-        {value || "Not reported"}
-      </span>
-    </div>
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(name);
+        setEditing(true);
+      }}
+      title="Rename this tower"
+      /* A text cursor, because what happens on click is that you start typing.
+         The default arrow says "this does something"; the caret says what. */
+      className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[1rem] leading-[20px] font-medium tracking-[0.16px] text-white transition-colors hover:bg-card"
+    >
+      {name}
+    </button>
   );
 }
 
+/* ---------------------------------------------------------------- pieces */
+
 /**
- * A group is one card with hairlines inside it, not a stack of tiles.
+ * A group: a 16px sentence-case title, then one 8px card holding its rows.
  *
- * Six separate cards with 8px between them made every row float at the same
- * weight and left the group headings doing all the work of grouping, which at
- * 12px muted they cannot. One surface per group is what alias, Apple Fitness
- * and Character AI all do, and it is what makes DETECTION mean something.
- *
- * `readings` sit *below* the card rather than inside it — see `Reading`.
+ * The frame separates rows with a `#252528` hairline drawn on every row but
+ * the last, which is why `last` is passed down rather than derived — a group
+ * whose final row carries a border reads as an unfinished list.
  */
-function Group({
-  title,
-  value,
-  tone,
-  children,
-}: {
-  title: string;
-  /** The group's own reading, on the header line. A group with one number to
-   *  report does not need a row for it — "STORAGE … 96 GB of 128 GB" says the
-   *  same thing in half the height, and drops a label the heading already
-   *  carried. Only where the group has exactly one; DEVICE INFO has four and
-   *  keeps them as rows. */
-  value?: string;
-  tone?: string;
-  children?: React.ReactNode;
-}) {
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col">
-      <div className="flex items-baseline justify-between gap-[12px]">
-        <h3 className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-          {title}
-        </h3>
-        {value && (
-          <span
-            className={`font-display text-[0.75rem] tracking-[0.12px] tabular-nums ${tone ?? "text-white"}`}
-          >
-            {value}
-          </span>
-        )}
+    <section className="flex flex-col gap-[8px]">
+      {/* 14px, not the frame's 16. At 16 the group titles sat level with the
+          tower name above them and read as headings of equal weight; the name
+          is the only thing on this panel that should carry that size. */}
+      <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted">
+        {title}
+      </h3>
+      <div className="flex flex-col overflow-hidden rounded-[8px] bg-panel">
+        {children}
       </div>
-      <span aria-hidden className="mb-[12px] mt-[8px] h-px bg-line" />
-      {children && (
-        <div className="flex flex-col overflow-hidden rounded-[10px] bg-card [&>*+*]:border-t [&>*+*]:border-line">
-          {children}
-        </div>
-      )}
     </section>
   );
 }
 
+/** 53px, label muted at 16, value white and medium at the right with a 20px
+ *  chevron. The frame's row, and every row below is a variation of it. */
+const ROW = "flex h-[53px] w-full items-center justify-between gap-[12px] px-[16px] text-left";
+const ROW_LINE = "border-b border-row-line";
+const LABEL = "text-[0.875rem] leading-[18px] tracking-[0.14px] text-muted";
+const VALUE =
+  "text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white";
+
+/* The export points left. Figma composes it with a vertical flip and a half
+   turn, which together are a horizontal flip — so the raw asset is the mirror
+   of what the frame shows. Flipped here rather than re-exported, because the
+   file is correct and only its placement was doing the work. */
+function Chevron() {
+  return (
+    <MaskIcon
+      src="/icons/row-chevron.svg"
+      size={20}
+      className="shrink-0 -scale-x-100 text-muted"
+    />
+  );
+}
+
+/** A row that opens its options underneath rather than pushing a screen. */
 function Row({
   label,
   value,
   expanded,
+  last = false,
   onToggle,
   children,
 }: {
   label: string;
   value: string;
   expanded: boolean;
+  last?: boolean;
   onToggle: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <div>
+    <div className={last && !expanded ? "" : ROW_LINE}>
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className="flex h-[48px] w-full items-center justify-between gap-[12px] px-[14px] text-left transition-colors hover:bg-card-hover"
+        className={`${ROW} transition-colors hover:bg-card-hover`}
       >
-        <span className="text-[0.875rem] text-white">{label}</span>
-        <span className="flex min-w-0 items-center gap-[8px]">
-          <span className="truncate text-[0.875rem] text-muted">{value}</span>
-          <img
-            src="/icons/chevron-right.svg"
-            alt=""
-            width={16}
-            height={16}
-            className={`shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
-          />
+        <span className={LABEL}>{label}</span>
+        <span className="flex min-w-0 items-center gap-[4px]">
+          <span className={`truncate ${VALUE}`}>{value}</span>
+          {/* Down when the row is open, which is where its options are. */}
+          <span
+            className={`flex transition-transform ${expanded ? "rotate-90" : ""}`}
+          >
+            <Chevron />
+          </span>
         </span>
       </button>
       {expanded && (
@@ -563,11 +707,137 @@ function Row({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={FADE}
-          className="flex flex-col gap-[2px] border-t border-line px-[8px] py-[8px]"
+          className="flex flex-col gap-[2px] border-t border-row-line px-[8px] py-[8px]"
         >
           {children}
         </motion.div>
       )}
+    </div>
+  );
+}
+
+/** A row that goes somewhere instead of opening. */
+function RowLink({
+  label,
+  value,
+  last = false,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${ROW} ${last ? "" : ROW_LINE} transition-colors hover:bg-card-hover`}
+    >
+      <span className={LABEL}>{label}</span>
+      <span className="flex min-w-0 items-center gap-[4px]">
+        <span className={`truncate ${VALUE}`}>{value}</span>
+        <Chevron />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * A value the tower reports. No chevron and no hover, which is the whole
+ * signal — the frame draws the uplink, the model name and the camera count
+ * without one, and that is how it says they do not open.
+ *
+ * Never renders blank: an absent reading says why, the way the alert fields do.
+ */
+function RowReading({
+  label,
+  value,
+  tone,
+  icon,
+  action,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  /** A glyph after the value, as the uplink row carries. */
+  icon?: string;
+  /** An action beside the value, as the firmware row carries. */
+  action?: string;
+  last?: boolean;
+}) {
+  return (
+    <div className={`${ROW} ${last ? "" : ROW_LINE}`}>
+      <span className={LABEL}>{label}</span>
+      <span className="flex min-w-0 items-center gap-[6px]">
+        <span className={`truncate ${VALUE} ${tone ?? ""} tabular-nums`}>
+          {value || "Not reported"}
+        </span>
+        {icon && <img src={icon} alt="" width={16} height={16} className="block shrink-0" />}
+        {action && (
+          <button
+            type="button"
+            className="shrink-0 text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-terra transition-colors hover:text-white"
+          >
+            {action}
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function RowSwitch({
+  label,
+  on,
+  last = false,
+  onToggle,
+}: {
+  label: string;
+  on: boolean;
+  last?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className={`${ROW} ${last ? "" : ROW_LINE}`}>
+      <span className={LABEL}>{label}</span>
+      <Switch on={on} label={label} onToggle={onToggle} />
+    </div>
+  );
+}
+
+/** The one row that cannot be 53px: a slider needs its own line under the
+ *  label, so it keeps the row's padding and gives up its height. */
+function RowSlider({
+  label,
+  value,
+  last = false,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  last?: boolean;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-[10px] px-[16px] py-[14px] ${last ? "" : ROW_LINE}`}
+    >
+      <div className="flex items-center justify-between">
+        <span className={LABEL}>{label}</span>
+        <span className={`${VALUE} tabular-nums`}>{value}%</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={label}
+        className="w-full accent-white"
+      />
     </div>
   );
 }

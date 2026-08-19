@@ -1,0 +1,10 @@
+<!-- The notch that the export draws between the body and the cap has been
+     removed. Figma renders that subpath filled, the browser renders it as a
+     hole, and as a CSS mask a hole is a hole: it punched a slot through the
+     glyph that the panel showed through. Node 194:2565 is a solid body at
+     100%, so the silhouette is solid and the charge is painted behind it. -->
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Frame">
+<path id="Vector" d="M3.99966 18.0029C3.16632 18.0029 2.45799 17.7113 1.87466 17.1279C1.29132 16.5446 0.999658 15.8363 0.999658 15.0029V9.00293C0.999658 8.1696 1.29132 7.46126 1.87466 6.87793C2.45799 6.2946 3.16632 6.00293 3.99966 6.00293H17.4997C18.333 6.00293 19.0413 6.2946 19.6247 6.87793C20.208 7.46126 20.4997 8.1696 20.4997 9.00293V15.0029C20.4997 15.8363 20.208 16.5446 19.6247 17.1279C19.0413 17.7113 18.333 18.0029 17.4997 18.0029H3.99966ZM21.4997 14.5029V9.50293H21.9997C22.283 9.50293 22.5205 9.59876 22.7122 9.79043C22.9038 9.9821 22.9997 10.2196 22.9997 10.5029V13.5029C22.9997 13.7863 22.9038 14.0238 22.7122 14.2154C22.5205 14.4071 22.283 14.5029 21.9997 14.5029H21.4997Z" fill="#66E28E"/>
+</g>
+</svg>

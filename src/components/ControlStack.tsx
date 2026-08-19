@@ -33,10 +33,34 @@ export interface TileControl {
    reveal makes every camera control unreachable on a phone. Below lg the
    controls are simply always present — there is no pointer to reveal them. */
 const REVEAL =
-  "max-lg:visible max-lg:opacity-100 " +
-  "invisible opacity-0 transition-[opacity,visibility] duration-150 " +
+  "tile-reveal max-lg:visible max-lg:opacity-100 invisible opacity-0 " +
   "group-hover:visible group-hover:opacity-100 " +
   "group-focus-within:visible group-focus-within:opacity-100";
+
+/* One transition list for the whole button, and the order matters: `index.css`
+   delays the first two and leaves the last two alone, so the stagger belongs to
+   the reveal while the button's own hover colour still answers immediately.
+   `visibility` rides along because it is what takes the hidden controls out of
+   the tab order — as a discrete property it flips at the near end of the
+   transition, so it appears at once on the way in and holds until the fade has
+   finished on the way out.
+
+   This was two competing declarations before: the reveal asked for
+   `transition-[opacity,visibility]` and the chip asked for `transition-colors`,
+   which is the same CSS property, and the colours won. The controls had been
+   popping in with no fade at all. */
+const TRANSITION =
+  "transition-[opacity,visibility,color,background-color] duration-150";
+
+/* How far apart the revealed controls start, in ms. Seven of them, so the
+   cascade runs 144ms front to back and the last one has settled inside 300 —
+   long enough to read as a stack unpacking downward, short enough that the
+   control you were reaching for is already there when the pointer arrives.
+
+   The delay is spent on the way in only. `index.css` hangs it off the tile's
+   hover state, so dropping hover drops the delay with it and the stack leaves
+   as one block. Staggering the exit reads as the chrome struggling to clear. */
+const REVEAL_STEP_MS = 24;
 
 export function ControlStack({
   controls,
@@ -52,9 +76,15 @@ export function ControlStack({
       aria-orientation="vertical"
       className={`flex flex-col items-start justify-center gap-[5.236px] ${className}`}
     >
-      {controls.map((c) => {
+      {controls.map((c, i) => {
         const critical = c.active && c.tone === "critical";
         const alarm = c.active && c.tone === "alarm";
+        /* Counted over the revealed controls alone, so the cascade starts at
+           zero under whichever one is pinned rather than leaving a gap where
+           the persistent button sits. */
+        const revealIndex = controls
+          .slice(0, i)
+          .filter((p) => !p.persistent).length;
         return (
           <button
             key={c.id}
@@ -65,12 +95,19 @@ export function ControlStack({
             title={c.label}
             disabled={c.disabled}
             onClick={c.onSelect}
+            style={
+              c.persistent
+                ? undefined
+                : ({
+                    "--reveal-delay": `${revealIndex * REVEAL_STEP_MS}ms`,
+                  } as React.CSSProperties)
+            }
             /* An engaged critical control keeps the ordinary chip and reddens
                only its glyph: a 32px block of solid red on top of live video
                competes with the frame it is annotating. The alarm tone is the
                deliberate exception, because a siren audible at the site should
                cost the operator's attention until it is silenced. */
-            className={`chip-blur relative flex size-[32px] items-center justify-center rounded-[5.818px] transition-colors ${
+            className={`chip-blur relative flex size-[32px] items-center justify-center rounded-[5.818px] ${TRANSITION} ${
               alarm
                 ? "bg-critical text-white"
                 : critical

@@ -272,6 +272,27 @@
   transition: fill 1.4s ease-out;
 }
 
+/* The tile's controls unpack downward instead of arriving as a block.
+
+   Seven buttons appearing at once on top of live video is a flash of chrome —
+   the eye registers "something changed" and then has to re-find the one it
+   wanted. Cascading them from the pinned button downward gives the stack a
+   direction to be read in, and the delay is small enough that the control under
+   the pointer is already there by the time the pointer stops.
+
+   The delay lives on the hover state, not on the element, so it applies on the
+   way in only. Drop hover and the delay goes with it and the stack clears as
+   one block: a staggered exit reads as chrome that cannot get out of the way.
+   `--reveal-delay` is set per button in `ControlStack`. */
+.group:hover .tile-reveal,
+.group:focus-within .tile-reveal {
+  /* Positional, against the property list `ControlStack` sets: opacity and
+     visibility take the offset, colour and background take none. Delay the
+     whole list and the last control in the stack would sit there for 144ms
+     before acknowledging its own hover. */
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms, 0ms;
+}
+
 /* The settings gear turns one notch under the pointer.
    Sixty degrees, not three hundred and sixty — this is a control an operator
    passes over constantly and a full turn is a performance the second time. One
@@ -359,6 +380,13 @@
   }
   .solar-charging {
     animation: none;
+  }
+
+  /* The cascade is the part that is motion; the reveal itself is not. Drop the
+     offsets and the controls simply appear together. */
+  .group:hover .tile-reveal,
+  .group:focus-within .tile-reveal {
+    transition-delay: 0ms;
   }
 
   /* Hold both layers lit — the alarm must still be unmistakable when the

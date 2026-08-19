@@ -109,6 +109,16 @@ wall order — a band reorder reflows every sibling. Anything else you add there
 that changes a tile's box goes in that key or the wall snaps instead of
 animating.
 
+**Two `transition-*` utilities on one element is one property list, not two.**
+`ControlStack`'s buttons carried `transition-colors` for the hover chip and
+`transition-[opacity,visibility]` for the hover reveal. Both set
+`transition-property`; the colours won, and the controls had been appearing with
+no fade at all since they were written. There is now a single `TRANSITION`
+constant listing all four properties, and `index.css` delays only the first two
+positionally so the stagger belongs to the reveal and a button's own hover
+colour still answers at once. `transition-delay` takes a **comma**-separated
+list — spaces make it invalid and the whole declaration is dropped silently.
+
 **Feed state grammar has one home.** `FeedChip` owns `stateWord` and
 `STATE_DOT`, and both walls render `FeedChip` itself. Add a seventh `FeedState`
 and both pick it up; restate the switch locally and only one of them will.

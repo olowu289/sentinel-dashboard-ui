@@ -382,7 +382,14 @@ across renders. Swap it for a real encoder when there is a link worth encoding.
 
 Manual entry is one input behind six boxes, not six inputs: six fields need
 focus-shuttling, break paste, and turn a backspace into a puzzle. The caret is a
-ring on the active box instead.
+ring on the active box instead — **and only while that input actually holds
+focus**. Drawn unconditionally it was a lie about where typing would go: the
+screen opened with the serial empty and the pairing code apparently active, so
+the first field an operator reads off the label looked like the second one.
+
+The serial takes focus on mount for the same reason. The label is read top to
+bottom off a cabinet door, and landing anywhere else asks for a click before a
+keystroke.
 
 ### Naming
 

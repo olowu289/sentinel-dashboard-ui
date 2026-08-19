@@ -421,6 +421,16 @@ function Manual({
   const [serial, setSerial] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /* The faked caret below is a ring on a box, and a ring drawn whether or not
+     the input behind it holds focus is a lie about where typing will go — the
+     screen opened with the serial empty and the pairing code apparently
+     active. It only shows while the code input is actually focused. */
+  const [codeFocused, setCodeFocused] = useState(false);
+  const serialRef = useRef<HTMLInputElement>(null);
+
+  /* First field first. The label is read top to bottom off a cabinet door, and
+     landing anywhere else asks the operator to click before they can type. */
+  useEffect(() => serialRef.current?.focus(), []);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -455,6 +465,7 @@ function Manual({
             SERIAL
           </span>
           <input
+            ref={serialRef}
             value={serial}
             onChange={(e) => {
               setSerial(e.target.value);
@@ -484,6 +495,8 @@ function Manual({
                 setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
                 setError(null);
               }}
+              onFocus={() => setCodeFocused(true)}
+              onBlur={() => setCodeFocused(false)}
               inputMode="numeric"
               autoComplete="one-time-code"
               aria-label="Pairing code, six digits"
@@ -497,7 +510,7 @@ function Manual({
                   className={`flex flex-1 items-center justify-center rounded-[8px] bg-card font-display text-[1.25rem] text-white ${
                     error
                       ? "ring-1 ring-critical"
-                      : i === Math.min(code.length, 5)
+                      : codeFocused && i === Math.min(code.length, 5)
                         ? "ring-1 ring-terra/70"
                         : ""
                   }`}

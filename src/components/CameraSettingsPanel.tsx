@@ -613,7 +613,7 @@ function TowerName({
           }
         }}
         aria-label="Tower name"
-        className="w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[1rem] leading-[20px] font-medium tracking-[0.16px] text-white uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra"
+        className="w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra"
       />
     );
   }
@@ -628,7 +628,7 @@ function TowerName({
       title="Rename this tower"
       /* A text cursor, because what happens on click is that you start typing.
          The default arrow says "this does something"; the caret says what. */
-      className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[1rem] leading-[20px] font-medium tracking-[0.16px] text-white transition-colors hover:bg-card"
+      className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white transition-colors hover:bg-card"
     >
       {name}
     </button>

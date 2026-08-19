@@ -282,14 +282,18 @@ export function TowerView({
           onRename={(next) => onRenameTower(tower.id, next)}
           onChange={(next) => onChangeSettings(tower.id, next)}
           onClose={onCloseSettings}
-          /* It stands where the alerts feed stands, so it obeys the same
-             rules: below lg this column is one of two switchable views, and a
-             panel that ignored that rendered *beside* the wall with both
-             squeezed to half a phone. The gear is desktop-only, so this is
-             reached by narrowing a window that already had settings open. */
-          className={`${mobileView === "alerts" ? "flex" : "hidden lg:flex"} ${
-            alertsCollapsed ? "lg:hidden" : ""
-          }`}
+          /* It stands where the alerts feed stands, so it takes that column's
+             breakpoint rule: below lg this column is one of two switchable
+             views, and a panel that ignored that rendered *beside* the wall
+             with both squeezed to half a phone.
+
+             It does *not* take that column's collapse. `alertsCollapsed` is
+             true on every ordinary drill-in â€” the wall is the job and the feed
+             announces itself â€” so copying the whole class string from
+             `AlertsPanel`, `lg:hidden` included, meant the gear mounted a panel
+             that was display:none and looked like a dead button. Collapse is a
+             state of the alerts feed; this panel is what replaces it. */
+          className={mobileView === "alerts" ? "flex" : "hidden lg:flex"}
         />
       ) : (
       <AlertsPanel

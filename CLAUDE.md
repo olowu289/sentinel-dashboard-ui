@@ -77,7 +77,13 @@ either one a copy and the two walls disagree about the same camera within a
 second. The wall arrangement is up there too, because `DashboardView` unmounts
 on every drill-in and would otherwise hand the operator back a reset wall.
 `towers` is up there for the same reason once the batteries started filling —
-both screens read a tower, and two copies of a moving number disagree.
+both screens read a tower, and two copies of a moving number disagree. The
+live-viewing clock behind the battery banner is up there too, and that one is
+about *unmounting* rather than duplication: `TowerView` is keyed on the tower,
+so a clock owned by it would reset every drill-in and an operator could watch a
+camera all afternoon by ducking out to the fleet and back. It resets on a
+different tower, not on leaving one — `watchedTower` in `App.tsx` is the ref
+that tells those two apart.
 
 **Tokens live in the `@theme` block of `src/index.css`.** Use `bg-panel`,
 `text-muted`, `border-line`, `text-critical` and friends. A raw hex in a
@@ -179,9 +185,32 @@ first thing the export paints and all 133 mast strokes come after, so the cage
 struts cross in front of the cell. Two absolutely positioned layers on the same
 59×101 grid; flip the order and the struts vanish.
 
+**Figma MCP asset constants are ordered by first appearance, not by node
+order.** `get_design_context` returns `imgFrame`, `imgFrame1`, `imgFrame2`… and
+it is tempting to download them in order and name them by position. The clip
+player's transport is four 40px chips and doing that shifted every glyph by one:
+the mute button shipped rendering a *skip* icon, and the real speaker export was
+never downloaded at all. Match each asset to its `data-node-id` in the returned
+code, then render the mask at ~120px on a plain page before trusting it — that
+also catches the winding trap below, which no amount of reading the path data
+will.
+
+**A second export is not always a second glyph.** The frame exports the player's
+*next* button as its own asset, but its path data is the *previous* glyph to
+five decimal places, wrapped in `rotate(180deg) scaleY(-1)`. Compare the `d`
+attributes before committing a file — one asset turned is one asset to keep in
+step, and the design does this deliberately.
+
 **Vite HMR does not always pick up `data.ts` edits.** Module-level seed data is
 captured at import. If the UI shows stale copy after a data change, hard-reload
 before believing it.
+
+This is not confined to `data.ts` — any module-level constant has it. Dropping
+`LIVE_VIEW_WARNING_SEC` to 5s to verify the banner and restoring it to `10 * 60`
+left the dev server still serving the 5, so the banner fired after thirty
+seconds and looked correct. A reload was not enough; the preview server had to
+be stopped and restarted. Treat a threshold you have just edited as unverified
+until you have seen it *not* fire.
 
 **A `{/* */}` comment cannot precede the root element of a `return`.** Put the
 prose in a `/* */` block above `return (` instead.
@@ -192,6 +221,27 @@ Figma: `Terra· Sentinel`, file `a57qfGEtTBzzNj5R9DIJ8x`. The alert detail is
 node `72:230`. The file is iterated on between sessions — re-fetch before
 assuming a frame matches what is in the repo, and expect the code to be ahead of
 it in places where a static frame cannot express behaviour.
+
+Three places the code deliberately departs from a frame. Each is a rule in
+this file winning over a drawing, and each will look like a bug to anyone
+diffing the two side by side:
+
+- **`1080p HD` is not blue.** Node `202:1042` paints `HD` in `#667be2`. The
+  colour rule above allows exactly one blue and only for the length of a
+  gesture; a permanent blue label is what it forbids. Rendered in the neutral
+  grammar instead.
+- **The clip player's first crumb reads TOWERS and goes to the fleet.** The
+  frame says `TOWER`, singular. Every other breadcrumb in the app says TOWERS
+  and lands on the fleet, and a crumb naming one thing while going to a list of
+  them is how a breadcrumb stops being trusted.
+- **The battery banner says "the tower's battery", not "your camera's".** The
+  frame's possessive is a consumer product's; this operator is watching somebody
+  else's site.
+
+The scrubber's green detection bands *are* built as drawn, and they are the one
+place green does not mean live. Flagged rather than changed — if it reads as a
+signal on a monitoring screen, amber is the app's word for a detection and it is
+a one-line change in `ClipPlayer`.
 
 Assets in `public/` are exported Figma files. Monochrome glyphs go through
 `MaskIcon` (CSS mask, takes `currentColor`); the multi-colour alert badges and

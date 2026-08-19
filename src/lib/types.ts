@@ -256,6 +256,11 @@ export interface AlertAttachment {
    *  known before the click — a 30s clip and a 4-minute one are different
    *  decisions mid-triage. */
   durationSec?: number;
+  /** What the tower wrote it at, as printed in the player. A property of the
+   *  file rather than of the tower's current setting — `recordingQuality` can
+   *  be changed after the fact and this cannot. Absent means the buffer did
+   *  not report it, and the player shows nothing rather than a guess. */
+  quality?: string;
 }
 
 /**

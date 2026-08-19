@@ -59,6 +59,21 @@
   --color-advice-banner: #f5cc45;
   --color-advice-ink: #110d00;
 
+  /* The clip player. The stage is the same value as --color-card-hover and is
+     its own token anyway: one is the colour a card takes under the pointer and
+     the other is the surround a piece of evidence is looked at against, and
+     they have no reason to move together.
+
+     The track is the unplayed clip. The marks are what the alert's own
+     timeline put inside it — terra with a darker edge so a 6px band still
+     reads as a band on a grey rail, and the key mark is the moment the alert
+     was actually raised, which is the one an investigator is looking for. */
+  --color-stage: #1b1b1d;
+  --color-track: rgba(217, 217, 217, 0.74);
+  --color-mark-line: #275536;
+  --color-mark-key: #d0eb76;
+  --color-mark-key-line: #4a5527;
+
   /* The only blue in the app, and the reason it is allowed: it is the fill a
      band takes while it is being dragged. Status is green/amber/red and nothing
      else, so a hue from outside that set cannot be mistaken for a reading — it

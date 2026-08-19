@@ -288,8 +288,8 @@ export function TowerView({
              with both squeezed to half a phone.
 
              It does *not* take that column's collapse. `alertsCollapsed` is
-             true on every ordinary drill-in â€” the wall is the job and the feed
-             announces itself â€” so copying the whole class string from
+             true on every ordinary drill-in — the wall is the job and the feed
+             announces itself — so copying the whole class string from
              `AlertsPanel`, `lg:hidden` included, meant the gear mounted a panel
              that was display:none and looked like a dead button. Collapse is a
              state of the alerts feed; this panel is what replaces it. */
@@ -298,6 +298,8 @@ export function TowerView({
       ) : (
       <AlertsPanel
         alerts={alerts}
+        towerName={tower.site}
+        onNavigate={onNavigate}
         selectedId={selectedId}
         filter={filter}
         forceEmpty={alertsEmpty}

@@ -20,6 +20,7 @@ import { MaskIcon } from "./Icon";
 
 export function AlertsPanel({
   alerts,
+  towerName,
   selectedId,
   filter,
   forceEmpty = false,
@@ -30,9 +31,13 @@ export function AlertsPanel({
   onWatchPerson,
   onRejectMatch,
   onCollapse,
+  onNavigate,
   className = "",
 }: {
   alerts: Alert[];
+  /** The site these alerts belong to. Passed straight through to the clip
+   *  player, whose breadcrumb names it. */
+  towerName: string;
   selectedId: string | null;
   filter: DateFilter;
   forceEmpty?: boolean;
@@ -45,6 +50,8 @@ export function AlertsPanel({
   onRejectMatch?: (id: string) => void;
   /** Omitted below lg, where the panel is a whole view rather than a column. */
   onCollapse?: () => void;
+  /** Rail destinations, for the clip player's own rail. */
+  onNavigate?: (id: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   /* The clip open in the review player. It lives here rather than in the feed
@@ -243,6 +250,8 @@ export function AlertsPanel({
             attachment={playing.attachment}
             at={playing.at}
             alert={playing.alert}
+            towerName={towerName}
+            onNavigate={onNavigate}
             onClose={() => setPlaying(null)}
           />
         )}

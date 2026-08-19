@@ -12,6 +12,7 @@ import type {
 const CLIP_THUMB = "/media/clip-thumb.jpg";
 
 const clip = (title: string, durationSec: number): AlertAttachment => ({
+  quality: "1080p HD",
   kind: "clip",
   title,
   thumbnail: CLIP_THUMB,

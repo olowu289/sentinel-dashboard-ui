@@ -1,11 +1,11 @@
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ALERT_BADGE } from "@/lib/data";
 import { ENTER, EXIT } from "@/lib/motion";
-import { formatClock, formatDuration } from "@/lib/time";
+import { formatClock } from "@/lib/time";
 import type { Alert, AlertAttachment } from "@/lib/types";
 import { useExportPhase } from "@/lib/useExportPhase";
 import { MaskIcon } from "./Icon";
+import { IconRail } from "./IconRail";
 
 /**
  * Recorded clips start before the moment that triggered them. A camera holds a
@@ -21,43 +21,38 @@ const RATES = [0.5, 1, 2, 4] as const;
 
 const SKIP_SEC = 10;
 
+/**
+ * How much of the track one timeline step colours in.
+ *
+ * The frame draws the marks as bands rather than ticks, and that is the more
+ * honest shape: a detection is a stretch of footage where something is in
+ * view, not an instant. Two seconds is the run of frames an operator would
+ * actually scrub to; narrower and a 6px rail cannot show it at all.
+ */
+const MARK_SEC = 2;
+
 /** mm:ss for the transport. Tabular everywhere so the digits never shift. */
 function timecode(sec: number) {
   const s = Math.max(0, Math.floor(sec));
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function Icon({ d, size = 20 }: { d: string; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d={d}
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-const PREV_MARK = "M18 5v14M8 12l8-6.5v13L8 12ZM6 5v14";
-const NEXT_MARK = "M6 5v14M16 12 8 5.5v13L16 12ZM18 5v14";
-const BACK_10 = "M11 8 7 12l4 4M7 12h6a4 4 0 1 1 0 8";
-const FWD_10 = "m13 8 4 4-4 4M17 12h-6a4 4 0 1 0 0 8";
+/* The pill's own controls: 40px chip, 21.333px glyph, per the frame. */
+const CHIP =
+  "flex size-[40px] shrink-0 items-center justify-center rounded-[10px] text-white transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-30";
 
 /**
  * Reviewing one recorded clip.
  *
  * A takeover rather than an inline player: the clip is evidence, and evidence
- * gets looked at properly. It borrows the camera takeover's shape — `fixed`,
- * `role="dialog"`, `Esc` out — so the two full-screen surfaces in this app
- * behave the same way.
+ * gets looked at properly. The frame gives it the rail and a breadcrumb, which
+ * makes it a screen rather than a dialog wearing one — so the rail navigates
+ * for real, closing the player on the way out. `Esc` still leaves.
  *
  * Two things here that a consumer player never has, and that this one exists
- * for. The frame carries the **wall-clock time of the playhead**, not just the
- * clip-relative one: `00:06` is where you are in the file, `02:41:18 AM WAT` is
- * when it happened, and only the second is quotable on a handoff. And the
+ * for. The breadcrumb carries the **wall-clock time of the playhead**, not just
+ * the clip-relative one: `00:06` is where you are in the file, `02:41:18 AM WAT`
+ * is when it happened, and only the second is quotable on a handoff. And the
  * scrubber is **marked with the alert's own timeline**, so the detections are
  * visible as positions before you play anything — jumping to the next one is a
  * button rather than a hunt.
@@ -65,18 +60,27 @@ const FWD_10 = "m13 8 4 4-4 4M17 12h-6a4 4 0 1 0 0 8";
  * The transport is real; the media is not. There is no backend, so the clip is
  * the still the rest of the app uses and the playhead is driven by a clock
  * here. Swapping in a real `<video>` means replacing that clock with
- * `timeupdate` and leaving everything else alone.
+ * `timeupdate` and leaving everything else alone — the mute toggle included,
+ * which is why it is wired to state rather than left as a picture.
  */
 export function ClipPlayer({
   attachment,
   /** Epoch ms of the timeline step this clip was captured at. */
   at,
   alert,
+  towerName,
+  onNavigate,
   onClose,
 }: {
   attachment: AlertAttachment;
   at: number;
   alert: Alert;
+  /** The site, for the breadcrumb's middle crumb. */
+  towerName: string;
+  /** Rail destinations. The frame draws the rail, so it has to work — a nav
+   *  bar that does not navigate is the bug the shell's router was written to
+   *  end. Leaving by it closes the player first. */
+  onNavigate?: (id: string) => void;
   onClose: () => void;
 }) {
   const duration = attachment.durationSec ?? 15;
@@ -85,19 +89,30 @@ export function ClipPlayer({
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [rate, setRate] = useState<number>(1);
+  const [muted, setMuted] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const { phase, start: exportClip } = useExportPhase();
 
   /* The alert's own steps, placed on the track. Only the ones that actually
      fall inside this clip's window — a marker for something the footage does
      not contain would send the operator looking for a frame that was never
-     recorded. */
+     recorded.
+
+     `key` is the step whose time is the alert's own — the moment this became
+     an incident somebody was told about. The frame draws one band in a
+     different colour and this is the distinction worth spending it on: the
+     rest of the track's marks are the run-up that led there and the handling
+     that followed, and only one of them is the event itself. */
   const markers = useMemo(() => {
     const steps = alert.timeline ?? [
       { at: alert.at, icon: alert.kind, title: alert.title },
     ];
     return steps
-      .map((e) => ({ ...e, offset: (e.at - startsAt) / 1000 }))
+      .map((e) => ({
+        ...e,
+        offset: (e.at - startsAt) / 1000,
+        key: Math.abs(e.at - alert.at) < 500,
+      }))
       .filter((e) => e.offset >= 0 && e.offset <= duration)
       .sort((a, b) => a.offset - b.offset);
   }, [alert, startsAt, duration]);
@@ -107,16 +122,26 @@ export function ClipPlayer({
     [duration],
   );
 
+  /* The first marker sits at `PRE_ROLL_SEC`, so a clip opened and played to
+     its own trigger has nothing *before* the playhead — and a strict reading of
+     "previous detection" left the button dead at 00:05 with fourteen seconds of
+     track to its left, which reads as broken rather than as finished. It wears
+     the standard transport glyph, so it takes the standard transport
+     behaviour: back to the previous detection, or to the top of the clip when
+     that is all there is left to go back to. Dead only at 00:00. */
+  const prevMarker = [...markers].reverse().find((m) => m.offset < t - 0.15);
+  const nextMarker = markers.find((m) => m.offset > t + 0.15);
+
   const jumpMarker = useCallback(
     (dir: 1 | -1) => {
       // A hair of slack, so "next" from exactly on a marker does not re-find it.
-      const next =
-        dir === 1
-          ? markers.find((m) => m.offset > t + 0.15)
-          : [...markers].reverse().find((m) => m.offset < t - 0.15);
-      if (next) seek(next.offset);
+      if (dir === 1) {
+        if (nextMarker) seek(nextMarker.offset);
+        return;
+      }
+      seek(prevMarker ? prevMarker.offset : 0);
     },
-    [markers, t, seek],
+    [nextMarker, prevMarker, seek],
   );
 
   /* Playback. A clock rather than a media element, because the media is a
@@ -184,7 +209,6 @@ export function ClipPlayer({
   }, [onClose, duration]);
 
   const pct = duration > 0 ? (t / duration) * 100 : 0;
-  const camera = alert.cameras?.[0] ?? alert.source;
   const wallClock = formatClock(startsAt + t * 1000);
 
   return (
@@ -195,252 +219,260 @@ export function ClipPlayer({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1, transition: ENTER }}
       exit={{ opacity: 0, transition: EXIT }}
-      className="fixed inset-0 z-100 flex flex-col bg-black"
+      className="fixed inset-0 z-100 flex bg-black"
     >
-      <header className="flex h-[56px] shrink-0 items-center gap-[12px] border-b border-line px-[16px] lg:px-[20px]">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-[0.9375rem] leading-[20px] tracking-[0.15px] text-white">
-            {attachment.title}
-          </p>
-          {/* Everything needed to say what this footage is, in the order an
-              operator would read it out: which camera, which incident. */}
-          <p className="truncate text-[0.75rem] leading-[16px] text-white/45 tabular-nums">
-            {camera} · {alert.zone} · {alert.id}
-          </p>
-        </div>
+      <IconRail
+        active="towers"
+        onSelect={(id) => {
+          onClose();
+          onNavigate?.(id);
+        }}
+        className="hidden lg:block"
+      />
 
-        <button
-          type="button"
-          onClick={exportClip}
-          aria-busy={phase === "working"}
-          aria-label={`Download ${attachment.title}`}
-          title="Download clip"
-          className={`flex size-[40px] shrink-0 items-center justify-center rounded-[8px] transition-colors ${
-            phase === "done"
-              ? "text-terra"
-              : "text-white/70 hover:bg-white/10 hover:text-white"
-          }`}
-        >
-          <MaskIcon src="/icons/clip-download.svg" size={22} />
-        </button>
-
-        <button
-          ref={closeRef}
-          type="button"
-          onClick={onClose}
-          aria-label="Close clip"
-          title="Close (Esc)"
-          className="flex size-[40px] shrink-0 items-center justify-center rounded-[8px] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden>
-            <path
-              d="m3 3 8 8M11 3l-8 8"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-      </header>
-
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-tile-dead">
-        {/* `contain`, unlike the walls, which fill. A tile is a monitor and a
-            crop costs nothing there; this is the frame an incident gets
-            decided on, and cropping evidence to fit a box is how the thing
-            that mattered ends up outside the picture. */}
-        <img
-          src={attachment.thumbnail}
-          alt=""
-          className="absolute inset-0 size-full object-contain"
-        />
-
-        {/* The burn-in — the one value that survives a screenshot being pasted
-            into a report, where a clip-relative 00:06 means nothing. A DVR
-            stamps this into the frame itself; here it sits in the letterbox
-            beside it, because the media is `object-contain` and evidence is
-            the one thing chrome must never cover. */}
-        <span className="chip-blur absolute bottom-[12px] left-[12px] rounded-[4px] bg-black/55 px-[8px] py-[4px] font-display text-[0.8125rem] tracking-[0.13px] text-white tabular-nums">
-          {wallClock}
-        </span>
-      </div>
-
-      <div className="shrink-0 border-t border-line px-[16px] pb-[calc(14px+env(safe-area-inset-bottom))] pt-[12px] lg:px-[20px]">
-        {/* Elapsed and total sit at the two ends of the track rather than as a
-            "00:06 / 00:15" fraction. The number under the playhead is the one
-            being read; parking it against the runtime makes both harder. */}
-        <div className="flex items-center gap-[12px]">
-          <span className="w-[42px] shrink-0 font-display text-[0.75rem] tracking-[0.12px] text-white tabular-nums">
-            {timecode(t)}
-          </span>
-
-          <div className="relative min-w-0 flex-1">
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.05}
-              value={t}
-              onChange={(e) => seek(Number(e.target.value))}
-              aria-label="Seek"
-              aria-valuetext={`${timecode(t)}, ${wallClock}`}
-              className="peer relative z-10 h-[20px] w-full cursor-pointer appearance-none bg-transparent"
-              style={{ WebkitAppearance: "none" }}
-            />
-            {/* Painted under the native input, which is left transparent and
-                keeps the keyboard and pointer behaviour a range already has —
-                a hand-rolled div would need arrow keys, Home/End, page steps
-                and a role reimplemented to match. */}
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/15"
-            />
-            <span
-              aria-hidden
-              className="pointer-events-none absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white"
-              style={{ width: `${pct}%` }}
-            />
-
-            {/* Detections as positions. Amber is already this app's word for a
-                detection, so the marks need no legend; a fault keeps red. */}
-            {markers.map((m) => (
-              <button
-                key={`${m.at}-${m.title}`}
-                type="button"
-                onClick={() => seek(m.offset)}
-                aria-label={`Jump to ${m.title}, ${formatClock(m.at)}`}
-                title={`${m.title} · ${formatClock(m.at)}`}
-                className="absolute top-1/2 z-20 h-[16px] w-[10px] -translate-x-1/2 -translate-y-1/2"
-                style={{ left: `${(m.offset / duration) * 100}%` }}
-              >
-                <span
-                  className={`mx-auto block h-[16px] w-[2px] rounded-full transition-[height,width] ${
-                    m.icon === "fault" ? "bg-critical" : "bg-detect"
-                  }`}
-                />
-              </button>
-            ))}
-
-            <span
-              aria-hidden
-              className="pointer-events-none absolute top-1/2 z-30 size-[11px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-black"
-              style={{ left: `${pct}%` }}
-            />
-          </div>
-
-          <span className="w-[42px] shrink-0 text-right font-display text-[0.75rem] tracking-[0.12px] text-white/45 tabular-nums">
-            {timecode(duration)}
-          </span>
-        </div>
-
-        <div className="mt-[10px] flex items-center gap-[10px]">
-          {/* Segmented, not a menu. Review is mostly a hunt at speed, and the
-              whole range being visible means changing rate is one press rather
-              than open-read-choose. */}
-          <div
-            role="group"
-            aria-label="Playback speed"
-            className="flex shrink-0 items-center gap-[2px] rounded-[6px] bg-white/6 p-[2px]"
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-[46px] shrink-0 items-center border-b border-line px-[16px]">
+          <nav
+            aria-label="Breadcrumb"
+            className="flex min-w-0 items-center gap-[4px]"
           >
-            {RATES.map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRate(r)}
-                aria-pressed={rate === r}
-                title={`${r}× speed`}
-                className={`rounded-[4px] px-[7px] py-[3px] font-display text-[0.6875rem] tracking-[0.11px] tabular-nums transition-colors ${
-                  rate === r
-                    ? "bg-white text-black"
-                    : "text-white/55 hover:text-white"
-                }`}
-              >
-                {r}×
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-1 items-center justify-center gap-[2px]">
-            <button
-              type="button"
-              onClick={() => jumpMarker(-1)}
-              disabled={!markers.some((m) => m.offset < t - 0.15)}
-              aria-label="Previous detection"
-              title="Previous detection"
-              className="flex size-[36px] items-center justify-center rounded-[8px] text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-25"
-            >
-              <Icon d={PREV_MARK} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setT((v) => Math.max(0, v - SKIP_SEC))}
-              aria-label={`Back ${SKIP_SEC} seconds`}
-              title={`Back ${SKIP_SEC}s (←)`}
-              className="flex size-[36px] items-center justify-center rounded-[8px] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <Icon d={BACK_10} />
-            </button>
-
-            {/* The one control that is always reachable and always the same
-                size, because it is the one an operator hits without looking. */}
+            {/* A real hierarchy, not a decoration: the fleet, then the site,
+                then the clip. The frame's first crumb reads TOWER, singular —
+                every other breadcrumb in the app says TOWERS and lands on the
+                fleet, and a crumb that names one thing while going to a list
+                of them is the kind of small lie that stops a breadcrumb being
+                trusted at all. Leaving by either one closes the player. */}
             <button
               type="button"
               onClick={() => {
-                // Replay rather than sit dead on the last frame.
-                if (t >= duration) seek(0);
-                setPlaying((p) => !p);
+                onClose();
+                onNavigate?.("dashboard");
               }}
-              aria-label={playing ? "Pause" : "Play"}
-              title={playing ? "Pause (Space)" : "Play (Space)"}
-              className="mx-[4px] flex size-[44px] items-center justify-center rounded-full bg-white text-black transition-colors hover:bg-white/90"
+              className="shrink-0 font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
             >
-              {playing ? (
-                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-                  <rect x="3.5" y="2.5" width="4" height="13" rx="1" fill="currentColor" />
-                  <rect x="10.5" y="2.5" width="4" height="13" rx="1" fill="currentColor" />
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-                  <path d="M5 2.8 15 9 5 15.2V2.8Z" fill="currentColor" />
-                </svg>
-              )}
+              TOWERS
             </button>
-
+            <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
             <button
               type="button"
-              onClick={() => setT((v) => Math.min(duration, v + SKIP_SEC))}
-              aria-label={`Forward ${SKIP_SEC} seconds`}
-              title={`Forward ${SKIP_SEC}s (→)`}
-              className="flex size-[36px] items-center justify-center rounded-[8px] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+              onClick={onClose}
+              className="min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
             >
-              <Icon d={FWD_10} />
+              {towerName}
             </button>
-            <button
-              type="button"
-              onClick={() => jumpMarker(1)}
-              disabled={!markers.some((m) => m.offset > t + 0.15)}
-              aria-label="Next detection"
-              title="Next detection"
-              className="flex size-[36px] items-center justify-center rounded-[8px] text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-25"
-            >
-              <Icon d={NEXT_MARK} />
-            </button>
-          </div>
-
-          {/* What the marks mean, without a legend: the badge set the alert
-              rows and the timeline already use, at the count found here. */}
-          <div className="hidden shrink-0 items-center gap-[6px] sm:flex">
-            {markers.slice(0, 4).map((m) => (
-              <img
-                key={`${m.at}-badge`}
-                src={ALERT_BADGE[m.icon]}
-                alt=""
-                width={18}
-                height={18}
-              />
-            ))}
-            <span className="font-display text-[0.6875rem] tracking-[0.11px] text-white/45 tabular-nums">
-              {markers.length} in {formatDuration(duration)}
+            <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
+            <span className="flex min-w-0 items-center gap-[6px]">
+              <span
+                aria-current="page"
+                className="truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white uppercase"
+              >
+                {attachment.title}
+              </span>
+              {/* The wall clock of the playhead, which is the only timestamp
+                  here that means anything off this screen. It ticks with the
+                  transport — a still frame in a report is quoted by this, not
+                  by an offset into a file nobody else has. */}
+              <span className="flex shrink-0 items-center justify-center rounded-[2px] bg-terra/15 px-[6px] py-px font-display text-[0.75rem] uppercase tracking-[0.12px] text-terra tabular-nums">
+                {wallClock}
+              </span>
             </span>
+          </nav>
+
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close clip"
+            title="Close (Esc)"
+            className="ml-auto flex size-[20px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+          >
+            <MaskIcon src="/icons/clip-close.svg" size={20} />
+          </button>
+        </header>
+
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-stage">
+          {/* `contain`, unlike the walls, which fill. A tile is a monitor and a
+              crop costs nothing there; this is the frame an incident gets
+              decided on, and cropping evidence to fit a box is how the thing
+              that mattered ends up outside the picture. */}
+          <img
+            src={attachment.thumbnail}
+            alt=""
+            className="absolute inset-0 size-full object-contain"
+          />
+
+          {/* One bar, floating clear of the bottom edge. It sits over the
+              letterbox rather than the picture at this aspect, which is the
+              point of the stage being wider than the media. */}
+          <div className="absolute inset-x-[16px] bottom-[8px] flex h-[59px] items-center gap-[12px] rounded-[57px] border border-row-line bg-black px-[17px] lg:inset-x-[34px] lg:gap-[20px]">
+            <div className="flex shrink-0 items-center gap-[5.333px]">
+              <button
+                type="button"
+                onClick={() => {
+                  // Replay rather than sit dead on the last frame.
+                  if (t >= duration) seek(0);
+                  setPlaying((p) => !p);
+                }}
+                aria-label={playing ? "Pause" : "Play"}
+                title={playing ? "Pause (Space)" : "Play (Space)"}
+                className={CHIP}
+              >
+                <MaskIcon
+                  src={playing ? "/icons/clip-pause.svg" : "/icons/clip-play.svg"}
+                  size={21.333}
+                />
+              </button>
+
+              {/* The pair the player exists for. Ten-second skips stay on the
+                  arrow keys; these step detection to detection, which is the
+                  thing an operator is actually hunting for. */}
+              <button
+                type="button"
+                onClick={() => jumpMarker(-1)}
+                disabled={!prevMarker && t <= 0.15}
+                aria-label={prevMarker ? "Previous detection" : "Back to start"}
+                title={prevMarker ? "Previous detection" : "Back to start"}
+                className={CHIP}
+              >
+                <MaskIcon src="/icons/clip-prev.svg" size={21.333} />
+              </button>
+              <button
+                type="button"
+                onClick={() => jumpMarker(1)}
+                disabled={!nextMarker}
+                aria-label="Next detection"
+                title="Next detection"
+                className={CHIP}
+              >
+                {/* The frame composes next out of the same export, turned. */}
+                <MaskIcon
+                  src="/icons/clip-prev.svg"
+                  size={21.333}
+                  className="rotate-180 -scale-y-100"
+                />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMuted((m) => !m)}
+                aria-pressed={muted}
+                aria-label={muted ? "Unmute" : "Mute"}
+                title={muted ? "Unmute" : "Mute"}
+                className={`${CHIP} ${muted ? "text-muted" : ""}`}
+              >
+                <MaskIcon src="/icons/clip-volume.svg" size={21.333} />
+              </button>
+            </div>
+
+            {/* Elapsed and total sit at the two ends of the track rather than
+                as a "00:06 / 00:15" fraction. The number under the playhead is
+                the one being read; parking it against the runtime makes both
+                harder. */}
+            <span className="shrink-0 font-display text-[1rem] leading-[20px] font-bold tracking-[0.16px] text-white tabular-nums">
+              {timecode(t)}
+            </span>
+
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="range"
+                min={0}
+                max={duration}
+                step={0.05}
+                value={t}
+                onChange={(e) => seek(Number(e.target.value))}
+                aria-label="Seek"
+                aria-valuetext={`${timecode(t)}, ${wallClock}`}
+                className="peer relative z-10 h-[20px] w-full cursor-pointer appearance-none bg-transparent"
+                style={{ WebkitAppearance: "none" }}
+              />
+              {/* Painted under the native input, which is left transparent and
+                  keeps the keyboard and pointer behaviour a range already has —
+                  a hand-rolled div would need arrow keys, Home/End, page steps
+                  and a role reimplemented to match. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 top-1/2 h-[6px] -translate-y-1/2 rounded-[6px] bg-track"
+              />
+              <span
+                aria-hidden
+                className="pointer-events-none absolute left-0 top-1/2 h-[6px] -translate-y-1/2 rounded-l-[6px] bg-white"
+                style={{ width: `${pct}%` }}
+              />
+
+              {/* Detections as stretches of footage rather than instants. Each
+                  is its own target: seeing where they are is half of it, and
+                  landing on one without hunting is the other. */}
+              {markers.map((m) => (
+                <button
+                  key={`${m.at}-${m.title}`}
+                  type="button"
+                  onClick={() => seek(m.offset)}
+                  aria-label={`Jump to ${m.title}, ${formatClock(m.at)}`}
+                  title={`${m.title} · ${formatClock(m.at)}`}
+                  className={`absolute top-1/2 z-20 h-[6px] -translate-y-1/2 rounded-[6px] border ${
+                    m.key
+                      ? "border-mark-key-line bg-mark-key"
+                      : "border-mark-line bg-terra"
+                  }`}
+                  style={{
+                    left: `${(m.offset / duration) * 100}%`,
+                    width: `${(Math.min(MARK_SEC, duration - m.offset) / duration) * 100}%`,
+                  }}
+                />
+              ))}
+
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 z-30 size-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-black"
+                style={{ left: `${pct}%` }}
+              />
+            </div>
+
+            <span className="shrink-0 font-display text-[1rem] leading-[20px] tracking-[0.16px] text-muted tabular-nums">
+              {timecode(duration)}
+            </span>
+
+            <div className="hidden shrink-0 items-center gap-[10px] lg:flex">
+              <span aria-hidden className="h-[16px] w-px bg-stroke" />
+              {/* A reading, not a control — there is one recording and this is
+                  what it is. Absent rather than guessed when the clip does not
+                  carry it. */}
+              {attachment.quality && (
+                <>
+                  <span className="font-display text-[1rem] leading-[20px] tracking-[0.16px] text-white">
+                    {attachment.quality}
+                  </span>
+                  <span aria-hidden className="h-[16px] w-px bg-stroke" />
+                </>
+              )}
+              {/* One slot, cycling, rather than four laid out. Review is mostly
+                  a hunt at speed and the rate is changed constantly, so it is
+                  the press that has to be cheap — not the reading. */}
+              <button
+                type="button"
+                onClick={() =>
+                  setRate((r) => RATES[(RATES.indexOf(r as 1) + 1) % RATES.length])
+                }
+                aria-label={`Playback speed ${rate}×, change`}
+                title="Playback speed"
+                className="font-display text-[1rem] leading-[20px] tracking-[0.16px] text-white tabular-nums transition-colors hover:text-muted"
+              >
+                {rate}X
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={exportClip}
+              aria-busy={phase === "working"}
+              aria-label={`Download ${attachment.title}`}
+              title="Download clip"
+              className={`flex size-[32px] shrink-0 items-center justify-center transition-colors ${
+                phase === "done" ? "text-terra" : "text-white hover:text-muted"
+              }`}
+            >
+              <MaskIcon src="/icons/clip-download.svg" size={32} />
+            </button>
           </div>
         </div>
       </div>

@@ -1,0 +1,20 @@
+<!-- The rail's mark, on the app's own black.
+
+     Not the bare logo: `logo.svg` is white on transparent, which disappears
+     against a light browser tab and leaves a hole against a dark one. A tab
+     favicon has no surface of its own, so it has to bring one — this is the
+     same rounded tile the rail draws the mark in, at the size a tab renders.
+
+     Geometry is `logo.svg` untouched (22.2857 × 19.5), scaled to 22 wide and
+     centred in a 32 square: scale 22/22.2857 = 0.98718, which leaves 5 each
+     side and 6.375 top and bottom. That is tighter than the rail draws it, on
+     purpose — a tab renders this at 16px, where the mark reading at all beats
+     the tile's proportions being right. Re-export the logo and these two
+     numbers need recomputing, not eyeballing. -->
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" rx="7" fill="#000000" />
+  <g transform="translate(5 6.375) scale(0.98718)">
+    <path d="M4.47964 0L8.06582 7.26597e-06L3.5862 19.5L4.76837e-07 19.5L4.47964 0Z" fill="white"/>
+    <path d="M4.27778 6.61427L5.99165 3.02896L16.6503 12.45L15.3696 7.33577L14.6011 3.83654H6.90532L7.55353 3.7362e-06L13.8326 0.0680948L17.6749 0.068095L20.7488 13.2575L22.2857 19.4252L18.7931 19.4252L4.27778 6.61427Z" fill="white"/>
+  </g>
+</svg>

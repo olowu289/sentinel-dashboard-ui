@@ -4,7 +4,11 @@ import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { ENTER, FADE } from "@/lib/motion";
 import { isExpired } from "@/lib/data";
-import { formatClockShort, formatEventTime } from "@/lib/time";
+import {
+  formatClockShort,
+  formatEventTime,
+  formatSiteDate,
+} from "@/lib/time";
 import type { Alert, Person } from "@/lib/types";
 
 /**
@@ -24,6 +28,30 @@ import type { Alert, Person } from "@/lib/types";
  */
 
 const DEFAULT_DAYS = 30;
+
+/* Why an operator stops watching somebody, as the four answers that actually
+   come up, plus a way to say something else. Named endings rather than a free
+   box for everyone: a required text field on a routine act gets "n/a" typed
+   into it, and a set of four gets read back consistently three months later.
+   `Added in error` is on the list deliberately — a watchlist that cannot admit
+   a mistake is one where mistakes stay on it. */
+/* The conditions that make a reference frame worth comparing against. Four,
+   because a checklist nobody reads is a checklist that may as well be a
+   sentence. */
+const PHOTO_RULES = [
+  "Face fills the frame and looks at the camera",
+  "Even light, with no shadow across the face",
+  "Nothing covering the face — no sunglasses or mask",
+  "Taken recently, with nobody else in shot",
+] as const;
+
+const STOP_REASONS = [
+  "Matter resolved",
+  "No longer of interest",
+  "Added in error",
+  "Site withdrew the request",
+  "Other",
+] as const;
 
 export function PeopleView({
   people,
@@ -53,8 +81,9 @@ export function PeopleView({
   onBack: () => void;
   onEnrol: (person: Omit<Person, "id">) => void;
   onExtend: (personId: string, days: number) => void;
-  /** Take somebody off the list. Matching ends now; the entry stays, expired. */
-  onStopWatching: (personId: string) => void;
+  /** Take somebody off the list. Matching ends now; the entry stays, expired,
+   *  with the reason on it. */
+  onStopWatching: (personId: string, reason: string) => void;
   /** Erase the entry. Only offered once it is already stopped. */
   onDelete: (personId: string) => void;
 }) {
@@ -186,7 +215,7 @@ export function PeopleView({
             person={selected}
             sightings={sightingsFor(selected.id)}
             onExtend={(days) => onExtend(selected.id, days)}
-            onStopWatching={() => onStopWatching(selected.id)}
+            onStopWatching={(reason) => onStopWatching(selected.id, reason)}
             onDelete={() => {
               /* Land on whoever is next rather than on nothing. Deleting one
                  entry is not a reason to be shown an empty panel. */
@@ -232,6 +261,20 @@ function RosterCard({
 }) {
   const daysLeft = Math.ceil((person.expiresAt - Date.now()) / 86_400_000);
 
+  /* Every row says when it ends, not only the ones about to.
+     The term was invisible above seven days, so a roster could not answer the
+     question it exists to answer — which of these is nearly up — without
+     opening each entry in turn. The access tools that handle this well give
+     expiry a permanent column and print the absence of one out loud rather
+     than leaving the cell blank; there is no permanent watch here, so every
+     row has a date to show. Amber is spent only on the last week: a colour on
+     every row is a colour that has stopped meaning anything. */
+  const term = expired
+    ? "Expired"
+    : daysLeft <= 7
+      ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
+      : `Until ${formatSiteDate(person.expiresAt)}`;
+
   return (
     <button
       type="button"
@@ -259,11 +302,13 @@ function RosterCard({
             : `${sightings} sighting${sightings === 1 ? "" : "s"} · last ${formatClockShort(lastSeen!)}`}
         </span>
       </span>
-      {!expired && daysLeft <= 7 && (
-        <span className="shrink-0 font-display text-[0.6875rem] tracking-[0.11px] text-warn">
-          {daysLeft} DAY{daysLeft === 1 ? "" : "S"} LEFT
-        </span>
-      )}
+      <span
+        className={`shrink-0 font-display text-[0.6875rem] tracking-[0.11px] tabular-nums ${
+          expired ? "text-muted" : daysLeft <= 7 ? "text-warn" : "text-sub"
+        }`}
+      >
+        {term}
+      </span>
     </button>
   );
 }
@@ -280,7 +325,7 @@ function PersonDetail({
   person: Person;
   sightings: Alert[];
   onExtend: (days: number) => void;
-  onStopWatching: () => void;
+  onStopWatching: (reason: string) => void;
   onDelete: () => void;
 }) {
   const expired = isExpired(person);
@@ -289,6 +334,13 @@ function PersonDetail({
      than the action it guards — but the consequence still has to be read
      before the second press, so the step is not skippable. */
   const [confirming, setConfirming] = useState(false);
+  /* Why watching is being stopped. Blank until picked, which is what holds the
+     button — an unexplained removal is the half of the record this list was
+     missing. Only asked when stopping: deleting erases the entry, so a reason
+     captured there would have nowhere to live. */
+  const [why, setWhy] = useState<string>("");
+  const [note, setNote] = useState("");
+  const reason = why === "Other" ? note.trim() : why;
 
   return (
     <motion.div
@@ -331,6 +383,15 @@ function PersonDetail({
               }
               tone={expired ? "text-warn" : undefined}
             />
+            {/* Only on an entry somebody stopped. One that simply ran its term
+                has no decision to account for, and printing "Not recorded"
+                there would invent a gap rather than report one. */}
+            {person.stoppedReason && (
+              <Field
+                label="STOPPED"
+                value={`${person.stoppedReason} · ${person.stoppedBy} · ${formatEventTime(person.stoppedAt!)}`}
+              />
+            )}
           </dl>
         </div>
 
@@ -343,6 +404,46 @@ function PersonDetail({
                 ? `Delete ${person.name}'s entry? This cannot be undone. The alerts their matches raised are kept.`
                 : `Stop watching ${person.name}? Cameras stop matching straight away. The entry stays on the list, marked expired.`}
             </p>
+
+            {/* Asked here rather than left to a note nobody writes. The entry
+                survives this act and is read later by somebody who was not in
+                the room, and "why did we stop" is the question they will
+                have. */}
+            {!expired && (
+              <fieldset className="flex flex-col gap-[8px]">
+                <legend className="pb-[6px] font-display text-[0.6875rem] tracking-[0.11px] text-muted">
+                  WHY
+                </legend>
+                <div className="flex flex-wrap gap-[6px]">
+                  {STOP_REASONS.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      role="radio"
+                      aria-checked={why === r}
+                      onClick={() => setWhy(r)}
+                      className={`h-[30px] rounded-[6px] px-[10px] text-[0.8125rem] transition-colors ${
+                        why === r
+                          ? "bg-white text-black"
+                          : "bg-black/25 text-white hover:bg-black/40"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                {why === "Other" && (
+                  <input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    autoFocus
+                    aria-label="Why watching is being stopped"
+                    placeholder="Briefly, what changed"
+                    className="h-[36px] rounded-[8px] bg-black/25 px-[12px] text-[0.8125rem] text-white outline-none placeholder:text-white/30 focus-visible:outline-1 focus-visible:outline-terra"
+                  />
+                )}
+              </fieldset>
+            )}
             <div className="flex items-center gap-[8px]">
               <button
                 type="button"
@@ -354,9 +455,10 @@ function PersonDetail({
                 onClick={() => {
                   setConfirming(false);
                   if (expired) onDelete();
-                  else onStopWatching();
+                  else onStopWatching(reason);
                 }}
-                className="h-[36px] rounded-[8px] bg-critical px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
+                disabled={!expired && !reason}
+                className="h-[36px] rounded-[8px] bg-critical px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-40"
               >
                 {expired ? "Delete entry" : "Stop watching"}
               </button>
@@ -568,6 +670,24 @@ export function Enrol({
             className="sr-only"
             onChange={(e) => pick(e.target.files?.[0])}
           />
+
+          {/* What makes a frame usable, before it is chosen rather than after
+              it fails. This photo is the thing every future match is compared
+              against, so a poor one does not announce itself — it just quietly
+              lowers the odds on every camera in the fleet for as long as the
+              entry lives. The identity tools that depend on a reference frame
+              all state the conditions up front; none of them let you find out
+              from the results. */}
+          <ul className="mt-[10px] flex flex-col gap-[4px] text-[0.75rem] leading-[16px] text-muted">
+            {PHOTO_RULES.map((rule) => (
+              <li key={rule} className="flex items-start gap-[8px]">
+                <span aria-hidden className="pt-[5px] text-white/30">
+                  &bull;
+                </span>
+                {rule}
+              </li>
+            ))}
+          </ul>
         </div>
 
         <label className="flex w-full max-w-[520px] flex-col gap-[8px]">
@@ -628,6 +748,28 @@ export function Enrol({
             You can extend it later.
           </span>
         </fieldset>
+
+        {/* Said at the point of the act, and this is the one screen in the app
+            that needs it. Everywhere else the operator is looking at their own
+            equipment; here they are putting a named person under automated
+            facial matching across every camera on the fleet, and that person
+            is not in the room and cannot agree to it. The consumer products
+            that do face matching all carry a disclosure like this, but theirs
+            is addressed to the person in the photo. Ours cannot be — so it is
+            addressed to the operator, and says what they are taking on. */}
+        <section
+          aria-label="How this photo is used"
+          className="flex w-full max-w-[520px] flex-col gap-[6px] rounded-[8px] border border-line bg-card px-[14px] py-[12px]"
+        >
+          <h2 className="font-display text-[0.6875rem] tracking-[0.11px] text-muted">
+            HOW THIS PHOTO IS USED
+          </h2>
+          <p className="text-[0.75rem] leading-[16px] text-sub">
+            The cameras compare this photo against every face they detect.
+            Matching stops when the entry expires. The photo is kept with the
+            entry until you delete it, and your name stays on it.
+          </p>
+        </section>
       </div>
 
       <footer className="flex shrink-0 items-center gap-[8px] border-t border-line px-[24px] py-[16px]">

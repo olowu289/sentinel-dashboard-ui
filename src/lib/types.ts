@@ -139,6 +139,18 @@ export interface Person {
    *  never deleted, because a list that quietly forgets is unauditable. */
   expiresAt: number;
 }
+  /** Why watching was stopped early, and by whom.
+   *
+   *  Absent means the entry simply ran out its term — which is the ordinary
+   *  ending and needs no explanation. Present means somebody decided, and the
+   *  decision is as auditable a fact as the reason they were added for. The
+   *  access tools that get this right capture a reason at *removal*, not only
+   *  at creation: "why is this person on the list" and "why did we take them
+   *  off" are different questions and an entry that can only answer the first
+   *  is half a record. */
+  stoppedReason?: string;
+  stoppedBy?: string;
+  stoppedAt?: number;
 
 /**
  * A region of a camera's own view that detection is confined to.

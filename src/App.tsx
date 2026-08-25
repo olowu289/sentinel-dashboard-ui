@@ -265,10 +265,19 @@ export function SentinelApp() {
      Deleting is only offered once it is already stopped — you cannot erase the
      record of somebody the fleet is still looking for, and by then the entry is
      a record rather than an instruction. */
-  const stopWatching = useCallback((personId: string) => {
+  const stopWatching = useCallback((personId: string, reason: string) => {
+    const at = Date.now();
     setPeople((prev) =>
       prev.map((p) =>
-        p.id === personId ? { ...p, expiresAt: Date.now() } : p,
+        p.id === personId
+          ? {
+              ...p,
+              expiresAt: at,
+              stoppedReason: reason,
+              stoppedBy: OPERATOR,
+              stoppedAt: at,
+            }
+          : p,
       ),
     );
   }, []);
@@ -286,7 +295,16 @@ export function SentinelApp() {
     setPeople((prev) =>
       prev.map((p) =>
         p.id === personId
-          ? { ...p, expiresAt: Date.now() + days * 86_400_000 }
+          ? {
+              ...p,
+              expiresAt: Date.now() + days * 86_400_000,
+              /* Watching again clears why it stopped. The note describes an
+                 entry that is no longer matching; left on a live one it is a
+                 record contradicting the thing it is attached to. */
+              stoppedReason: undefined,
+              stoppedBy: undefined,
+              stoppedAt: undefined,
+            }
           : p,
       ),
     );

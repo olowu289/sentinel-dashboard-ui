@@ -327,7 +327,7 @@ export function CameraSettingsPanel({
                     {solarState(tower) === "charging" && (
                       <MaskIcon
                         src="/icons/set-bolt.svg"
-                        size={20}
+                        size={16}
                         className="solar-charging"
                       />
                     )}

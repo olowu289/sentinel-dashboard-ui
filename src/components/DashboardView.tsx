@@ -157,7 +157,10 @@ export function DashboardView({
           reordering goes with it: HTML5 drag never fires on touch. */}
       <div className="hidden min-w-0 flex-1 flex-col lg:flex">
         <header className="flex h-[46px] shrink-0 items-center border-b border-line pl-[16px] pr-[15px]">
-          <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted">
+          {/* --color-sub, matching the tower card's status word. Both are a
+              standing label rather than a reading, and at --color-muted this
+              one sat a step darker than the words it heads. */}
+          <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-sub">
             ACTIVE CAMERAS:
           </h1>
           <div className="ml-auto flex items-center gap-[8px]">
@@ -222,8 +225,23 @@ export function DashboardView({
               }`}
             >
               <header className="flex h-[24px] shrink-0 items-center justify-between">
-                <h2 className="truncate text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white">
-                  {towerName(band.towerId)}
+                {/* The band's name opens the band's tower. It has always been
+                    the only label on this screen naming a place you can go and
+                    not going there — the card in the panel beside it does, and
+                    an operator reading the wall rather than the list had to
+                    cross back to reach the same site. It answers with a step
+                    down to --color-sub, the same tone the label beside it
+                    stands in — a tonal shift rather than a hue, because the
+                    hues on this screen are spoken for. */}
+                <h2 className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => onOpenTower(band.towerId)}
+                    title={`Open ${towerName(band.towerId)}`}
+                    className="max-w-full truncate text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white transition-colors hover:text-sub"
+                  >
+                    {towerName(band.towerId)}
+                  </button>
                 </h2>
 
                 {/* The 3×3 glyph is the band's handle, the same gesture the

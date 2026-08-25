@@ -16,6 +16,15 @@
      enough to confirm the whole card is a target. */
   --color-card: #161618;
   --color-card-hover: #1b1b1d;
+  /* The tower card rests at --color-card-hover and lifts to this. The pair
+     above kept their names because the settings rows and the clip cards still
+     use them as rest-and-hover; on the fleet card the whole scale moved up a
+     step, and this is the step it hovers to. */
+  --color-card-lift: #232325;
+  /* The POI card's edge. Lighter than --color-line because it separates a
+     photograph from black rather than one dark surface from another — without
+     it the cards bleed into the page at the corners. */
+  --color-card-line: #2c2c30;
   --color-pill: #262626;
   --color-pill-line: #333333;
   /* The settings panel's row hairline. Lighter than --color-line because it

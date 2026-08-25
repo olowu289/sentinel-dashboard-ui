@@ -103,8 +103,17 @@ export function TowerCard({
        button is not something a browser or a screen reader will forgive. */
     <div
       /* One fill for every card. Only the height changes when the strip
-         appears — see the note on `--color-card`. */
-      className={`group relative w-full shrink-0 overflow-hidden rounded-[12px] bg-card transition-colors hover:bg-card-hover ${
+         appears — see the note on `--color-card`.
+
+         The card rests at what used to be its hover fill. The token keeps the
+         `-hover` in its name because the settings rows and the clip cards
+         still use it that way; here it is simply the resting surface, and the
+         two-value pair has collapsed to one.
+
+         It still answers the pointer, one step up again to --color-card-lift.
+         That step is what says the whole card is a target and not just the
+         controls sitting on it. */
+      className={`group relative w-full shrink-0 overflow-hidden rounded-[12px] bg-card-hover transition-colors hover:bg-card-lift ${
         latest ? "h-[173px]" : "h-[129px]"
       }`}
     >

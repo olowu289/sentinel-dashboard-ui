@@ -236,19 +236,30 @@ export function findUnclaimed(
 /**
  * The watchlist.
  *
- * Reference faces are the one asset this repo does not have and cannot invent —
- * a stock photograph of a real person used as a fake person-of-interest is not
- * a placeholder, it is a picture of somebody on a watchlist. So the seed points
- * at a drawn silhouette and the names are plainly fictional. Swap them for real
- * enrolments the moment there is a matcher to enrol into.
+ * These are photographs of real people, and that is a deliberate reversal of
+ * where this seed started. It used a drawn silhouette on the argument that a
+ * stock photo of a real person used as a fake person-of-interest is not a
+ * placeholder, it is a picture of somebody on a watchlist — which is still
+ * true, and the reason the names beside them stay plainly fictional and the
+ * reasons stay obviously invented.
+ *
+ * What overruled it: the design became a wall of faces, and a wall of
+ * silhouettes cannot be judged. The whole question the card asks — can an
+ * operator recognise this person at this size, does the scrim keep the name
+ * legible over a face nobody chose for contrast — is unanswerable against a
+ * drawing.
+ *
+ * They are demo assets and must not outlive the prototype. Real enrolments
+ * replace them the moment there is a matcher to enrol into. The drawn
+ * silhouette they replaced is still in the repo at `public/icons/poi-face.svg`
+ * if the photographs ever need pulling in a hurry.
  */
-const REFERENCE = "/icons/poi-face.svg";
 
 export const PEOPLE: Person[] = [
   {
     id: "POI-01",
     name: "M. OKONKWO",
-    photo: REFERENCE,
+    photo: "/media/poi-01.jpg",
     reason: "Trespass at Gas Yard, 4 Aug. Case OP-114.",
     addedBy: "A. Bello",
     addedAt: ago(14 * DAY),
@@ -259,7 +270,7 @@ export const PEOPLE: Person[] = [
     name: "UNKNOWN 4",
     /* No name because nobody has one. The alias is what the case file calls
        them, and pretending otherwise would put a made-up name on every match. */
-    photo: REFERENCE,
+    photo: "/media/poi-02.jpg",
     reason: "Cut fence line at North Gate, 11 Aug. No identification.",
     addedBy: "A. Bello",
     addedAt: ago(7 * DAY),
@@ -268,7 +279,7 @@ export const PEOPLE: Person[] = [
   {
     id: "POI-03",
     name: "J. ADEYEMI",
-    photo: REFERENCE,
+    photo: "/media/poi-03.jpg",
     reason: "Contractor dispute, escorted off site 2 Jul. Case OP-098.",
     addedBy: "S. Yakubu",
     addedAt: ago(48 * DAY),

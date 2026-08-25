@@ -4,11 +4,8 @@ import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { ENTER, FADE } from "@/lib/motion";
 import { isExpired } from "@/lib/data";
-import {
-  formatClockShort,
-  formatEventTime,
-  formatSiteDate,
-} from "@/lib/time";
+import { formatEventTime } from "@/lib/time";
+import { SiteClock } from "@/components/SiteClock";
 import type { Alert, Person } from "@/lib/types";
 
 /**
@@ -87,10 +84,28 @@ export function PeopleView({
   /** Erase the entry. Only offered once it is already stopped. */
   onDelete: (personId: string) => void;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(
-    people[0]?.id ?? null,
-  );
+  /* Nothing selected on arrival. The roster used to be a 417px column with a
+     detail pane beside it, where an empty pane was wasted screen and opening
+     the first person cost nothing. The wall is the screen now — landing on it
+     with somebody's record already over the top hides the thing the operator
+     came to look at. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState(Boolean(enrolFrom));
+
+  /* Escape closes whichever panel is over the wall. Bound here rather than in
+     either panel because they are alternatives — one listener that knows which
+     is open cannot get out of step with a second one that does not. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      setSelectedId(null);
+      setEnrolling(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const active = people.filter((p) => !isExpired(p));
   const expired = people.filter((p) => isExpired(p));
@@ -109,13 +124,12 @@ export function PeopleView({
         className="hidden lg:block"
       />
 
-      <aside
-        aria-label="People of interest"
-        className="flex w-full min-w-0 flex-col bg-ink lg:w-[417px] lg:shrink-0 lg:border-r lg:border-line-panel"
-      >
-        <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-line pl-[16px] pr-[14px]">
-          {/* A breadcrumb, like every other way up in this app. A bare word in
-              the corner is a second navigation grammar for one product. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-line px-[16px]">
+          {/* A breadcrumb, like every other way up in this app. The frame's
+              crumb reads TOWER, singular; every other one in the product says
+              TOWERS and lands on the fleet, and a crumb naming one thing while
+              going to a list of them is how a breadcrumb stops being trusted. */}
           <nav
             aria-label="Breadcrumb"
             className="flex min-w-0 items-center gap-[4px]"
@@ -136,61 +150,69 @@ export function PeopleView({
               PEOPLE OF INTEREST
             </span>
           </nav>
+          <SiteClock />
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-[8px] overflow-y-auto px-[15px] pb-[20px] pt-[12px]">
-          <button
-            type="button"
-            onClick={() => setEnrolling(true)}
-            className="flex h-[44px] shrink-0 items-center justify-center gap-[8px] rounded-[12px] border border-dashed border-stroke text-[0.875rem] text-white transition-colors hover:bg-card"
-          >
-            <span aria-hidden className="text-[1.125rem] leading-none">
-              +
-            </span>
-            Add a person
-          </button>
-
-          {active.map((person) => (
-            <RosterCard
-              key={person.id}
-              person={person}
-              sightings={sightingsFor(person.id).length}
-              lastSeen={sightingsFor(person.id)[0]?.at}
-              selected={person.id === selectedId}
-              onSelect={() => {
-                setSelectedId(person.id);
-                setEnrolling(false);
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[15px] pb-[24px]">
+          {/* The frame floats this above the grid rather than in the bar. It
+              is the only action on the screen, and putting it on the same
+              line as the cards it produces is what makes it read as "add one
+              of these". */}
+          <div className="flex shrink-0 justify-end py-[24px] pr-[8px]">
+            <button
+              type="button"
+              onClick={() => {
+                setEnrolling(true);
+                setSelectedId(null);
               }}
-            />
-          ))}
+              className="flex items-center gap-[8px] rounded-[8px] bg-white px-[20px] py-[12px] text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] text-black transition-colors hover:bg-white/90"
+            >
+              <MaskIcon src="/icons/nav-add.svg" size={24} />
+              ADD NEW
+            </button>
+          </div>
 
-          {/* Expired entries stay readable. A watchlist that quietly forgets
-              who was on it, and why, is a watchlist nobody can audit. */}
-          {expired.length > 0 && (
-            <>
-              <p className="mt-[8px] font-display text-[0.75rem] tracking-[0.12px] text-muted">
-                EXPIRED · NO LONGER MATCHING
+          {people.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center px-[24px] text-center">
+              <p className="max-w-[360px] text-[0.875rem] leading-[20px] text-muted">
+                Nobody is on the list yet. Add a person and the fleet raises an
+                alert when a camera sees a possible match.
               </p>
-              {expired.map((person) => (
-                <RosterCard
+            </div>
+          ) : (
+            /* Five across at the frame's width. The card keeps its 356×447
+               proportion rather than that width — a fixed px width from a
+               desktop frame is what left the clip card a dead strip on a
+               phone. Expired entries sit in the same grid, dimmed: the frame
+               draws one wall of faces and a heading it does not have would be
+               inventing a section. */
+            <ul className="grid grid-cols-2 gap-[8px] md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+              {[...active, ...expired].map((person) => (
+                <PoiCard
                   key={person.id}
                   person={person}
                   sightings={sightingsFor(person.id).length}
                   lastSeen={sightingsFor(person.id)[0]?.at}
-                  selected={person.id === selectedId}
-                  expired
+                  expired={isExpired(person)}
                   onSelect={() => {
                     setSelectedId(person.id);
                     setEnrolling(false);
                   }}
                 />
               ))}
-            </>
+            </ul>
           )}
         </div>
-      </aside>
+      </div>
 
-      <main className="hidden min-w-0 flex-1 flex-col lg:flex">
+      {/* Over the grid rather than beside it. The wall is the screen now, so
+          a person's record arrives on top of it at the panel width the rest of
+          the app uses, and leaving puts the wall back untouched. */}
+      <div
+        className={`fixed inset-y-0 right-0 z-40 w-full flex-col border-l border-line-panel bg-ink lg:w-[560px] ${
+          enrolling || selected ? "flex" : "hidden"
+        }`}
+      >
         {enrolling ? (
           <Enrol
             operator={operator}
@@ -214,6 +236,7 @@ export function PeopleView({
             key={selected.id}
             person={selected}
             sightings={sightingsFor(selected.id)}
+            onClose={() => setSelectedId(null)}
             onExtend={(days) => onExtend(selected.id, days)}
             onStopWatching={(reason) => onStopWatching(selected.id, reason)}
             onDelete={() => {
@@ -224,92 +247,101 @@ export function PeopleView({
               setSelectedId(next?.id ?? null);
             }}
           />
-        ) : (
-          /* Two different nothings. An empty list is a state to act on; no
-             selection against a full list is just a panel waiting, and telling
-             an operator the list is empty while three people sit beside it is
-             the kind of wrong that makes them distrust the rest of it. */
-          <div className="flex flex-1 items-center justify-center px-[24px] text-center">
-            <p className="max-w-[360px] text-[0.875rem] leading-[20px] text-muted">
-              {people.length === 0
-                ? "Nobody is on the list yet. Add a person and the fleet raises an alert when a camera sees a possible match."
-                : "Choose somebody to see why they are watched for and where they have been seen."}
-            </p>
-          </div>
-        )}
-      </main>
+        ) : null}
+      </div>
     </div>
   );
 }
 
 /* ---------------------------------------------------------------- roster */
 
-function RosterCard({
+/**
+ * One person, as a face.
+ *
+ * The roster used to be a 48px thumbnail on a 12px row, which is the shape of
+ * a settings list — and the thing an operator is actually doing here is
+ * *recognising somebody*. The frame makes the photograph the card, which is
+ * the right call: a face at 356px is a face you could match against a feed,
+ * and one at 48px is a swatch.
+ *
+ * Everything else sits on top of it. The scrim is what keeps the name legible
+ * over a photo nobody chose for its contrast — it starts at a third of the way
+ * down so the face itself is untouched.
+ */
+function PoiCard({
   person,
   sightings,
   lastSeen,
-  selected,
   expired = false,
   onSelect,
 }: {
   person: Person;
   sightings: number;
   lastSeen?: number;
-  selected: boolean;
   expired?: boolean;
   onSelect: () => void;
 }) {
-  const daysLeft = Math.ceil((person.expiresAt - Date.now()) / 86_400_000);
-
-  /* Every row says when it ends, not only the ones about to.
-     The term was invisible above seven days, so a roster could not answer the
-     question it exists to answer — which of these is nearly up — without
-     opening each entry in turn. The access tools that handle this well give
-     expiry a permanent column and print the absence of one out loud rather
-     than leaving the cell blank; there is no permanent watch here, so every
-     row has a date to show. Amber is spent only on the last week: a colour on
-     every row is a colour that has stopped meaning anything. */
-  const term = expired
-    ? "Expired"
-    : daysLeft <= 7
-      ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
-      : `Until ${formatSiteDate(person.expiresAt)}`;
-
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={selected ? "true" : undefined}
-      className={`flex w-full shrink-0 items-center gap-[12px] rounded-[12px] p-[12px] text-left transition-colors ${
-        selected ? "bg-card-hover" : "bg-card hover:bg-card-hover"
-      } ${expired ? "opacity-55" : ""}`}
-    >
-      <img
-        src={person.photo}
-        alt=""
-        width={48}
-        height={48}
-        className="block size-[48px] shrink-0 rounded-[8px] object-cover"
-      />
-      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white">
-          {person.name}
-        </span>
-        {/* Absence is diagnostic: never seen is a reading, not a zero. */}
-        <span className="truncate text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">
-          {sightings === 0
-            ? "Never seen"
-            : `${sightings} sighting${sightings === 1 ? "" : "s"} · last ${formatClockShort(lastSeen!)}`}
-        </span>
-      </span>
-      <span
-        className={`shrink-0 font-display text-[0.6875rem] tracking-[0.11px] tabular-nums ${
-          expired ? "text-muted" : daysLeft <= 7 ? "text-warn" : "text-sub"
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-label={`${person.name}, ${sightings} sighting${sightings === 1 ? "" : "s"}${expired ? ", expired" : ""}`}
+        /* 356×447 as a ratio rather than a width. A fixed px width off a
+           desktop frame is what left the clip card a dead strip on a phone. */
+        className={`group relative block aspect-[356/447] w-full overflow-hidden rounded-[17.62px] border border-card-line bg-panel text-left transition-opacity ${
+          expired ? "opacity-55 hover:opacity-80" : ""
         }`}
       >
-        {term}
-      </span>
-    </button>
+        <img
+          src={person.photo}
+          alt=""
+          className="absolute inset-0 size-full object-cover"
+        />
+        {/* The design's own stop: transparent to a third of the way down, then
+            into black. Anything higher and it starts eating the face. */}
+        <span
+          aria-hidden
+          className="absolute inset-0 bg-gradient-to-b from-transparent from-[34.6%] to-black"
+        />
+
+        {/* How many times a camera has seen them. The count is the reading an
+            operator scans this wall for — a face nobody has seen and a face
+            seen nine times are different situations. */}
+        <span className="absolute right-[12px] top-[7px] flex items-center gap-[6px] rounded-[32px] bg-white/10 px-[8px] py-[6px] backdrop-blur-[2px]">
+          <MaskIcon src="/icons/poi-eye.svg" size={20} className="text-white" />
+          <span className="text-[0.875rem] leading-none font-medium tracking-[0.14px] text-white tabular-nums">
+            {sightings}
+          </span>
+        </span>
+
+        <span className="absolute bottom-[16px] left-[23px] right-[16px] flex flex-col gap-[6px]">
+          <span className="truncate text-[1.125rem] leading-[normal] font-medium tracking-[0.18px] text-white uppercase">
+            {person.name}
+          </span>
+          <span className="flex min-w-0 items-center gap-[6px] text-[0.875rem] leading-[normal] tracking-[0.14px] text-sub">
+            {/* Terra with a soft halo, the same dot the fleet card's status
+                word carries. Green here is the entry doing its job: the fleet
+                is matching against this face. An expired one has stopped, so
+                it takes the muted dot rather than claiming otherwise. */}
+            <span
+              aria-hidden
+              className={`size-[6px] shrink-0 rounded-full ${
+                expired ? "bg-muted" : "bg-terra ring-[1.5px] ring-terra/25"
+              }`}
+            />
+            {/* Absence is diagnostic: never seen is a reading, not a zero. */}
+            <span className="truncate">
+              {expired
+                ? "EXPIRED · NO LONGER MATCHING"
+                : sightings === 0
+                  ? "NEVER SEEN"
+                  : `LAST SEEN: ${formatEventTime(lastSeen!)}`}
+            </span>
+          </span>
+        </span>
+      </button>
+    </li>
   );
 }
 
@@ -318,12 +350,17 @@ function RosterCard({
 function PersonDetail({
   person,
   sightings,
+  onClose,
   onExtend,
   onStopWatching,
   onDelete,
 }: {
   person: Person;
   sightings: Alert[];
+  /** The panel sits over the wall now, so it has to be dismissable. When it
+   *  was a pane beside a 417px list there was nothing to close — it was just
+   *  the other half of the screen. */
+  onClose: () => void;
   onExtend: (days: number) => void;
   onStopWatching: (reason: string) => void;
   onDelete: () => void;
@@ -350,10 +387,19 @@ function PersonDetail({
       transition={FADE}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <header className="flex h-[46px] shrink-0 items-center border-b border-line px-[16px]">
-        <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+      <header className="flex h-[46px] shrink-0 items-center gap-[12px] border-b border-line px-[16px]">
+        <h1 className="min-w-0 flex-1 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
           {person.name}
         </h1>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={`Close ${person.name}`}
+          title="Close (Esc)"
+          className="flex size-[20px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+        >
+          <MaskIcon src="/icons/clip-close.svg" size={20} />
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto p-[24px]">

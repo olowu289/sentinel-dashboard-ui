@@ -165,10 +165,10 @@ export function PeopleView({
                 setEnrolling(true);
                 setSelectedId(null);
               }}
-              className="flex items-center gap-[8px] rounded-[8px] bg-white px-[20px] py-[12px] text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] text-black transition-colors hover:bg-white/90"
+              className="flex items-center gap-[8px] rounded-[8px] bg-white px-[16px] py-[12px] text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] text-black transition-colors hover:bg-white/90"
             >
               <MaskIcon src="/icons/nav-add.svg" size={24} />
-              ADD NEW
+              ADD NEW PERSON
             </button>
           </div>
 
@@ -308,7 +308,19 @@ function PoiCard({
         {/* How many times a camera has seen them. The count is the reading an
             operator scans this wall for — a face nobody has seen and a face
             seen nine times are different situations. */}
-        <span className="absolute right-[12px] top-[7px] flex items-center gap-[6px] rounded-[32px] bg-white/10 px-[8px] py-[6px] backdrop-blur-[2px]">
+        {/* Black behind a 4px blur, not a white wash — the pill sits on a
+            photograph whose brightness nobody chose, and darkening what is
+            under white text is the version that holds on a bright frame.
+
+            At 40%, where the frame draws 10%. Ten was not enough to carry the
+            count on a pale background: the first card's is a bright outdoor
+            shot and the glyph was reading as grey on grey. The blur alone
+            cannot do it, because blurring a light frame leaves a light frame.
+
+            The repo's `chip-blur` is 5px and the difference is invisible; this
+            keeps the frame's 4 rather than collapsing them, since the two live
+            on different surfaces. */}
+        <span className="absolute right-[12px] top-[7px] flex items-center gap-[6px] rounded-[32px] bg-black/40 px-[8px] py-[6px] backdrop-blur-[4px]">
           <MaskIcon src="/icons/poi-eye.svg" size={20} className="text-white" />
           <span className="text-[0.875rem] leading-none font-medium tracking-[0.14px] text-white tabular-nums">
             {sightings}
@@ -320,14 +332,19 @@ function PoiCard({
             {person.name}
           </span>
           <span className="flex min-w-0 items-center gap-[6px] text-[0.875rem] leading-[normal] tracking-[0.14px] text-sub">
-            {/* Terra with a soft halo, the same dot the fleet card's status
-                word carries. Green here is the entry doing its job: the fleet
-                is matching against this face. An expired one has stopped, so
-                it takes the muted dot rather than claiming otherwise. */}
+            {/* Three states, and the dot is what tells them apart at a glance
+                down a wall of faces. Terra with a soft halo where a camera has
+                picked this face up; --color-unseen where the entry is live and
+                nothing has come back yet; muted where it has stopped matching
+                and is a record rather than an instruction. */}
             <span
               aria-hidden
               className={`size-[6px] shrink-0 rounded-full ${
-                expired ? "bg-muted" : "bg-terra ring-[1.5px] ring-terra/25"
+                expired
+                  ? "bg-muted"
+                  : sightings === 0
+                    ? "bg-unseen ring-[1.5px] ring-unseen/25"
+                    : "bg-terra ring-[1.5px] ring-terra/25"
               }`}
             />
             {/* Absence is diagnostic: never seen is a reading, not a zero. */}

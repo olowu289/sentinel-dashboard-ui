@@ -51,6 +51,12 @@
   --color-warn: #ffdd70;
   --color-critical: #ff5b53;
   --color-detect: #f3cf58;
+  /* The POI card's "never seen" dot, and the one place a red is not a fault or
+     a live transmission. It is the design's own paired counterpart to terra —
+     the same construction, the same 25% halo, the channels swapped — and on a
+     wall of faces it separates the two states that matter: this one has been
+     picked up by a camera, that one has not. Spent here and nowhere else. */
+  --color-unseen: #e26666;
   --color-detect-bg: #181509;
   /* The new-alert banner sits on top of live video across the full wall, so it
      is a step darker than --color-critical: at that width the brighter red

@@ -251,8 +251,10 @@ export function findUnclaimed(
  *
  * They are demo assets and must not outlive the prototype. Real enrolments
  * replace them the moment there is a matcher to enrol into. The drawn
- * silhouette they replaced is still in the repo at `public/icons/poi-face.svg`
- * if the photographs ever need pulling in a hurry.
+ * silhouette they replaced is still in the repo at `public/icons/poi-face.svg`,
+ * and is what an entry should show until a reference frame has been chosen for
+ * it — a missing photo reading as a missing photo, rather than borrowing
+ * somebody else's face.
  */
 
 export const PEOPLE: Person[] = [
@@ -267,11 +269,15 @@ export const PEOPLE: Person[] = [
   },
   {
     id: "POI-02",
-    name: "UNKNOWN 4",
-    /* No name because nobody has one. The alias is what the case file calls
-       them, and pretending otherwise would put a made-up name on every match. */
+    name: "ZAINAB KABIRU",
+    /* Named on 2026-08-25, and the reason moved with it. This entry used to be
+       `UNKNOWN 4` on the argument that an alias is what the case file calls
+       somebody nobody has identified, and inventing a name would put a made-up
+       one on every match. That still holds for an unidentified subject — it is
+       just no longer this one, so the reason cannot go on saying there is no
+       identification. */
     photo: "/media/poi-02.jpg",
-    reason: "Cut fence line at North Gate, 11 Aug. No identification.",
+    reason: "Cut fence line at North Gate, 11 Aug. Case OP-121.",
     addedBy: "A. Bello",
     addedAt: ago(7 * DAY),
     expiresAt: ago(-2 * DAY),
@@ -284,6 +290,77 @@ export const PEOPLE: Person[] = [
     addedBy: "S. Yakubu",
     addedAt: ago(48 * DAY),
     expiresAt: ago(3 * DAY),
+  },
+
+  /* The rest of the frame's roster, its names and its faces.
+
+     Terms are spread on purpose rather than all landing on the same day. A
+     watchlist where every entry expires together is one nobody has actually
+     been managing, and the roster's whole job is showing which of these is
+     nearly up — a wall of identical dates cannot demonstrate that. Two are
+     inside the last week, one has already lapsed. */
+  {
+    id: "POI-04",
+    name: "THABO MOKOENA",
+    photo: "/media/poi-04.jpg",
+    reason: "Removed from Gas Yard by contractor security, 19 Aug.",
+    addedBy: "A. Bello",
+    addedAt: ago(6 * DAY),
+    expiresAt: ago(-24 * DAY),
+  },
+  {
+    id: "POI-05",
+    name: "KOFI AMOAH",
+    photo: "/media/poi-05.jpg",
+    reason: "Named on the Parking Lot theft report, 2 Aug. Case OP-110.",
+    addedBy: "S. Yakubu",
+    addedAt: ago(23 * DAY),
+    expiresAt: ago(-4 * DAY),
+  },
+  {
+    id: "POI-06",
+    name: "NIA KABORE",
+    photo: "/media/poi-06.jpg",
+    reason: "Site owner asked us to watch for her after the 9 Aug dispute.",
+    addedBy: "A. Bello",
+    addedAt: ago(16 * DAY),
+    expiresAt: ago(-45 * DAY),
+  },
+  {
+    id: "POI-07",
+    name: "LEBOHANG MOLEFE",
+    photo: "/media/poi-07.jpg",
+    reason: "Repeated approach to the North Gate fence line, 12-18 Aug.",
+    addedBy: "I. Bello",
+    addedAt: ago(9 * DAY),
+    expiresAt: ago(-6 * DAY),
+  },
+  {
+    id: "POI-08",
+    name: "FATOU BARRY",
+    photo: "/media/poi-08.jpg",
+    reason: "Former contractor, access revoked 30 Jun. Case OP-095.",
+    addedBy: "S. Yakubu",
+    addedAt: ago(55 * DAY),
+    expiresAt: ago(-2 * DAY),
+  },
+  {
+    id: "POI-09",
+    name: "AMARA DIOP",
+    photo: "/media/poi-09.jpg",
+    reason: "Vehicle matched a plate flagged by the depot, 21 Aug.",
+    addedBy: "A. Bello",
+    addedAt: ago(4 * DAY),
+    expiresAt: ago(-26 * DAY),
+  },
+  {
+    id: "POI-10",
+    name: "SENZO MTHEMBU",
+    photo: "/media/poi-10.jpg",
+    reason: "Trespass at Oil Storage, 14 Jun. Case OP-088.",
+    addedBy: "S. Yakubu",
+    addedAt: ago(72 * DAY),
+    expiresAt: ago(11 * DAY),
   },
 ];
 
@@ -516,7 +593,7 @@ const ALERTS_2071: SiteAlert[] = [
   {
     id: "ALT-9003",
     kind: "person",
-    title: "Possible match: Unknown 4 on North Gate",
+    title: "Possible match: Z. Kabiru on North Gate",
     at: AT_9003,
     status: "acknowledged",
     source: "Face match",

@@ -7,11 +7,16 @@ import { ClipCard } from "./ClipCard";
 
 export function AlertRow({
   alert,
+  site,
   selected = false,
   onSelect,
   onPlay,
 }: {
   alert: Alert;
+  /** Which site raised it. Set only on the fleet feed, where the list mixes
+   *  towers — inside one tower's panel every row has the same answer and
+   *  printing it on all of them is noise the eye has to skip past. */
+  site?: string;
   selected?: boolean;
   onSelect?: () => void;
   /** Opens the review player straight from the feed. Reaching a clip should
@@ -40,7 +45,7 @@ export function AlertRow({
       <button
         type="button"
         onClick={onSelect}
-        aria-label={`${alert.id}: ${alert.title}, ${when}`}
+        aria-label={`${alert.id}: ${alert.title}, ${site ? `${site}, ` : ""}${when}`}
         aria-current={selected ? "true" : undefined}
         className={`-mx-[8px] flex w-[calc(100%+16px)] items-center gap-[12px] rounded-[6px] px-[8px] py-[0px] text-left transition-colors ${
           selected ? "bg-white/6" : "hover:bg-white/4"
@@ -57,8 +62,20 @@ export function AlertRow({
           <span className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
             {alert.title}
           </span>
-          <span className="text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted tabular-nums">
-            {when}
+          {/* Site and time on one line, the site first: on a fleet feed the
+              question is *where* before it is *when*, and the times are
+              already ordered by the list itself. */}
+          <span className="flex min-w-0 items-center gap-[6px] text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted">
+            {site && (
+              <>
+                <span className="truncate">{site}</span>
+                <span
+                  aria-hidden
+                  className="size-[2px] shrink-0 rounded-full bg-muted"
+                />
+              </>
+            )}
+            <span className="shrink-0 tabular-nums">{when}</span>
           </span>
         </span>
       </button>

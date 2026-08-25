@@ -1,6 +1,7 @@
 import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
+import { AlertsView } from "@/components/AlertsView";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
@@ -79,6 +80,10 @@ export function SentinelApp() {
      sightings still name them. */
   const [people, setPeople] = useState<Person[]>(PEOPLE);
   const [onPeople, setOnPeople] = useState(false);
+  /* The fleet-wide alerts feed, off the rail's bell. A screen rather than a
+     panel: it is not scoped to a tower, so there is no wall for it to sit
+     beside. */
+  const [onAlerts, setOnAlerts] = useState(false);
   /* Up here rather than in the tower view, because that view is keyed on the
      tower id and renaming a tower therefore remounts it — a settings panel
      that closes the moment you use it is the flaw the rename introduced. */
@@ -166,6 +171,7 @@ export function SentinelApp() {
     (alert: Alert) => {
       setEnrolFrom(alert);
       show(null);
+      setOnAlerts(false);
       setOnPeople(true);
     },
     [show],
@@ -185,19 +191,29 @@ export function SentinelApp() {
       if (id === "dashboard") {
         setOnPeople(false);
         setAdding(false);
+        setOnAlerts(false);
         show(null);
         return;
       }
       if (id === "add") {
         setOnPeople(false);
+        setOnAlerts(false);
         show(null);
         setAdding(true);
         return;
       }
       if (id === "poi") {
         setAdding(false);
+        setOnAlerts(false);
         show(null);
         setOnPeople(true);
+        return;
+      }
+      if (id === "alerts") {
+        setAdding(false);
+        setOnPeople(false);
+        show(null);
+        setOnAlerts(true);
         return;
       }
       if (id === "towers") {
@@ -211,9 +227,10 @@ export function SentinelApp() {
         if (!target) return;
         setOnPeople(false);
         setAdding(false);
+        setOnAlerts(false);
         show({ id: target, showAlerts: false });
       }
-      /* `alerts` and `settings` are drawn by the frame and go nowhere yet. */
+      /* `settings` is drawn by the frame and goes nowhere yet. */
     },
     [alerts, show, towers],
   );
@@ -527,7 +544,17 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
-      {onPeople ? (
+      {onAlerts ? (
+        <AlertsView
+          alerts={alerts}
+          towers={towers}
+          onNavigate={navigate}
+          onBack={() => setOnAlerts(false)}
+          onSetStatus={setStatus}
+          onWatchPerson={watchPerson}
+          onRejectMatch={rejectMatch}
+        />
+      ) : onPeople ? (
         <PeopleView
           people={people}
           alerts={alerts}

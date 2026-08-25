@@ -110,9 +110,10 @@ export interface UnclaimedUnit {
  */
 export interface PendingTower {
   unit: UnclaimedUnit;
-  /** Whatever the operator had typed. Empty until they reach the site step. */
+  /** Whatever the operator had typed. Empty until they reach the site step.
+   *  The only thing setup asks for now — the cameras are named by position at
+   *  claim time, so there is nothing else a half-finished draft can hold. */
   site: string;
-  names: Record<string, string>;
 }
 
 /**
@@ -138,7 +139,6 @@ export interface Person {
   /** Epoch ms. Past it, the entry stops matching and moves to `EXPIRED` — it is
    *  never deleted, because a list that quietly forgets is unauditable. */
   expiresAt: number;
-}
   /** Why watching was stopped early, and by whom.
    *
    *  Absent means the entry simply ran out its term — which is the ordinary
@@ -151,6 +151,7 @@ export interface Person {
   stoppedReason?: string;
   stoppedBy?: string;
   stoppedAt?: number;
+}
 
 /**
  * A region of a camera's own view that detection is confined to.

@@ -178,6 +178,50 @@ export const UNCLAIMED: UnclaimedUnit[] = [
 /** `pool` defaults to everything, but the setup flow passes the units that are
  *  not on the fleet yet — a serial that has already been claimed must fail the
  *  lookup rather than hand out a second tower under the same id. */
+/**
+ * The next unit waiting to be claimed, given what is already on the fleet.
+ *
+ * Minted rather than drawn from a fixed list. The list held exactly one unit,
+ * and filtering it by what had been claimed meant the second tower an operator
+ * tried to add was met with an empty state — the field does not run out of
+ * hardware, and a prototype that pretends it does is answering a question
+ * nobody asked.
+ *
+ * Deriving the id from the highest one on the fleet is also what actually
+ * fixes the duplicate this filtering was introduced to prevent: two towers
+ * cannot share an id if each new one is minted past every id already there.
+ * Deterministic for the same fleet, because the pairing code is on screen
+ * while the operator reads it off — a code regenerated on a re-render is a
+ * code that stops matching the one they are typing into their phone.
+ *
+ * The seeded unit goes first and keeps its dead second camera: a tower where
+ * every feed comes up first time is not the tower setup has to survive. The
+ * ones after it are ordinary, because that case has been made.
+ */
+export function nextUnclaimed(taken: string[]): UnclaimedUnit {
+  const seed = UNCLAIMED[0];
+  if (!taken.includes(seed.towerId)) return seed;
+
+  const highest = taken.reduce((max, id) => {
+    const n = Number(id.replace(/\D/g, ""));
+    return Number.isFinite(n) ? Math.max(max, n) : max;
+  }, 3318);
+  const n = highest + 1;
+  const step = n - 3318;
+
+  return {
+    ...seed,
+    towerId: `TWR-${n}`,
+    serial: `SN-${4471 + step}-A`,
+    pairingCode: String(481027 + step),
+    ipAddress: `192.168.1.${22 + step}`,
+    cameras: [
+      { id: `${n}-a`, poster: "/media/cam-gas-yard.jpg" },
+      { id: `${n}-b`, poster: "/media/cam-east-corridor.jpg" },
+    ],
+  };
+}
+
 export function findUnclaimed(
   serial: string,
   pairingCode: string,

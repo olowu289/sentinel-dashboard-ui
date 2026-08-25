@@ -210,6 +210,30 @@
   animation: sentinel-sweep 1.6s ease-in-out infinite;
 }
 
+/* The pairing code, being read.
+   The desktop is waiting on a phone it cannot see, and the only other thing
+   saying so is a four-word status line under the code. A beam travelling the
+   QR is the picture of the thing that is actually happening — something is
+   looking at this — and it is the one place in the app where green is not a
+   camera state and cannot be mistaken for one: it is on a white card, over a
+   code, on a screen with no video.
+
+   `alternate` rather than a loop back to the top: a beam that jumps home reads
+   as a progress bar starting over, and nothing here restarts. It sweeps down,
+   then back up, the way a hand holding a phone actually moves. */
+@keyframes sentinel-qr-scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(250%);
+  }
+}
+
+@utility qr-scan {
+  animation: sentinel-qr-scan 2.4s ease-in-out infinite alternate;
+}
+
 /* Alarm beacon. Opposite corners trade intensity in antiphase so the tile
    reads as a rotating light rather than a flashing rectangle. */
 @keyframes sentinel-siren-a {
@@ -402,6 +426,13 @@
   }
   .solar-charging {
     animation: none;
+  }
+
+  /* Nothing is lost by dropping it: the status line below the code says the
+     same thing in words. */
+  .qr-scan {
+    animation: none;
+    opacity: 0;
   }
 
   /* The cascade is the part that is motion; the reveal itself is not. Drop the

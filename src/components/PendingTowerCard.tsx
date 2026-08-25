@@ -17,8 +17,9 @@ import type { PendingTower } from "@/lib/types";
  * tower that has not been named is not reporting a charge either.
  */
 
-/** Claim, name the site, name the cameras, watch it come online. */
-const STEPS = 4;
+/** Claim, name the site, watch it come online. Naming the cameras was a fourth
+ *  step until it was cut — they are named by position at claim time now. */
+const STEPS = 3;
 
 export function PendingTowerCard({
   pending,
@@ -28,12 +29,9 @@ export function PendingTowerCard({
   onResume: () => void;
 }) {
   const named = pending.site.trim();
-  const camerasNamed =
-    pending.unit.cameras.length > 0 &&
-    pending.unit.cameras.every((c) => (pending.names[c.id] || "").trim());
 
   /* The claim is always done — that is why this card exists at all. */
-  const done = 1 + (named ? 1 : 0) + (camerasNamed ? 1 : 0);
+  const done = 1 + (named ? 1 : 0);
   const remaining = STEPS - done;
 
   return (

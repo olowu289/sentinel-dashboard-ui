@@ -1,10 +1,17 @@
 import { motion } from "motion/react";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { TowerCard } from "@/components/TowerCard";
 import { ENTER, FADE } from "@/lib/motion";
-import { findUnclaimed, solarState, UNCLAIMED } from "@/lib/data";
+import { findUnclaimed, nextUnclaimed, solarState } from "@/lib/data";
 import type {
   CameraFeed,
   PendingTower,
@@ -28,7 +35,7 @@ import type {
  * scanning, and this page advances by itself when the claim lands.
  */
 
-type Step = "intro" | "handoff" | "manual" | "site" | "cameras" | "online";
+type Step = "intro" | "handoff" | "manual" | "site" | "online";
 
 /** How long the stubbed phone takes to scan. No backend; see `useClaimPoll`. */
 const HANDOFF_MS = 4500;
@@ -59,30 +66,36 @@ export function AddTowerView({
   onNavigate: (id: string) => void;
   onAdd: (tower: Tower, feeds: CameraFeed[]) => void;
 }) {
-  /* Everything the platform is still holding for this operator. Claiming does
-     not consume a unit here, so completing setup twice used to add a second
-     tower under the id of the first: two towers keyed the same, two cameras
-     per feed id, `setFeedState` moving both at once, and the second site
+  /* The unit this run will claim, minted past every id already on the fleet.
+     Claiming used to hand back the same seeded unit every time, which added a
+     second tower under the id of the first: two towers keyed the same, two
+     cameras per feed id, one control moving both, and the second site
      unreachable because every lookup resolved the first. */
-  const available = UNCLAIMED.filter((u) => !taken.includes(u.towerId));
+  /* Memoised on the fleet's ids, not rebuilt per render. `nextUnclaimed`
+     mints an object, and the handoff's timer is keyed on it — an identity that
+     changed every render cleared and restarted that timer forever, so the
+     screen sat on the QR code and never advanced. The seeded unit is a stable
+     reference, which is why the first tower added fine and only the second
+     hung. */
+  const takenKey = taken.join("|");
+  const unit = useMemo(
+    () => nextUnclaimed(takenKey ? takenKey.split("|") : []),
+    [takenKey],
+  );
 
   const [step, setStep] = useState<Step>(pending ? "site" : "intro");
   const [claim, setClaim] = useState<UnclaimedUnit | null>(
     pending?.unit ?? null,
   );
   const [site, setSite] = useState(pending?.site ?? "");
-  const [names, setNames] = useState<Record<string, string>>(
-    pending?.names ?? {},
-  );
 
   /* Every exit runs through here. A claim in hand becomes a draft in the panel;
      nothing claimed leaves nothing behind. */
   const leave = () =>
-    onCancel(claim ? { unit: claim, site, names } : null);
+    onCancel(claim ? { unit: claim, site } : null);
 
   const claimed = (unit: UnclaimedUnit) => {
     setClaim(unit);
-    setNames(Object.fromEntries(unit.cameras.map((c) => [c.id, ""])));
     setStep("site");
   };
 
@@ -115,10 +128,16 @@ export function AddTowerView({
       storageUsedGb: 0,
       storageTotalGb: claim.storageTotalGb,
     };
-    const feeds: CameraFeed[] = claim.cameras.map((cam) => ({
+    const feeds: CameraFeed[] = claim.cameras.map((cam, i) => ({
       id: cam.id,
       towerId: claim.towerId,
-      name: (names[cam.id] || "").trim().toUpperCase(),
+      /* Named by position rather than by the operator. The step that asked
+         for these was cut: it sat between naming the site and bringing the
+         tower online, and it asked somebody standing at a desk to name a view
+         they had one thumbnail of — one of which is routinely a dead feed with
+         nothing to look at. A positional name is honest about what is known at
+         claim time, and the wall labels each tile with its site anyway. */
+      name: `CAMERA ${i + 1}`,
       state: cam.poster ? "live" : "offline",
       latencyMs: cam.poster ? 24 : undefined,
       poster: cam.poster ?? "",
@@ -176,14 +195,14 @@ export function AddTowerView({
             )}
             {step === "handoff" && (
               <Handoff
-                unit={available[0]}
+                unit={unit}
                 onClaimed={claimed}
                 onManual={() => setStep("manual")}
               />
             )}
             {step === "manual" && (
               <Manual
-                available={available}
+                unit={unit}
                 onClaimed={claimed}
                 onBack={() => setStep("intro")}
               />
@@ -193,15 +212,6 @@ export function AddTowerView({
                 claim={claim}
                 value={site}
                 onChange={setSite}
-                onContinue={() => setStep("cameras")}
-              />
-            )}
-            {step === "cameras" && claim && (
-              <NameCameras
-                claim={claim}
-                names={names}
-                onChange={(id, v) => setNames((p) => ({ ...p, [id]: v }))}
-                onBack={() => setStep("site")}
                 onContinue={() => setStep("online")}
               />
             )}
@@ -358,13 +368,12 @@ function Handoff({
   onClaimed,
   onManual,
 }: {
-  /** Undefined once every unit on the account has been claimed. */
-  unit?: UnclaimedUnit;
+  unit: UnclaimedUnit;
   onClaimed: (unit: UnclaimedUnit) => void;
   onManual: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const link = unit ? `sentinel.app/p/${unit.pairingCode}` : "";
+  const link = `sentinel.app/p/${unit.pairingCode}`;
 
   /* Stands in for polling the claim. The real version is a subscription that
      fires when the phone posts the scan; what matters for the design is that
@@ -374,29 +383,10 @@ function Handoff({
   const done = useRef(onClaimed);
   done.current = onClaimed;
   useEffect(() => {
-    if (!unit) return;
     const t = setTimeout(() => done.current(unit), HANDOFF_MS);
     return () => clearTimeout(t);
   }, [unit]);
 
-  /* Nothing left to claim. Said here rather than by leaving the code on screen
-     for a unit that is already on the fleet — a pairing code that will never
-     resolve is worse than an empty state. */
-  if (!unit) {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={FADE}
-        className="flex flex-col items-center gap-[16px] text-center"
-      >
-        <Heading
-          title="NOTHING LEFT TO ADD"
-          body="Every tower on this account is already on the fleet. A new unit shows up here once it reports in from the field."
-        />
-      </motion.div>
-    );
-  }
 
   return (
     <motion.div
@@ -412,8 +402,15 @@ function Handoff({
 
       {/* White, because a QR has to be. It is the one light surface in the app
           and that is correct — it is a target, not a panel. */}
-      <div className="rounded-[8px] bg-white p-[12px]">
+      <div className="relative overflow-hidden rounded-[8px] bg-white p-[12px]">
         <FakeQr seed={unit.pairingCode} />
+        {/* Clipped to the card, so the beam belongs to the code rather than
+            crossing the page. Symmetric, because it travels both ways and a
+            leading edge would swap ends halfway. */}
+        <span
+          aria-hidden
+          className="qr-scan pointer-events-none absolute inset-x-0 top-0 h-[40%] bg-gradient-to-b from-terra/0 via-terra/45 to-terra/0"
+        />
       </div>
 
       <div className="flex w-full items-center justify-between gap-[12px] rounded-[8px] bg-card px-[12px] py-[10px]">
@@ -457,13 +454,14 @@ function Handoff({
 /* ---------------------------------------------------------------- 2b */
 
 function Manual({
-  available,
+  unit,
   onClaimed,
   onBack,
 }: {
-  /** Only unclaimed units. A serial already on the fleet has to fail the same
-   *  way a wrong one does, or the flow issues a duplicate tower. */
-  available: UnclaimedUnit[];
+  /** The one unit this run can claim. A serial that is already on the fleet
+   *  has to fail the same way a wrong one does, or the flow issues a
+   *  duplicate tower. */
+  unit: UnclaimedUnit;
   onClaimed: (unit: UnclaimedUnit) => void;
   onBack: () => void;
 }) {
@@ -483,8 +481,8 @@ function Manual({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const unit = findUnclaimed(serial, code, available);
-    if (!unit) {
+    const match = findUnclaimed(serial, code, [unit]);
+    if (!match) {
       /* On the fields, never as a page banner: the operator is reading a label
          off a cabinet door and the answer is "one of these two is wrong". */
       setError(
@@ -492,7 +490,7 @@ function Manual({
       );
       return;
     }
-    onClaimed(unit);
+    onClaimed(match);
   };
 
   return (
@@ -713,107 +711,6 @@ function NameSite({
 }
 
 /* ----------------------------------------------------------------- 4 */
-
-function NameCameras({
-  claim,
-  names,
-  onChange,
-  onBack,
-  onContinue,
-}: {
-  claim: UnclaimedUnit;
-  names: Record<string, string>;
-  onChange: (id: string, value: string) => void;
-  onBack: () => void;
-  onContinue: () => void;
-}) {
-  const complete = claim.cameras.every((c) => (names[c.id] || "").trim());
-  /* 1-based, matching the `CAMERA n` labels on the rows — "one camera is not
-     returning frames" makes the operator go and find out which. */
-  const dark = claim.cameras
-    .map((c, i) => (c.poster ? 0 : i + 1))
-    .filter(Boolean);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={ENTER}
-      className="flex flex-col items-center gap-[32px]"
-    >
-      {/* Always two — the count is stated rather than assumed because what the
-          operator needs to confirm is that the tower reported *both* of them. */}
-      <Heading
-        title={`${claim.cameras.length} CAMERAS FOUND`}
-        body="These names appear on every tile and in every alert. Name what you can see."
-      />
-
-      <ul className="flex w-full flex-col gap-[12px]">
-        {claim.cameras.map((cam, i) => (
-          <li
-            key={cam.id}
-            className="flex items-center gap-[14px] rounded-[12px] bg-card p-[12px]"
-          >
-            {/* You name what you can see — so the frame comes first, and a
-                camera with no frame says so rather than showing a blank box. */}
-            <span className="relative flex h-[54px] w-[96px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-tile-dead">
-              {cam.poster ? (
-                <img
-                  src={cam.poster}
-                  alt=""
-                  className="absolute inset-0 size-full object-cover"
-                />
-              ) : (
-                <span className="font-display text-[0.6875rem] tracking-[0.11px] text-muted">
-                  NO SIGNAL
-                </span>
-              )}
-            </span>
-
-            <label className="flex min-w-0 flex-1 flex-col gap-[6px]">
-              <span className="font-display text-[0.6875rem] tracking-[0.11px] text-muted">
-                CAMERA {i + 1}
-              </span>
-              <input
-                value={names[cam.id] ?? ""}
-                onChange={(e) => onChange(cam.id, e.target.value)}
-                placeholder={cam.poster ? "GAS YARD" : "OIL STORAGE"}
-                autoComplete="off"
-                className="h-[38px] rounded-[6px] bg-panel px-[10px] text-[0.875rem] text-white uppercase outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra"
-              />
-            </label>
-          </li>
-        ))}
-      </ul>
-
-      {dark.length > 0 && (
-        <p className="text-[0.8125rem] leading-[20px] text-warn">
-          {dark.length === 1
-            ? `Camera ${dark[0]} isn’t sending video.`
-            : `Cameras ${dark.join(" and ")} aren’t sending video.`}{" "}
-          Name {dark.length === 1 ? "it" : "them"} anyway — {dark.length === 1
-            ? "it joins"
-            : "they join"}{" "}
-          the wall offline.
-        </p>
-      )}
-
-      <div className="flex w-full flex-col gap-[12px]">
-        {/* Why the button is off, said next to the work rather than hidden in a
-            tooltip on the control the operator cannot press. */}
-        {!complete && (
-          <p className="text-[0.8125rem] leading-[20px] text-muted">
-            Name both cameras to continue.
-          </p>
-        )}
-        <Action tone="primary" disabled={!complete} onClick={onContinue}>
-          Continue
-        </Action>
-        <Action onClick={onBack}>Back</Action>
-      </div>
-    </motion.div>
-  );
-}
 
 /* ----------------------------------------------------------------- 5 */
 

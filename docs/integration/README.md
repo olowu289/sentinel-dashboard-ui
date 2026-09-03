@@ -1051,8 +1051,8 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 2 — Auth gate | ✅ done | `api/auth.ts`, `AuthProvider`, `AuthGate`, `LoginView`, sign-out in the rail, `OPERATOR` from the session. 17/17 verified. See below. |
 | 3 — Vertical slice | 🟡 built, awaiting the live run | Real fleet + one real tower + real WHEP in `CameraTile`. Mapper 42/42; the end-to-end needs the operator's password. See below. |
 | 4 — State grammar | 🟡 built, awaiting the induction run | Stale already landed in Stage 3. Net-new: the shell cannot-reach state (4 classified failures), the fabricated retry count removed, STREAM_ERROR marked simulated, the simulator narrowed. Classifier 15/15; mapper 42/42. |
-| 5 — Mutation primitive | 🟡 built, awaiting the killed-network run | `useMutation` (keyed) + `MutationFeedback`. Three consumers: fleet reload (REAL, really fails), alert ack/resolve (seeded, proves the AlertDetail keying), tower rename (seeded, quiet). |
-| 6 — Data breadth | — | |
+| 5 — Mutation primitive | ✅ **GATE PASSED** 14/14 | `useMutation` (keyed) + `MutationFeedback`. Three consumers: fleet reload (REAL, really fails), alert ack/resolve (seeded, proves the AlertDetail keying), tower rename (seeded, quiet). |
+| 6 — Data breadth | ⏳ next — cleared by the Stage 5 gate | |
 | 7 — Actuators + PTZ | — | |
 | 8 — Enrollment | — | |
 | 9 — Renewal + persistence | — | |
@@ -1096,6 +1096,40 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 5 result — the gate, passed 14/14
+
+Run against the live app, live coordination and the real tower, with the
+network genuinely severed at the network layer rather than mocked.
+
+| | Result |
+|---|---|
+| **A** sever `/v1/` | banner + Try again; pending shows `aria-busy`, spinner and "Trying…"; **the retry really re-issued the request** (4→5) and failed again honestly |
+| **B** restore | **the same retry succeeded** (5→7) and the real fleet came back — the retry genuinely re-runs the work rather than clearing the error |
+| **C** three rapid clicks | **one** request. The ref latch holds |
+| **D** the `AlertDetail` trap | acknowledged ALT-8841, confirmed the check **was** showing, swapped to ALT-8840 → **no check, spinner, busy or error carried across** |
+
+Two things the run corrected, both in the TEST rather than the product:
+
+- **A3 first reported a false failure.** It slept 400ms then looked for the
+  pending state. Sampling every frame from the click showed pending renders
+  correctly at t=8ms and t=9ms — it lasts about **10ms**, because an intercepted
+  abort fails almost instantly. With a 600ms delay before the failure it is
+  visible for the full 613ms. The product was right; the probe was looking too
+  late. Fixed to sample from the click.
+- **D initially proved nothing.** It read the alert id from `document.body`
+  text, which matches the first `ALT-` anywhere — a row in the list behind the
+  panel, not the open alert — and it arrowed, which does not step the fleet
+  feed (see below). It now reads the id from the detail's own header, asserts
+  the check **is** showing first as a positive control, and swaps by selecting a
+  row, which is the identical in-place content swap the trap needs.
+
+**Finding, pre-existing and unrelated to this stage:** arrow-key stepping
+through the feed is bound in `AlertsPanel` (the per-tower feed) and **not** in
+`AlertsView` (the fleet feed) — zero occurrences at `master`, so it has never
+been there. The two feeds are otherwise deliberately the same pieces, and this
+is the kind of divergence the shared-components decision exists to prevent.
+Worth closing in Stage 6.
 
 ### Stage 3 result — the vertical slice
 

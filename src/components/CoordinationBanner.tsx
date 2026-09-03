@@ -2,6 +2,8 @@ import { motion } from "motion/react";
 import { ENTER } from "@/lib/motion";
 import { MaskIcon } from "./Icon";
 import type { ReachProblem } from "@/lib/api/reach";
+import type { MutationPhase } from "@/lib/useMutation";
+import { MutationSpinner } from "./MutationFeedback";
 
 /**
  * A global condition, said once, at the top of the app.
@@ -36,11 +38,12 @@ import type { ReachProblem } from "@/lib/api/reach";
 export function CoordinationBanner({
   problem,
   onRetry,
-  retrying = false,
+  phase = { kind: "idle" },
 }: {
   problem: ReachProblem;
   onRetry?: () => void;
-  retrying?: boolean;
+  /** What the Try again button is doing, from `useMutation`. */
+  phase?: MutationPhase;
 }) {
   const bug = problem.failure === "client_bug";
 
@@ -91,10 +94,12 @@ export function CoordinationBanner({
         <button
           type="button"
           onClick={onRetry}
-          disabled={retrying}
-          className="ml-auto shrink-0 rounded-[6px] border border-advice-ink/30 px-[12px] py-[5px] text-[0.75rem] font-medium text-advice-ink transition-colors hover:border-advice-ink/60 disabled:opacity-50"
+          disabled={phase.kind === "pending"}
+          aria-busy={phase.kind === "pending" || undefined}
+          className="ml-auto flex shrink-0 items-center gap-[6px] rounded-[6px] border border-advice-ink/30 px-[12px] py-[5px] text-[0.75rem] font-medium text-advice-ink transition-colors hover:border-advice-ink/60 disabled:opacity-50"
         >
-          {retrying ? "Trying…" : "Try again"}
+          {phase.kind === "pending" && <MutationSpinner size={12} />}
+          {phase.kind === "pending" ? "Trying…" : "Try again"}
         </button>
       )}
     </motion.div>

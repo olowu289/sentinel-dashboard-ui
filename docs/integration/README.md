@@ -1051,7 +1051,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 2 — Auth gate | ✅ done | `api/auth.ts`, `AuthProvider`, `AuthGate`, `LoginView`, sign-out in the rail, `OPERATOR` from the session. 17/17 verified. See below. |
 | 3 — Vertical slice | 🟡 built, awaiting the live run | Real fleet + one real tower + real WHEP in `CameraTile`. Mapper 42/42; the end-to-end needs the operator's password. See below. |
 | 4 — State grammar | 🟡 built, awaiting the induction run | Stale already landed in Stage 3. Net-new: the shell cannot-reach state (4 classified failures), the fabricated retry count removed, STREAM_ERROR marked simulated, the simulator narrowed. Classifier 15/15; mapper 42/42. |
-| 5 — Mutation primitive | — | |
+| 5 — Mutation primitive | 🟡 built, awaiting the killed-network run | `useMutation` (keyed) + `MutationFeedback`. Three consumers: fleet reload (REAL, really fails), alert ack/resolve (seeded, proves the AlertDetail keying), tower rename (seeded, quiet). |
 | 6 — Data breadth | — | |
 | 7 — Actuators + PTZ | — | |
 | 8 — Enrollment | — | |

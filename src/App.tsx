@@ -12,6 +12,7 @@ import { listFleet } from "@/lib/api/fleet";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { CoordinationBanner } from "@/components/CoordinationBanner";
 import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
+import { useMutation } from "@/lib/useMutation";
 import type { SimState } from "@/components/StateSimulator";
 import {
   ALERTS,
@@ -140,9 +141,19 @@ export function SentinelApp() {
      want four different things said — and one of them is "the bug is ours".
      See `api/reach.ts`. */
   const [reachProblem, setReachProblem] = useState<ReachProblem | null>(null);
-  /* Bumped by the banner's Try again. Deliberate and operator-driven; there is
-     no automatic retry anywhere, because an absent answer is an answer. */
-  const [fleetAttempt, setFleetAttempt] = useState(0);
+  /**
+   * CONSUMER 1 — reloading the fleet. The one action in the app today that
+   * reaches a real server, can really fail, and can really be retried.
+   *
+   * Deliberate and operator-driven: there is no automatic retry anywhere,
+   * because an absent answer is an answer, and a retry storm against a tower
+   * is what wedged a camera in v1.
+   *
+   * `quiet`, because the fleet appearing IS the confirmation — a tick on a
+   * banner that is about to disappear would be the control congratulating
+   * itself.
+   */
+  const fleetReload = useMutation({ quiet: true });
 
   /**
    * Load the real fleet.
@@ -180,7 +191,37 @@ export function SentinelApp() {
     })();
 
     return () => controller.abort();
-  }, [seededFleet, fleetAttempt]);
+    /* `fleetReload` is deliberately NOT a dependency and the mount load does
+       NOT go through it. The hook coalesces concurrent runs for one key, which
+       is exactly right for a button and exactly wrong here: StrictMode aborts
+       the first run and starts a second, and the second would join the first's
+       already-aborted promise and never fetch anything. The mount path keeps
+       its own abort discipline; the hook wraps the operator's button. */
+  }, [seededFleet]);
+
+  /**
+   * Reload, on purpose, from the banner.
+   *
+   * Sets `reachProblem` so the banner's own text stays accurate, and re-throws
+   * so the mutation sees the failure and can offer a retry. Two different
+   * things: the banner says what is wrong with the fleet, the mutation says
+   * what the button is doing about it.
+   */
+  const reloadFleet = useCallback(
+    () =>
+      fleetReload.run("fleet", async () => {
+        try {
+          const snapshot = await listFleet();
+          setTowers(snapshot.towers);
+          setFeeds(snapshot.feeds);
+          setReachProblem(null);
+        } catch (err) {
+          setReachProblem(classifyReach(err));
+          throw err;
+        }
+      }),
+    [fleetReload],
+  );
   /* The setup flow is a third screen rather than a modal. It is six steps deep
      with a phone hand-off in the middle — a dialog that size is a screen
      wearing a scrim, and it would put the fleet behind it pretending the
@@ -294,6 +335,20 @@ export function SentinelApp() {
      site loses its cameras — so what an operator edits is the *name*, which is
      the same field the fleet card, the band header and the breadcrumb already
      read. Editing it in settings changes all four because there is only one. */
+  /**
+   * CONSUMER 3 — renaming a tower.
+   *
+   * `quiet`: the new name appears on the fleet card, the band header, the
+   * breadcrumb and the panel at once, and that IS the confirmation. A check
+   * beside a field that already shows the answer is noise.
+   *
+   * Local today. Coordination's registry has `set_label` but serves no route
+   * for it — `do_PATCH` handles only session ICE — so this is the same shape
+   * auth was in before its route landed: the client half is ready and the
+   * server half is not.
+   */
+  const renameMutation = useMutation({ quiet: true });
+
   const renameTower = useCallback((towerId: string, to: string) => {
     const next = to.trim().toUpperCase();
     if (!next) return;
@@ -301,6 +356,14 @@ export function SentinelApp() {
       prev.map((t) => (t.id === towerId ? { ...t, site: next } : t)),
     );
   }, []);
+
+  const changeTowerName = useCallback(
+    (towerId: string, to: string) =>
+      renameMutation.run(towerId, async () => {
+        renameTower(towerId, to);
+      }),
+    [renameMutation, renameTower],
+  );
 
   const changeSettings = useCallback(
     (feedId: string, next: Partial<CameraSettings>) => {
@@ -698,6 +761,26 @@ export function SentinelApp() {
      own placeholder, left visibly fake, rather than a session name that would
      make an unverified claim look verified. It becomes server-supplied in the
      same change that gives alerts a real API. See docs/integration §6. */
+  /**
+   * CONSUMER 2 — acknowledging and resolving an alert.
+   *
+   * ⚠ HELD HERE, AND KEYED BY ALERT ID, AND THAT IS THE WHOLE POINT.
+   * `AlertDetail` is deliberately never remounted — `AlertsPanel` renders it
+   * without a `key` so arrowing through the feed swaps its content in place
+   * and bulk triage stays instant. A `useState` for a pending acknowledgement
+   * placed inside it would survive that swap and appear against the NEXT
+   * alert: a spinner, or a red failure, on an alert nobody touched. That is a
+   * lie about an auditable action, and it is the trap `CLAUDE.md` documents.
+   *
+   * Keyed state above the panel makes it unrepresentable rather than merely
+   * discouraged. `PersonDetail` is keyed and would be safe either way; the
+   * asymmetry is worth knowing.
+   *
+   * Not `quiet`: an acknowledgement changes an auditable record and its own row
+   * does not visibly move, so the check is the only thing that says it landed.
+   */
+  const statusMutation = useMutation();
+
   const setStatus = useCallback((id: string, status: Alert["status"]) => {
     setAlerts((prev) =>
       prev.map((a) =>
@@ -707,6 +790,30 @@ export function SentinelApp() {
       ),
     );
   }, []);
+
+  /**
+   * Run a status change through the honesty pattern.
+   *
+   * ⚠ THE `fn` BODY IS THE ONLY THING THAT CHANGES when alerts get a backend.
+   * Today it awaits a local write, so it resolves at once and the pending flash
+   * is genuinely brief — which is honest, because the work genuinely is
+   * instant. There is deliberately NO artificial delay and no synthetic
+   * failure: faking a round trip that cannot fail would train an operator to
+   * read a wait that means nothing, and would make the first real one
+   * indistinguishable from theatre.
+   *
+   * What IS real today: the keying, the in-flight latch, the retry path, the
+   * inline failure and the screen-reader announcement. When `fn` becomes
+   * `await api.acknowledge(id)` they all start carrying weight without another
+   * component changing.
+   */
+  const changeStatus = useCallback(
+    (id: string, status: Alert["status"]) =>
+      statusMutation.run(id, async () => {
+        setStatus(id, status);
+      }),
+    [setStatus, statusMutation],
+  );
 
   /* Returns the alert so the caller can arm its own banner against it —
      arrival and acknowledgement stay separate concerns. */
@@ -756,11 +863,8 @@ export function SentinelApp() {
           {reachProblem && (
             <CoordinationBanner
               problem={reachProblem}
-              retrying={fleetLoading}
-              onRetry={() => {
-                setFleetLoading(true);
-                setFleetAttempt((n) => n + 1);
-              }}
+              phase={fleetReload.phase("fleet")}
+              onRetry={() => void reloadFleet()}
             />
           )}
         </AnimatePresence>
@@ -771,7 +875,8 @@ export function SentinelApp() {
           towers={towers}
           onNavigate={navigate}
           onBack={() => setOnAlerts(false)}
-          onSetStatus={setStatus}
+          onSetStatus={changeStatus}
+          statusMutation={statusMutation}
           onWatchPerson={watchPerson}
           onRejectMatch={rejectMatch}
         />
@@ -857,12 +962,14 @@ export function SentinelApp() {
           onRaiseAlert={raiseAlert}
           onNavigate={navigate}
           cameraSettings={cameraSettings}
-          onRenameTower={renameTower}
+          onRenameTower={changeTowerName}
+          renameMutation={renameMutation}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((o) => !o)}
           onCloseSettings={() => setSettingsOpen(false)}
           onChangeSettings={changeSettings}
-          onSetStatus={setStatus}
+          onSetStatus={changeStatus}
+          statusMutation={statusMutation}
           onWatchPerson={watchPerson}
           onRejectMatch={rejectMatch}
           liveViewWarning={

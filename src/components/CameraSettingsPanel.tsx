@@ -9,6 +9,8 @@ import { solarState } from "@/lib/data";
 import { MaskIcon } from "./Icon";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
+import { MutationError, errorRing } from "./MutationFeedback";
+import type { MutationPhase } from "@/lib/useMutation";
 import {
   MAX_ZONES,
   type ActivityZone,
@@ -181,6 +183,9 @@ export function CameraSettingsPanel({
   settings,
   onChange,
   onRename,
+  renamePhase = { kind: "idle" },
+  onRetryRename,
+  onDismissRename,
   onClose,
   className = "",
 }: {
@@ -190,6 +195,10 @@ export function CameraSettingsPanel({
   onChange: (next: Partial<CameraSettings>) => void;
   /** Commit a new id for this tower. */
   onRename: (next: string) => void;
+  /** What the rename is doing. Keyed by tower id, owned by the shell. */
+  renamePhase?: MutationPhase;
+  onRetryRename?: () => void;
+  onDismissRename?: () => void;
   onClose: () => void;
   /** The panel stands in the alerts column, so it answers to the same
    *  breakpoint rules — see the call site in `TowerView`. */
@@ -304,7 +313,21 @@ export function CameraSettingsPanel({
         <div className="flex flex-col gap-[20px] px-[15px] pt-[32px]">
           <div className="flex h-[65px] items-center justify-between gap-[12px] rounded-[8px] bg-panel px-[15px]">
             <div className="flex min-w-0 flex-col gap-[2px]">
-              <TowerName name={tower.site} onRename={onRename} />
+              <TowerName
+                name={tower.site}
+                onRename={onRename}
+                phase={renamePhase}
+              />
+              {/* Under the field it is about, which is where this app already
+                  puts a failed edit. Quiet on success: the new name is already
+                  on the fleet card, the band header and the breadcrumb, and a
+                  tick beside a field that shows the answer is noise. */}
+              <MutationError
+                phase={renamePhase}
+                onRetry={onRetryRename}
+                onDismiss={onDismissRename}
+                className="pt-[4px]"
+              />
               <span className="flex min-w-0 items-center gap-[6px] text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted">
                 {/* No id on this line. The name above it is what the fleet
                     card, the band header and the breadcrumb all show, so the
@@ -606,9 +629,12 @@ export function CameraSettingsPanel({
  */
 function TowerName({
   name,
+  phase = { kind: "idle" },
   onRename,
 }: {
   name: string;
+  /** From the shell, keyed by tower id. Never state in here. */
+  phase?: MutationPhase;
   onRename: (next: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -641,7 +667,9 @@ function TowerName({
           }
         }}
         aria-label="Tower name"
-        className="w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra"
+        /* The failed field wears the ring, as the serial and pairing-code step
+           already does — the error text below says why, and this says which. */
+        className={`w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra ${errorRing(phase)}`}
       />
     );
   }

@@ -11,6 +11,7 @@ import { StateSimulator, type SimState } from "@/components/StateSimulator";
 import { TopBar, type WallLayout } from "@/components/TopBar";
 import { NO_FILTER, type DateFilter } from "@/lib/dateFilter";
 import type { PlaybackPhase } from "@/lib/usePlayback";
+import type { Mutation } from "@/lib/useMutation";
 import type { Alert, CameraFeed, CameraSettings, Tower } from "@/lib/types";
 
 /**
@@ -42,6 +43,8 @@ export function TowerView({
   onToggleSettings,
   onCloseSettings,
   onSetStatus,
+  statusMutation,
+  renameMutation,
   onWatchPerson,
   onRejectMatch,
   liveViewWarning = false,
@@ -80,6 +83,10 @@ export function TowerView({
   onToggleSettings: () => void;
   onCloseSettings: () => void;
   onSetStatus: (id: string, status: Alert["status"]) => void;
+  /** Keyed by ALERT id, owned by the shell — see the note in `App.tsx`. */
+  statusMutation?: Mutation;
+  /** Keyed by TOWER id, owned by the shell. */
+  renameMutation?: Mutation;
   /** Enrol the person in a detection. Hands the whole alert up because the
    *  watchlist wants its frame and its zone, not just an id. */
   onWatchPerson?: (alert: Alert) => void;
@@ -296,6 +303,9 @@ export function TowerView({
           feeds={feeds}
           settings={cameraSettings(tower.id)}
           onRename={(next) => onRenameTower(tower.id, next)}
+          renamePhase={renameMutation?.phase(tower.id)}
+          onDismissRename={() => renameMutation?.reset(tower.id)}
+          onRetryRename={() => void renameMutation?.retry(tower.id)}
           onChange={(next) => onChangeSettings(tower.id, next)}
           onClose={onCloseSettings}
           /* It stands where the alerts feed stands, so it takes that column's
@@ -323,6 +333,7 @@ export function TowerView({
         onFilterChange={setFilter}
         onAcknowledge={(id) => onSetStatus(id, "acknowledged")}
         onResolve={(id) => onSetStatus(id, "resolved")}
+        statusMutation={statusMutation}
         onWatchPerson={onWatchPerson}
         onRejectMatch={onRejectMatch}
         onCollapse={() => setAlertsCollapsed(true)}

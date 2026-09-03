@@ -13,6 +13,13 @@ import {
   isSameSiteDay,
 } from "@/lib/time";
 import { ClipCard } from "./ClipCard";
+import {
+  MutationError,
+  MutationIcon,
+  MutationStatus,
+  errorRing,
+} from "./MutationFeedback";
+import type { MutationPhase } from "@/lib/useMutation";
 
 /**
  * One cell of the Alert Details grid.
@@ -111,6 +118,9 @@ export function AlertDetail({
   onClose,
   onAcknowledge,
   onResolve,
+  statusPhase = { kind: "idle" },
+  onRetryStatus,
+  onDismissStatus,
   onPlayClip,
   onWatchPerson,
   onRejectMatch,
@@ -119,6 +129,18 @@ export function AlertDetail({
   onClose: () => void;
   onAcknowledge: () => void;
   onResolve: () => void;
+  /**
+   * What the acknowledge/resolve action is doing for THIS alert.
+   *
+   * ⚠ IT IS A PROP, NOT STATE, AND IT MUST STAY THAT WAY. This panel is never
+   * remounted — the feed swaps its content in place so arrowing through alerts
+   * stays instant — so a `useState` here would survive the swap and paint a
+   * pending spinner, or a red failure, onto the NEXT alert. The shell keys this
+   * by alert id and hands down only the phase for the one on screen.
+   */
+  statusPhase?: MutationPhase;
+  onRetryStatus?: () => void;
+  onDismissStatus?: () => void;
   /** Put the person in this detection on the watchlist. The face is already on
    *  screen here, which is the door this feature actually gets used through —
    *  uploading a file at a desk is the fallback, not the path. */
@@ -367,13 +389,28 @@ export function AlertDetail({
           what you have not acknowledged, so that transition is never offered.
           Sits above the fixed view bar on mobile: the primary action must not
           be covered by navigation. */}
-      <footer className="flex shrink-0 items-center gap-[8px] border-t border-line px-[16px] pb-[calc(12px+env(safe-area-inset-bottom))] pt-[12px] mb-[56px] lg:mb-0">
+      <footer className="flex shrink-0 flex-col gap-[8px] border-t border-line px-[16px] pb-[calc(12px+env(safe-area-inset-bottom))] pt-[12px] mb-[56px] lg:mb-0">
+        {/* Said where it happened, next to the button that did it. */}
+        <MutationError
+          phase={statusPhase}
+          onRetry={onRetryStatus}
+          onDismiss={onDismissStatus}
+        />
+        <MutationStatus
+          phase={statusPhase}
+          label={`${alert.status === "triggered" ? "Acknowledging" : "Resolving"} ${alert.id}`}
+        />
+
+        <div className="flex items-center gap-[8px]">
         {alert.status === "triggered" && (
           <button
             type="button"
             onClick={onAcknowledge}
-            className="h-[39px] flex-1 rounded-[8px] bg-white text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90"
+            disabled={statusPhase.kind === "pending"}
+            aria-busy={statusPhase.kind === "pending" || undefined}
+            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-white text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90 disabled:opacity-60 ${errorRing(statusPhase)}`}
           >
+            <MutationIcon phase={statusPhase} idle={null} />
             Acknowledge
           </button>
         )}
@@ -381,8 +418,11 @@ export function AlertDetail({
           <button
             type="button"
             onClick={onResolve}
-            className="h-[39px] flex-1 rounded-[8px] bg-terra text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90"
+            disabled={statusPhase.kind === "pending"}
+            aria-busy={statusPhase.kind === "pending" || undefined}
+            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-terra text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90 disabled:opacity-60 ${errorRing(statusPhase)}`}
           >
+            <MutationIcon phase={statusPhase} idle={null} />
             Resolve
           </button>
         )}
@@ -418,6 +458,7 @@ export function AlertDetail({
         >
           Escalate
         </button>
+        </div>
       </footer>
     </motion.div>
   );

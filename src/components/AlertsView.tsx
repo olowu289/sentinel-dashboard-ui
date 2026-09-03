@@ -17,6 +17,7 @@ import {
 } from "@/lib/dateFilter";
 import { SESSION_NOW } from "@/lib/time";
 import type { Alert, AlertAttachment, Tower } from "@/lib/types";
+import type { Mutation } from "@/lib/useMutation";
 
 /**
  * Every alert the fleet has raised, in one feed.
@@ -43,6 +44,7 @@ export function AlertsView({
   onNavigate,
   onBack,
   onSetStatus,
+  statusMutation,
   onWatchPerson,
   onRejectMatch,
 }: {
@@ -53,6 +55,8 @@ export function AlertsView({
   onNavigate: (id: string) => void;
   onBack: () => void;
   onSetStatus: (id: string, status: Alert["status"]) => void;
+  /** Keyed by alert id, owned by the shell. Never held below this. */
+  statusMutation?: Mutation;
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
 }) {
@@ -226,6 +230,12 @@ export function AlertsView({
               onClose={() => setSelectedId(null)}
               onAcknowledge={() => onSetStatus(selected.id, "acknowledged")}
               onResolve={() => onSetStatus(selected.id, "resolved")}
+              /* Keyed by alert id upstream. This feed has the same trap as the
+                 tower panel's — the detail is rendered without a key so the
+                 content swaps in place — and the same protection. */
+              statusPhase={statusMutation?.phase(selected.id)}
+              onRetryStatus={() => void statusMutation?.retry(selected.id)}
+              onDismissStatus={() => statusMutation?.reset(selected.id)}
               onWatchPerson={() => onWatchPerson?.(selected)}
               onRejectMatch={() => onRejectMatch?.(selected.id)}
               onPlayClip={(at, attachment) =>

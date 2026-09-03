@@ -1,6 +1,7 @@
 import { AnimatePresence, LayoutGroup } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Alert } from "@/lib/types";
+import type { Mutation } from "@/lib/useMutation";
 import {
   NO_FILTER,
   RANGES,
@@ -28,6 +29,7 @@ export function AlertsPanel({
   onFilterChange,
   onAcknowledge,
   onResolve,
+  statusMutation,
   onWatchPerson,
   onRejectMatch,
   onCollapse,
@@ -46,6 +48,15 @@ export function AlertsPanel({
   onFilterChange: (next: DateFilter) => void;
   onAcknowledge: (id: string) => void;
   onResolve: (id: string) => void;
+  /**
+   * ⚠ PASSED THROUGH, NEVER HELD HERE, AND NEVER HELD IN `AlertDetail`.
+   *
+   * The detail below is rendered WITHOUT a key on purpose, so arrowing through
+   * the feed swaps its content in place. Any mutation state stored inside it
+   * survives that swap and shows against the next alert. The shell keys this by
+   * alert id — see the note in `App.tsx`.
+   */
+  statusMutation?: Mutation;
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
   /** Omitted below lg, where the panel is a whole view rather than a column. */
@@ -232,6 +243,9 @@ export function AlertsPanel({
             onClose={() => onSelect(null)}
             onAcknowledge={() => onAcknowledge(selected.id)}
             onResolve={() => onResolve(selected.id)}
+            statusPhase={statusMutation?.phase(selected.id)}
+            onRetryStatus={() => void statusMutation?.retry(selected.id)}
+            onDismissStatus={() => statusMutation?.reset(selected.id)}
             onWatchPerson={() => onWatchPerson?.(selected)}
             onRejectMatch={() => onRejectMatch?.(selected.id)}
             onPlayClip={(at, attachment) =>

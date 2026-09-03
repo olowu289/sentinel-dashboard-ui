@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 import {
   openPlayback,
   readSessionExpiry,
@@ -78,6 +79,17 @@ export interface Playback {
   phases: Record<string, PlaybackPhase>;
   /** Reopen one camera. Deliberate, operator-driven — there is no retry loop. */
   retry: (feedId: string) => void;
+  /**
+   * The live session for one camera, or `null`.
+   *
+   * PTZ is session-scoped — the session IS the authorization, and the protocol
+   * defines no PTZ endpoint outside one — so a command needs the same handle
+   * the stream is using. Read from a ref at press time rather than returned as
+   * state, because a command wants the session that exists NOW, and re-rendering
+   * every tile whenever a session is established would be a lot of churn for a
+   * value only a pointer event reads.
+   */
+  sessionFor: (feedId: string) => ViewerSession | null;
 }
 
 export function usePlayback(targets: PlaybackTarget[]): Playback {
@@ -263,5 +275,10 @@ export function usePlayback(targets: PlaybackTarget[]): Playback {
     return () => window.removeEventListener("pagehide", onUnload);
   }, []);
 
-  return { phases, retry };
+  const sessionFor = useCallback(
+    (feedId: string) => openHandles.current.get(feedId)?.session ?? null,
+    [],
+  );
+
+  return { phases, retry, sessionFor };
 }

@@ -92,6 +92,9 @@ export function MonitorTile({
      under a LIVE chip. A seeded feed has a poster and is unaffected. */
   const noPicture = !isDead && !feed.poster;
 
+  /* No session passed: the fleet wall does not stream, so it has no session to
+     steer with. It draws no PTZ pad either — the digital zoom in the control
+     stack is all it offers, and that needs no head. */
   const { controls, view, scale, flash, alarming } = useTileControls({
     feed,
     isDead,

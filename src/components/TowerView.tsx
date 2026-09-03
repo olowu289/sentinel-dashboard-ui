@@ -11,6 +11,7 @@ import { StateSimulator, type SimState } from "@/components/StateSimulator";
 import { TopBar, type WallLayout } from "@/components/TopBar";
 import { NO_FILTER, type DateFilter } from "@/lib/dateFilter";
 import type { PlaybackPhase } from "@/lib/usePlayback";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 import type { Mutation } from "@/lib/useMutation";
 import type { Alert, CameraFeed, CameraSettings, Tower } from "@/lib/types";
 
@@ -28,6 +29,7 @@ export function TowerView({
   feeds,
   alerts,
   playback,
+  sessionFor,
   onRetryPlayback,
   showAlerts = false,
   onBack,
@@ -62,6 +64,8 @@ export function TowerView({
   /** Live playback by feed id, owned by the shell — see `usePlayback`. A feed
    *  with no entry is simply not being streamed. */
   playback?: Record<string, PlaybackPhase>;
+  /** The live session for a camera, for the PTZ pad. Read at press time. */
+  sessionFor?: (feedId: string) => ViewerSession | null;
   onRetryPlayback?: (feedId: string) => void;
   /** Arrive on the alerts feed rather than the wall. Set when the operator
    *  came in through a fleet card's alert count — they asked a question about
@@ -283,6 +287,7 @@ export function TowerView({
               canSwitch={feeds.length > 1}
               playback={playback?.[feed.id]}
               recordPhase={recordMutation?.phase(`record:${feed.id}`)}
+              session={sessionFor?.(feed.id) ?? null}
               onFocus={() => setFocusedFeed(feed.id)}
               /* A real camera retries its STREAM; a seeded one retries the
                  simulated feed. Both are "try this picture again", so they

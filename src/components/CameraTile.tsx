@@ -19,6 +19,7 @@ import {
 } from "./TileFallback";
 import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { MutationPhase } from "@/lib/useMutation";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 
 export function CameraTile({
   feed,
@@ -29,6 +30,7 @@ export function CameraTile({
   canSwitch = false,
   playback,
   recordPhase,
+  session,
   onFocus,
   onRetry,
   onToggleRecord,
@@ -57,6 +59,8 @@ export function CameraTile({
    * believe a camera was capturing when it was not.
    */
   recordPhase?: MutationPhase;
+  /** The live session, so the PTZ pad can address a real head. */
+  session?: ViewerSession | null;
   /** Changes only when something that actually reflows the wall changes — the
       takeover or the landscape/portrait split. See `layoutDependency` below. */
   layoutKey?: string;
@@ -101,7 +105,11 @@ export function CameraTile({
     view,
     scale,
     limit,
-    move,
+    jogStart,
+    jogEnd,
+    goHome,
+    realPtz,
+    ptzError,
     flash,
     alarming,
     talking,
@@ -112,6 +120,7 @@ export function CameraTile({
     fullscreen,
     fsBtnRef,
     recordPhase,
+    session,
     onToggleFullscreen,
     onToggleRecord,
   });
@@ -549,6 +558,22 @@ export function CameraTile({
         </motion.div>
       )}
 
+      {/* What the head said, when it said no. Sits with the other transient
+          chips rather than as a banner: it is about this camera, and it is
+          gone the moment the next command succeeds. SUPERSEDED never reaches
+          here — `describePtzFailure` returns null for it, because a rapid
+          direction change is normal, not a fault. */}
+      {ptzError && (
+        <motion.div
+          {...chrome}
+          className="chip-blur absolute bottom-[18px] left-[104px] rounded-[4px] bg-black/60 px-[8px] py-[4px]"
+        >
+          <p className="font-display text-[0.75rem] tracking-[0.11px] text-critical lg:text-[0.6875rem]">
+            {ptzError}
+          </p>
+        </motion.div>
+      )}
+
       {/* Zoom level only exists once you have left 1× — a permanent "1.0×" is
           noise on a wall of tiles. */}
       {!isDead && view.zoom > ZOOM_MIN && (
@@ -569,7 +594,15 @@ export function CameraTile({
           {...chrome}
           className="invisible absolute bottom-[18px] left-[16px] opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100"
         >
-          <PtzPad onMove={move} atLimit={limit === 0} />
+          <PtzPad
+            onJogStart={jogStart}
+            onJogEnd={jogEnd}
+            onHome={goHome}
+            /* A real head is never "at limit" from here — the tower knows its
+               own travel. The old `atLimit` came from the local transform
+               running out of frame to crop, which is meaningless for optics. */
+            disabled={!realPtz && limit === 0}
+          />
         </motion.div>
       )}
 

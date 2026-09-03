@@ -1082,7 +1082,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 5 — Mutation primitive | ✅ **GATE PASSED** 14/14 | `useMutation` (keyed) + `MutationFeedback`. Three consumers: fleet reload (REAL, really fails), alert ack/resolve (seeded, proves the AlertDetail keying), tower rename (seeded, quiet). |
 | 6a — Read breadth | ✅ **22/22** | All towers/feeds real, live clock, scoping proven cross-account, three fleet states, AlertsView nav. No mutations converted. |
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
-| 7 — Actuators + PTZ | — | |
+| 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | — | |
 | 9 — Renewal + persistence | — | |
 | 10 — Sweep | — | |
@@ -1125,6 +1125,60 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 7 result — real PTZ, 15/15
+
+**The camera physically moved, proven by its own reported position** — read via
+`action: "status"` on the session the app itself opened, so nothing steered by a
+side door:
+
+```
+BEFORE  pan -0.1636   pan_deg 209.45°
+AFTER   pan -0.9854   pan_deg 357.37°     (a 2.6s left jog through Terra's pad)
+```
+
+That is the "moves only small" fix. The old pad nudged the on-screen IMAGE by
+2.5% per 125ms tick, clamped so the frame's own edge never showed — the picture
+shifted a fraction and stopped, and **the camera never moved at all.**
+
+**The command shape, captured off the wire:**
+
+```
+move → keepalive → stop        4 commands for one 2.6s hold
+move params: {"mode":"jog","pan":-0.5}
+```
+
+One move on press, **one keepalive from the SDK** (~1.5s cadence, inside the
+daemon's 4s deadman), one stop on release. The old repeat would have sent ~21
+commands for the same gesture and produced a stream of `SUPERSEDED`.
+
+**Which actuators became real, and which did not.** Checked, not assumed:
+
+| Actuator | Backend | Result |
+|---|---|---|
+| **PTZ** | `move · stop · keepalive · status` | **REAL** |
+| Record | none — and `RECORD_ENABLE=0` on both towers, recording unported, no segments exist | shell |
+| Siren | no route in coordination, not in `PtzAction` | shell (local browser audio) |
+| Talk | no two-way audio anywhere | shell |
+
+`PtzAction` is exactly four verbs and coordination serves no record/siren/audio
+route, so three of the four stay honest shells from Stage 6b. Nothing was faked.
+
+**The two zooms are separated.** The control-stack zoom is DIGITAL — it crops
+the delivered frame, costs the tower nothing, and stays a local CSS transform
+(verified: **0** PTZ commands sent). The pad is OPTICAL and issues real
+commands, and for a real head **the local transform is not applied** — the frame
+would otherwise jump by the CSS amount and then drift again as the head
+arrived, showing one movement twice.
+
+**Stop is unconditional.** Navigating away mid-move still issued a stop
+(`move → stop`), and a hold is also released when the feed dies or the tile
+unmounts. Relying on the 4s deadman for ordinary teardown is how a safety
+backstop stops being a backstop.
+
+**`SUPERSEDED` is never shown.** Four rapid direction changes produced no error
+chip. It is the normal outcome of a rapid tap, and with jog start/stop it is
+rare anyway — but rarity is not a reason to report it.
 
 ### Stage 6b result — every mutation wrapped
 

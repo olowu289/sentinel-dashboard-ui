@@ -285,7 +285,11 @@ export function SentinelApp() {
         )
         .map((f) => ({ id: f.id, towerId: f.towerId, index: f.index! }));
 
-  const { phases: playback, retry: retryPlayback } = usePlayback(playbackTargets);
+  const {
+    phases: playback,
+    retry: retryPlayback,
+    sessionFor,
+  } = usePlayback(playbackTargets);
 
   /* Looked up once, so the render below and the guard above cannot disagree. */
   const openTowerRecord = open ? towers.find((t) => t.id === open.id) : undefined;
@@ -1085,6 +1089,7 @@ export function SentinelApp() {
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
           playback={playback}
+          sessionFor={sessionFor}
           onRetryPlayback={retryPlayback}
           showAlerts={open.showAlerts}
           onBack={() => show(null)}

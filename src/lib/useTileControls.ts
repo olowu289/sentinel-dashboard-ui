@@ -4,6 +4,16 @@ import type { CameraFeed } from "@/lib/types";
 import type { MutationPhase } from "@/lib/useMutation";
 import { useSiren } from "@/lib/useSiren";
 import { useMutation } from "@/lib/useMutation";
+import {
+  MIN_PRESS_MS,
+  JOG_AXES,
+  beginHold,
+  describePtzFailure,
+  stopOrHome,
+  type JogDirection,
+  type PtzHold,
+} from "@/lib/api/ptz";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 
 /* The feed renders slightly over-scaled at rest so the PTZ head has somewhere
    to travel before any letterboxing shows. Without it, panning a 1x image just
@@ -49,6 +59,7 @@ export function useTileControls({
   fullscreen = false,
   fsBtnRef,
   recordPhase,
+  session,
   onToggleFullscreen,
   onToggleRecord,
 }: {
@@ -60,6 +71,14 @@ export function useTileControls({
   fsBtnRef?: React.Ref<HTMLButtonElement>;
   /** The record command's phase, so the control can go busy while it runs. */
   recordPhase?: MutationPhase;
+  /**
+   * The live viewing session for this camera, when there is one.
+   *
+   * PTZ is session-scoped — the session IS the authorization — so its presence
+   * is what separates a real head from a picture. Absent means the local
+   * digital nudge, which is all a seeded feed ever had.
+   */
+  session?: ViewerSession | null;
   onToggleFullscreen?: () => void;
   onToggleRecord?: () => void;
 }) {
@@ -104,7 +123,30 @@ export function useTileControls({
     setSiren(false);
     setTalking(false);
     setView(HOME);
+    /* A feed that drops takes its actuators with it — and a held move must be
+       ENDED rather than merely forgotten, or the head keeps turning until the
+       daemon's deadman catches it. */
+    const held = holdRef.current;
+    holdRef.current = null;
+    if (held) void held.stop().catch(() => {});
   }, [isDead]);
+
+  /**
+   * Unmount, navigation, StrictMode teardown — all the same obligation.
+   *
+   * A hold that outlives its tile is a camera nobody is watching still moving.
+   * The deadman would stop it within four seconds, but relying on a safety
+   * backstop for ordinary teardown is how the backstop stops being a backstop.
+   */
+  useEffect(
+    () => () => {
+      const held = holdRef.current;
+      holdRef.current = null;
+      pressedAt.current = 0;
+      if (held) void held.stop().catch(() => {});
+    },
+    [],
+  );
 
   /* Talk-down is push-to-hold: transmitting is the state with consequences,
      so it is the one that gets the saturated fill and a running timer. */
@@ -120,19 +162,134 @@ export function useTileControls({
     };
   }, [talking]);
 
-  const move = useCallback((dir: "up" | "down" | "left" | "right" | "home") => {
-    setView((v) => {
-      if (dir === "home") return HOME;
-      const bound = maxPan(BASE_SCALE * v.zoom);
-      const dx = dir === "left" ? PAN_STEP : dir === "right" ? -PAN_STEP : 0;
-      const dy = dir === "up" ? PAN_STEP : dir === "down" ? -PAN_STEP : 0;
-      return {
-        ...v,
-        x: clamp(v.x + dx, -bound, bound),
-        y: clamp(v.y + dy, -bound, bound),
-      };
-    });
-  }, []);
+  /**
+   * ══════════════════════════════════════════════════════════════════
+   *  THE TWO ZOOMS, AND WHY ONLY ONE OF THEM IS A CSS TRANSFORM
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * DIGITAL — the zoom buttons in the control stack. They crop the frame that
+   * has already arrived, which is a legitimate thing to do to a picture and
+   * costs the tower nothing. That stays exactly as it was: a transform on the
+   * media element, clamped so the frame's own edge never shows.
+   *
+   * OPTICAL / MECHANICAL — the PTZ pad. It moves the actual head, and it is
+   * already gated on `feed.ptz`, which the projection sets from `ptz_capable`.
+   *
+   * ⚠ FOR A REAL HEAD, THE LOCAL TRANSFORM IS NOT APPLIED. This is the bug
+   * behind "it only moves a little": the pad used to nudge the on-screen image
+   * by 2.5% per tick and clamp it at the frame's edge, so the picture shifted a
+   * fraction and stopped while the camera never moved at all. Doing both would
+   * be worse than either — the frame would jump instantly by the CSS amount and
+   * then drift again as the real head arrived, showing one movement twice.
+   *
+   * The picture moving IS the feedback. Nothing local is needed.
+   */
+  const localNudge = useCallback(
+    (dir: "up" | "down" | "left" | "right" | "home") => {
+      setView((v) => {
+        if (dir === "home") return HOME;
+        const bound = maxPan(BASE_SCALE * v.zoom);
+        const dx = dir === "left" ? PAN_STEP : dir === "right" ? -PAN_STEP : 0;
+        const dy = dir === "up" ? PAN_STEP : dir === "down" ? -PAN_STEP : 0;
+        return {
+          ...v,
+          x: clamp(v.x + dx, -bound, bound),
+          y: clamp(v.y + dy, -bound, bound),
+        };
+      });
+    },
+    [],
+  );
+
+  /** Whether this pad drives a real head or the old local nudge. */
+  const realPtz = Boolean(feed.ptz && session && feed.index !== undefined);
+
+  /* The open hold, and when it started. A ref because a pointerup can arrive
+     before React has re-rendered from the pointerdown, and a hold tracked in
+     state would be missed by the release that has to end it. */
+  const holdRef = useRef<PtzHold | null>(null);
+  const pressedAt = useRef(0);
+  const [ptzError, setPtzError] = useState<string | null>(null);
+
+  const jogStart = useCallback(
+    (dir: JogDirection) => {
+      setPtzError(null);
+      if (!realPtz) {
+        localNudge(dir === "in" || dir === "out" ? "home" : dir);
+        return;
+      }
+      pressedAt.current = Date.now();
+      void (async () => {
+        try {
+          const held = await beginHold(feed, session, {
+            mode: "jog",
+            ...JOG_AXES[dir],
+          });
+          /* The release may already have happened while this was in flight.
+             Stop it immediately rather than storing a hold nobody will end —
+             the same late-success discipline the video seam uses. */
+          if (pressedAt.current === 0) {
+            void held.stop();
+            return;
+          }
+          holdRef.current = held;
+        } catch (err) {
+          setPtzError(describePtzFailure(err));
+        }
+      })();
+    },
+    [feed, localNudge, realPtz, session],
+  );
+
+  /**
+   * Release.
+   *
+   * ⚠ ALWAYS SENDS A STOP. Not gated on a permission check, not skipped when
+   * the session looks expired, not conditional on the hold having been
+   * registered — refusing a stop can only leave a camera moving; accepting one
+   * can only leave it still.
+   *
+   * `MIN_PRESS_MS` is press FEEL, not protocol: a 60ms tap would otherwise
+   * queue a stop behind a move that has not been dispatched yet.
+   */
+  const jogEnd = useCallback(() => {
+    if (!realPtz) return;
+    const heldFor = Date.now() - pressedAt.current;
+    pressedAt.current = 0;
+    const wait = Math.max(0, MIN_PRESS_MS - heldFor);
+
+    setTimeout(() => {
+      const held = holdRef.current;
+      holdRef.current = null;
+      void (async () => {
+        try {
+          /* Either path issues a real stop. The second exists for the case
+             where the hold never registered — a failure, or a release that beat
+             the round trip — because the tower may still have started moving. */
+          if (held) await held.stop();
+          else await stopOrHome(feed, session, false);
+        } catch (err) {
+          const said = describePtzFailure(err);
+          if (said) setPtzError(said);
+        }
+      })();
+    }, wait);
+  }, [feed, realPtz, session]);
+
+  const goHome = useCallback(() => {
+    setPtzError(null);
+    if (!realPtz) {
+      localNudge("home");
+      return;
+    }
+    void (async () => {
+      try {
+        await stopOrHome(feed, session, true);
+      } catch (err) {
+        setPtzError(describePtzFailure(err));
+      }
+    })();
+  }, [feed, localNudge, realPtz, session]);
 
   const zoomBy = useCallback((delta: number) => {
     setView((v) => {
@@ -262,7 +419,12 @@ export function useTileControls({
     view,
     scale,
     limit,
-    move,
+    jogStart,
+    jogEnd,
+    goHome,
+    realPtz,
+    ptzError,
+    dismissPtzError: () => setPtzError(null),
     flash,
     siren,
     alarming,

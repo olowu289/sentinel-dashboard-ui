@@ -52,8 +52,15 @@ import { getSessionRef } from "./session";
  * global object — which is what the brand check wants. `globalThis` rather than
  * `window` because nothing here should assume a DOM.
  *
- * ⚠ Do NOT "simplify" this to `export const sdkFetch = globalThis.fetch`. That
+ * ⚠ Do NOT "simplify" either of these to `const f = globalThis.fetch`. That
  * re-detaches it and restores the bug exactly.
+ *
+ * ⚠ EVERY fetch in this app goes through here — the SDK's calls and the two
+ * hand-rolled families (`api/auth.ts`, and `api/claim.ts` when it lands, both
+ * because the SDK has no methods for them). Two call paths that bind
+ * differently is precisely how this bug hid the first time: one worked, one did
+ * not, and nothing in a Node test could tell them apart. One helper means it
+ * cannot recur in one path but not the other.
  *
  * TODO(sdk): the real fix is upstream — bind at assignment
  * (`platformFetch.bind(globalThis)`) or call detached
@@ -61,8 +68,20 @@ import { getSessionRef } from "./session";
  * this goes through the SDK's own documented injection point
  * (`SentryClientOptions.fetch`), which is a supported seam rather than a patch.
  */
+export function webFetch(url: string, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(url, init);
+}
+
+/**
+ * The same call, in the shape the SDK's injection point expects.
+ *
+ * The SDK's `FetchLike` is structural and deliberately DOM-free, so consumers
+ * do not need `lib: ["DOM"]` to build against it — which is why the init object
+ * needs a cast on the way through. Nothing is reinterpreted; it is the same
+ * object, handed to the same bound call.
+ */
 export const sdkFetch: FetchLike = (url, init) =>
-  globalThis.fetch(url, init as RequestInit | undefined);
+  webFetch(url, init as RequestInit | undefined);
 
 export { NotConfiguredError };
 
@@ -103,7 +122,22 @@ export function getClient(): SentryClient {
     token: () => getSessionRef(),
     // REQUIRED, not optional tuning. See the note on `sdkFetch` above.
     fetch: sdkFetch,
-    userAgent: "terra-sentinel",
+    /* ⚠ NO `userAgent`. It looks free and it is not.
+       The SDK sends it as `X-Sentry-Client`, and its own doc comment says
+       "Browsers ignore it" — which is true of `User-Agent` and false of a
+       custom header. A custom request header makes the request non-simple, so
+       the browser preflights it, and coordination's CORS allows exactly
+       `Content-Type, Authorization`:
+
+         Access to fetch at '…/v1/viewer/towers' from origin 'http://localhost:5173'
+         has been blocked by CORS policy: Request header field x-sentry-client
+         is not allowed by Access-Control-Allow-Headers in preflight response
+
+       So every authenticated call fails before it leaves the browser — and it
+       fails as a *network* error, which is indistinguishable from coordination
+       being down. Setting it cost an afternoon's worth of chasing a phantom
+       StrictMode bug; the honest fix is to not send a header nobody reads.
+       Add it back only alongside a CORS change in coordination. */
   });
   return client;
 }

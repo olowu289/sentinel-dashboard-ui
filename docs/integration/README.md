@@ -1000,6 +1000,8 @@ Ordered by how quietly the failure would happen.
 | 26 | **`404 tower_unknown` = "no such tower OR not yours"**, deliberately indistinguishable. | Copy says "unavailable", never "does not exist". |
 | 27 | **`ProjectionLeakError` misdiagnosed** — a leak is a coordination bug, but the first reader debugs the wrong repo. | Carry the dashboard's `explain()` wrapper. |
 | 28 | **Unbacked screens reading as live** — the largest correctness risk here. | A visible marker per unbacked surface + `*_BACKED = false`. Never a silent fallback. |
+| 29 | **A custom request header silently breaks every authenticated call.** Found in Stage 2. Passing `userAgent` to `SentryClient` makes it send `X-Sentry-Client`; coordination's CORS allows exactly `Content-Type, Authorization`, so the browser's preflight refuses it and the request never leaves. The SDK's own comment says "Browsers ignore it", which is true of `User-Agent` and false of a custom header. **It fails as a *network* error, indistinguishable from coordination being down.** | Send no header coordination does not allow. Add one only alongside a CORS change. See the note at the `getClient()` call site. |
+| 30 | **Treating our own `abort` as a verdict.** Found in Stage 2. A StrictMode cleanup aborts the in-flight session probe; if the catch reads that as "unreachable, keep the session", a **revoked session restores to a fully rendered app**. A shared `alive` ref cannot fix it — the second run sets it back to true and un-guards the first run's late handlers. | The per-run `controller.signal.aborted` is the authority, checked after the await **and inside the catch**. On abort, say nothing and let the surviving run decide. |
 
 ---
 
@@ -1044,8 +1046,8 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 |---|---|---|
 | 0 — SDK spike | ✅ **PASSED** | All five criteria green against the live tower. See below. |
 | 1 — Config plumbing | ✅ done | `.env.example`, `src/lib/config.ts`, `src/lib/api/client.ts`, `src/lib/api/session.ts`, the SDK dependency + Vite config. Inert. |
-| 2 — Auth gate | ⏳ next | |
-| 3 — Vertical slice | — | |
+| 2 — Auth gate | ✅ done | `api/auth.ts`, `AuthProvider`, `AuthGate`, `LoginView`, sign-out in the rail, `OPERATOR` from the session. 17/17 verified. See below. |
+| 3 — Vertical slice | ⏳ next | |
 | 4 — State grammar | — | |
 | 5 — Mutation primitive | — | |
 | 6 — Data breadth | — | |
@@ -1092,3 +1094,44 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 2 result
+
+A real login in front of the app. Everything below the gate still runs on the
+seed — verified: only `AuthProvider` and `LoginView` import `src/lib/api/*`, and
+`App.tsx` still seeds `feeds`/`alerts`/`towers`/`people` from `data.ts`.
+
+Driven headlessly against live coordination. 17/17:
+
+| Group | Checks |
+|---|---|
+| the gate | login screen shows; the app is **not** rendered behind it; the organization field is not `uppercase`-transformed |
+| uniform rejection | wrong password, unknown organization and a **leading space** all rejected, all with the **byte-identical** message, none mentioning reachability |
+| unreachable | a blocked network gives `Can't reach coordination`, says explicitly it is not a password problem, and never claims the credentials were wrong |
+| session ended | a revoked stored session drops to login, says *"Your session ended"*, and clears `sessionStorage`; the probe uses `GET /v1/viewer/towers` rather than an invented `whoami` |
+| StrictMode | exactly one login POST per submit; a triple click still produces one |
+
+Two bugs were found by the probe rather than by reading, both recorded as risks
+29 and 30 above. Worth knowing they present identically to something else:
+
+- `X-Sentry-Client` (from `userAgent`) fails CORS preflight, and surfaces as a
+  **network** error — so it is indistinguishable from coordination being down,
+  or from an untrusted CA. Three different causes, one symptom.
+- A StrictMode `abort` caught as "unreachable" restored a **revoked** session to
+  a fully rendered app. The per-run `controller.signal.aborted` is the fix; a
+  shared `alive` ref is not, because the second run un-guards the first.
+
+Still open, and needs the operator's password: the **success** path — right
+organization plus right password renders the (still seeded) app.
+
+`acknowledgedBy` is deliberately **not** collapsed into the session. `changedBy`
+and `stoppedBy` are authoring stamps the server will re-verify; this one records
+who *performed* an auditable action, and having the client assert that is the
+boundary risk 3 is about. Alerts have no backend to return it, so the seed's
+visibly-fake placeholder stays until they do.
+
+`operatorName()` returns the **organization** name. Coordination authenticates an
+organization and its account record carries no per-user identity, so provenance
+is org-level — a real reduction against this app's design position that
+enrolling somebody is an act with a name on it, and one to raise with whoever
+owns the protocol.

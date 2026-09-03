@@ -1,3 +1,4 @@
+import { useSession } from "@/components/AuthProvider";
 import { MaskIcon } from "./Icon";
 
 const NAV = [
@@ -82,25 +83,81 @@ export function IconRail({
         })}
       </ul>
 
-      {/* Only rendered where something handles it. It used to draw on all four
-          screens and work on one, which is the same dead-control bug as an
-          unwired nav item — just one row further down. */}
-      {onMore && (
-        <button
-          type="button"
-          aria-label="Feed state simulator"
-          aria-expanded={moreOpen}
-          title="Feed state simulator (Shift+S)"
-          onClick={onMore}
-          className={`absolute bottom-[24px] left-1/2 flex size-[34px] -translate-x-1/2 items-center justify-center rounded-[8px] transition-colors ${
-            moreOpen
-              ? "bg-white/8 text-white"
-              : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
-          }`}
-        >
-          <MaskIcon src="/icons/nav-more.svg" size={24} />
-        </button>
-      )}
+      {/* A stack rather than two absolutely-positioned buttons, because the
+          simulator button is conditional and anything pinned above it would
+          float when it is absent. */}
+      <div className="absolute bottom-[24px] left-1/2 flex -translate-x-1/2 flex-col items-center gap-[10px]">
+        {/* Only rendered where something handles it. It used to draw on all four
+            screens and work on one, which is the same dead-control bug as an
+            unwired nav item — just one row further down. */}
+        {onMore && (
+          <button
+            type="button"
+            aria-label="Feed state simulator"
+            aria-expanded={moreOpen}
+            title="Feed state simulator (Shift+S)"
+            onClick={onMore}
+            className={`flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
+              moreOpen
+                ? "bg-white/8 text-white"
+                : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
+            }`}
+          >
+            <MaskIcon src="/icons/nav-more.svg" size={24} />
+          </button>
+        )}
+
+        <SignOutButton />
+      </div>
     </nav>
+  );
+}
+
+/**
+ * Sign out.
+ *
+ * Reads the session directly rather than taking a prop, because every screen
+ * renders this rail and threading one handler through five of them is the
+ * drift `onSelect` already demonstrated — two screens shipped a nav bar that
+ * did not navigate. Session is the one Context in this app, and the rail is
+ * always inside the gate.
+ *
+ * It names the account in its label rather than drawing it. A rail is 71px and
+ * an organization name is not, and the fleet screen already carries the
+ * identity where there is room for it.
+ *
+ * TODO(assets): the glyph is hand-drawn because the exported set has no
+ * sign-out mark — the same reason `TileFallback` draws its own. Replace it with
+ * a Figma export when the set gains one; nothing else here changes.
+ */
+function SignOutButton() {
+  const { account, signOut } = useSession();
+  const label = account ? `Sign out of ${account.login}` : "Sign out";
+
+  return (
+    <button
+      type="button"
+      onClick={() => void signOut()}
+      aria-label={label}
+      title={label}
+      className="flex size-[34px] items-center justify-center rounded-[8px] text-[#cccccc]/55 transition-colors hover:bg-white/5 hover:text-[#cccccc]"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+          d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M10.5 8.5 14 12l-3.5 3.5M14 12H4"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }

@@ -2,6 +2,7 @@ import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
+import { useSession } from "@/components/AuthProvider";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
@@ -34,10 +35,6 @@ const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
    actually streaming, so a wall of dead feeds never accrues it. */
 const LIVE_VIEW_WARNING_SEC = 10 * 60;
 
-/** Whose name goes on an enrolment. Stands in for the signed-in operator —
- *  putting somebody on a watchlist is an act with an author. */
-const OPERATOR = "A. Bello";
-
 /** Each camera's resting latency, captured before the walk starts moving it. */
 const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
 
@@ -54,6 +51,21 @@ const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
  * to be a deployment.
  */
 export function SentinelApp() {
+  /* Whose name goes on an authored act — a settings change, an enrolment, a
+     stopped watch. Read from the session rather than a constant, so the record
+     names whoever is actually signed in.
+
+     ⚠ It is an ORGANIZATION name, not a person's. Coordination authenticates an
+     organization and its account record carries no per-user identity, so
+     provenance is org-level until the protocol grows individual accounts. That
+     is a real reduction against what this app's design asked for — the
+     watchlist's position is that enrolling somebody is an act with a *name* on
+     it — and it is recorded in `operatorName` rather than papered over.
+
+     This component only ever renders inside `AuthGate`, so a session is always
+     present here. */
+  const { operator: OPERATOR } = useSession();
+
   const [feeds, setFeeds] = useState<CameraFeed[]>(FEEDS);
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
   /* State rather than the module constant, because the batteries actually fill:
@@ -164,7 +176,10 @@ export function SentinelApp() {
         },
       }));
     },
-    [],
+    /* `OPERATOR` comes from the session now, so it belongs in the deps. It only
+       changes on a sign-in or sign-out, and the gate unmounts this whole tree on
+       either — so in practice this identity is as stable as `[]` was. */
+    [OPERATOR],
   );
 
   const watchPerson = useCallback(
@@ -280,7 +295,7 @@ export function SentinelApp() {
           : p,
       ),
     );
-  }, []);
+  }, [OPERATOR]);
 
   /* The alerts a person's matches raised are not touched. They record what a
      camera saw, which happened whether or not the entry still exists. */
@@ -518,6 +533,22 @@ export function SentinelApp() {
     );
   }, []);
 
+  /* `acknowledgedBy` is deliberately NOT collapsed into the session, unlike
+     `changedBy` and `stoppedBy` above, and the difference is a real one rather
+     than an oversight.
+
+     Those two are *authoring* stamps: the client is describing a change it is
+     making, and the server will re-verify the account behind it. This one
+     records who *performed* an auditable action on an alert — and having the
+     client assert that is exactly the boundary that gets weakened when proven
+     logic is adapted to a UI that never had one. It has to come back from the
+     server's response to the acknowledgement.
+
+     There is no such response: alerts have no backend at all — no type in the
+     SDK's contract, no route in coordination. So the honest state is the seed's
+     own placeholder, left visibly fake, rather than a session name that would
+     make an unverified claim look verified. It becomes server-supplied in the
+     same change that gives alerts a real API. See docs/integration §6. */
   const setStatus = useCallback((id: string, status: Alert["status"]) => {
     setAlerts((prev) =>
       prev.map((a) =>

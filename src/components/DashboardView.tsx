@@ -36,6 +36,8 @@ export function DashboardView({
   onOpenTower,
   onRetryFeed,
   onToggleRecord,
+  dismissedNotices,
+  onDismissNotice,
   fleetLoading = false,
   fleetProblem = null,
   seededFleet = false,
@@ -63,6 +65,10 @@ export function DashboardView({
   onRetryFeed: (feedId: string) => void;
   /** The shell's, not this view's — both walls act on one set of feeds. */
   onToggleRecord: (feedId: string) => void;
+  /** Towers whose notice this operator has read. Owned by the shell so it
+   *  survives this view unmounting on every drill-in — see the note there. */
+  dismissedNotices?: ReadonlySet<string>;
+  onDismissNotice?: (towerId: string) => void;
   /** The real fleet has not answered yet. */
   fleetLoading?: boolean;
   /** Why the fleet could not be read, if it could not. */
@@ -155,6 +161,8 @@ export function DashboardView({
         pendingClaim={pendingClaim}
         onResumeSetup={onResumeSetup}
         onOpenTower={onOpenTower}
+        dismissedNotices={dismissedNotices}
+        onDismissNotice={onDismissNotice}
         loading={fleetLoading}
         problem={fleetProblem}
         seeded={seededFleet}

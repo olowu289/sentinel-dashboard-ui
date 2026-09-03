@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Alert, Tower } from "@/lib/types";
 import type { Claim } from "@/lib/api/claim";
 import { PendingTowerCard } from "./PendingTowerCard";
@@ -15,6 +15,8 @@ export function TowersPanel({
   pendingClaim,
   onResumeSetup,
   onOpenTower,
+  dismissedNotices,
+  onDismissNotice,
   loading = false,
   problem = null,
   seeded = false,
@@ -30,6 +32,9 @@ export function TowersPanel({
    *  wall — the count on a card is a question about alerts, so answering it
    *  should not cost a second click once you are inside. */
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
+  /** Read notices, owned by the shell. */
+  dismissedNotices?: ReadonlySet<string>;
+  onDismissNotice?: (towerId: string) => void;
   /** The real fleet has not answered yet. */
   loading?: boolean;
   /** Why the fleet could not be read, if it could not. */
@@ -42,10 +47,12 @@ export function TowersPanel({
      Dismissing says "I have read this site's notice", not "these alerts are
      handled" — so the strip retires for the whole tower while its alerts stay
      in the feed and stay in the count on the pill. Keyed by alert it would read
-     as broken: hiding the newest one just promotes the next. */
-  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+     as broken: hiding the newest one just promotes the next.
+
+     ⚠ IT USED TO LIVE HERE, AND THAT WAS THE BUG. This panel unmounts on every
+     drill-in, so a dismissed notice came back the moment an operator visited a
+     tower and returned — the control appeared not to work. It is owned by the
+     shell now, and remembered per account. */
 
   const byTower = useMemo(() => {
     const map = new Map<string, Alert[]>();
@@ -120,12 +127,10 @@ export function TowersPanel({
             key={tower.id}
             tower={tower}
             alerts={byTower.get(tower.id) ?? []}
-            noticeDismissed={dismissed.has(tower.id)}
+            noticeDismissed={dismissedNotices?.has(tower.id) ?? false}
             onOpen={() => onOpenTower(tower.id)}
             onOpenAlerts={() => onOpenTower(tower.id, true)}
-            onDismissNotice={() =>
-              setDismissed((prev) => new Set(prev).add(tower.id))
-            }
+            onDismissNotice={() => onDismissNotice?.(tower.id)}
           />
         ))}
       </div>

@@ -1084,7 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
-| 9 — Renewal + persistence | — | |
+| 9 — Renewal + persistence | ✅ **25/25** | Part 1 was already complete from Stage 3 — verified, not rebuilt. Part 2 net-new: per-account view prefs. |
 | 10 — Sweep | — | |
 
 ### Stage 0 result
@@ -1125,6 +1125,60 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 9 result — session lifecycle + persistence, 25/25
+
+**Part 1 was already complete from Stage 3** and was verified rather than
+rebuilt: `readSessionExpiry`, `msUntilSessionExpiry`, `STATUS_POLL_MS = 60_000`,
+`STATUS_POLL_TOLERANCE = 3`, the re-arming hard-stop watcher, and the
+server-only deadline rule.
+
+**No local clock extension.** `deadline` is assigned in exactly two places, and
+both take a server value — `opened.session.expires_at` at creation and
+`readSessionExpiry`'s return on each poll. Reading the field IS reading the
+authorization verdict, so a client that added time locally would turn a
+revocation into a feed that keeps playing.
+
+**The three end-states are distinct, and each was induced for real:**
+
+| | Induced by | Result |
+|---|---|---|
+| **renewed** | letting a watched feed run past a poll cycle | **2 status reads in 65s, feed uninterrupted, nothing on screen** |
+| **revoked** | coordination's own `/dev/sessions/{id}/renew` with `lifetime_sec: 2` | *"Viewing ended — Access to this camera ended"*, **2 → 1 playing**, Resume offered |
+| **outage** | severing only the status poll for 70s | **the feed kept playing** — a blip is not an authorization answer |
+
+Revocation is **per session, not per tower**: one shortened grant ended one
+tile while the second camera carried on. Killing the whole wall would be its own
+kind of dishonesty.
+
+**Resume viewing opens a NEW session.** `retry` bumps the attempt, the effect
+re-runs `openPlayback`, and that calls `createSession` — a fresh authorization,
+never a local un-expire.
+
+**Part 2 — persistence, and the line it draws.**
+
+| Persisted (`localStorage`, keyed by `account_id`) | Deliberately NOT |
+|---|---|
+| wall arrangement | **the session token** — stays in `sessionStorage`, dies with the tab |
+| notice dismissals (lifted out of `TowersPanel`, which unmounted on every drill-in) | **the pending claim** — already server-side ownership; a local copy would be a second answer to "is this tower mine" |
+| camera settings/zones, **marked local-only** | **seeded domain mutations** — acks, enrolments, watchlist changes, rejected matches |
+
+The last one is the important line. Acknowledgements have **no backend**, so
+persisting one would make it *look* durable: an operator would acknowledge an
+alert, reload, see it still acknowledged, and reasonably conclude the record is
+somewhere. It is not — it is in one browser, invisible to the next shift and to
+any audit. Losing it is obvious and teaches the truth; faking its persistence
+teaches the opposite and is only discovered when somebody needs the record.
+
+Camera settings are persisted despite also lacking a backend, and the
+distinction is deliberate: an acknowledgement is a claim about something that
+**happened** and belongs in a record; a settings panel is a claim about what the
+operator **wants**, which is a preference by nature. The moment settings gain a
+backend this must move out, because then a local copy would disagree with a
+tower.
+
+**Cross-account isolation confirmed:** each account gets its own
+`sentinel.prefs.v1:<account_id>` key, and a second account sees only its own.
 
 ### Stage 8 result — real enrolment, 21/21
 

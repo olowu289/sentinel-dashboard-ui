@@ -11,6 +11,7 @@ import { isSeededFleet } from "@/lib/config";
 import { listFleet } from "@/lib/api/fleet";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
+import { loadPrefs, savePrefs } from "@/lib/prefs";
 import { CoordinationBanner } from "@/components/CoordinationBanner";
 import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
 import { useMutation } from "@/lib/useMutation";
@@ -114,7 +115,23 @@ export function SentinelApp() {
 
      This component only ever renders inside `AuthGate`, so a session is always
      present here. */
-  const { operator: OPERATOR } = useSession();
+  const { operator: OPERATOR, account } = useSession();
+
+  /**
+   * View preferences, remembered per account.
+   *
+   * Hydrated once from `localStorage` and written back whenever one changes.
+   * Keyed by `account_id` so one machine can serve several operators without
+   * handing the next one the last one's wall.
+   *
+   * ⚠ VIEW PREFERENCES ONLY. Not the session token (that stays in
+   * `sessionStorage` and dies with the tab), not the pending claim (already
+   * server-side ownership), and NOT seeded domain mutations — an acknowledgement
+   * persisted here would look durable while living in one browser, invisible to
+   * the next shift and to any audit. See `lib/prefs.ts`.
+   */
+  const accountId = account?.account_id ?? null;
+  const prefsLoaded = useRef(false);
 
   /* ── THE FLEET SOURCE ─────────────────────────────────────────────────
      `sdk` is the real thing; `seed` is the fixture, kept as the way back and
@@ -649,6 +666,53 @@ export function SentinelApp() {
     FEEDS.map((f) => f.id),
   );
 
+  /**
+   * Towers whose alert notice this operator has read.
+   *
+   * ⚠ LIFTED OUT OF `TowersPanel`, where it was component-local — and that panel
+   * unmounts on every drill-in, so a dismissed notice came back the moment an
+   * operator visited a tower and returned. Dismissing meant "I have read this",
+   * and having it reappear taught them the control did not work.
+   *
+   * Optimistic and unwrapped, deliberately: it is a view preference, instant is
+   * correct, and a spinner would be an apology for nothing.
+   */
+  const [dismissedNotices, setDismissedNotices] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  /* Hydrate once, when the account is known. A later run must not clobber an
+     arrangement the operator has already changed this session, which is what
+     the ref guards. */
+  useEffect(() => {
+    if (!accountId || prefsLoaded.current) return;
+    prefsLoaded.current = true;
+    const stored = loadPrefs(accountId);
+    setDismissedNotices(new Set(stored.dismissedNotices));
+    if (stored.wallOrder.length > 0) setWallOrder(stored.wallOrder);
+    if (Object.keys(stored.cameraSettings).length > 0) {
+      setSettings(stored.cameraSettings);
+    }
+  }, [accountId]);
+
+  /* Write back whenever a preference moves. Cheap, and it means a browser that
+     is closed rather than navigated away from still remembers. */
+  useEffect(() => {
+    if (!accountId || !prefsLoaded.current) return;
+    savePrefs(accountId, {
+      wallOrder,
+      dismissedNotices: [...dismissedNotices],
+      cameraSettings: settings,
+    });
+    /* Deliberately no mirrored `prefs` state. It would be a second copy of
+       what the three sources already say, and the first time it drifted the
+       stale one would be what got written to disk. */
+  }, [accountId, wallOrder, dismissedNotices, settings]);
+
+  const dismissNotice = useCallback((towerId: string) => {
+    setDismissedNotices((prev) => new Set(prev).add(towerId));
+  }, []);
+
   /* Committing a whole arrangement, for the band drag: moving a site moves
      every tile in it, and doing that through `moveTile` would walk the wall
      through intermediate arrangements nobody asked for. */
@@ -1100,6 +1164,8 @@ export function SentinelApp() {
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
+          dismissedNotices={dismissedNotices}
+          onDismissNotice={dismissNotice}
           fleetLoading={fleetLoading}
           fleetProblem={reachProblem?.headline ?? null}
           seededFleet={seededFleet}

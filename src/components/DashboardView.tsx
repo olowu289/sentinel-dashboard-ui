@@ -320,6 +320,7 @@ export function DashboardView({
                     }
                     onRetry={() => onRetryFeed(feed.id)}
                     onToggleRecord={() => onToggleRecord(feed.id)}
+                    onOpenTower={() => onOpenTower(feed.towerId)}
                   />
                 ))}
               </div>

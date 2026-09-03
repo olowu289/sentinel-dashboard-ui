@@ -1,5 +1,5 @@
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertDetail } from "@/components/AlertDetail";
 import { AlertRow } from "@/components/AlertRow";
 import { AlertsEmpty } from "@/components/AlertsEmpty";
@@ -15,7 +15,7 @@ import {
   isFiltered,
   type DateFilter,
 } from "@/lib/dateFilter";
-import { SESSION_NOW } from "@/lib/time";
+import { useNow } from "@/lib/useNow";
 import type { Alert, AlertAttachment, Tower } from "@/lib/types";
 import type { Mutation } from "@/lib/useMutation";
 
@@ -69,9 +69,41 @@ export function AlertsView({
     attachment: AlertAttachment;
   } | null>(null);
 
-  const visible = applyDateFilter(alerts, filter, SESSION_NOW);
+  /* Ticking, not captured — see `useNow`. The fleet feed is the one most
+     likely to be left open all shift, so the frozen clock hurt most here. */
+  const now = useNow();
+  const visible = applyDateFilter(alerts, filter, now);
   const selected = visible.find((a) => a.id === selectedId) ?? null;
   const filtered = isFiltered(filter);
+
+  /**
+   * Arrow keys step through the feed without closing the detail — operators
+   * triage in bulk, and reopening the drawer for every row is a tax.
+   *
+   * The per-tower panel has had this since it was written and this feed never
+   * did, which is exactly the divergence that sharing `AlertRow`, `AlertDetail`
+   * and the filter between the two surfaces was meant to prevent: one alert
+   * read here and the same alert read there should behave the same way. The
+   * behaviour is deliberately identical rather than merely similar — bounds
+   * check included, so stepping off either end does nothing rather than
+   * wrapping.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && selectedId) {
+        setSelectedId(null);
+        return;
+      }
+      if (!selectedId) return;
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const i = visible.findIndex((a) => a.id === selectedId);
+      const next = e.key === "ArrowDown" ? i + 1 : i - 1;
+      if (next >= 0 && next < visible.length) setSelectedId(visible[next].id);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [visible, selectedId]);
 
   const siteOf = (towerId: string) =>
     towers.find((t) => t.id === towerId)?.site ?? towerId;
@@ -85,7 +117,7 @@ export function AlertsView({
   const counts = Object.fromEntries(
     RANGES.map((r) => [
       r.id,
-      applyDateFilter(alerts, { range: r.id }, SESSION_NOW).length,
+      applyDateFilter(alerts, { range: r.id }, now).length,
     ]),
   );
 

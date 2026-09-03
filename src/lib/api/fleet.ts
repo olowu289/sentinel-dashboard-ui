@@ -11,6 +11,7 @@ import type { CameraFeed, Tower } from "@/lib/types";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
 import { toTower } from "./map";
+import { withDemoCabinetReadings } from "./demoCabinet";
 
 export interface FleetSnapshot {
   towers: Tower[];
@@ -73,7 +74,12 @@ export async function listFleet(signal?: AbortSignal): Promise<FleetSnapshot> {
   const feeds: CameraFeed[] = [];
   for (const info of raw) {
     const mapped = toTower(info, now);
-    towers.push(mapped.tower);
+    /* ⚠ DEMO READINGS. `toTower` leaves battery, solar, temperature, uplink
+       quality and storage ABSENT, because the projection carries none of them.
+       This puts fabricated ones back so the populated UI can be seen in
+       development. See `demoCabinet.ts` — it must be switched off, made real,
+       or marked on screen before this ships. */
+    towers.push(withDemoCabinetReadings(mapped.tower));
     feeds.push(...mapped.feeds);
   }
   return { towers, feeds };
@@ -99,5 +105,6 @@ export async function getTower(
     throw err;
   }
   const mapped = toTower(raw);
-  return { towers: [mapped.tower], feeds: mapped.feeds };
+  // Same demo readings as the list, so the two views cannot disagree.
+  return { towers: [withDemoCabinetReadings(mapped.tower)], feeds: mapped.feeds };
 }

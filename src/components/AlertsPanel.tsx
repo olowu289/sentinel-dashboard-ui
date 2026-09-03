@@ -10,7 +10,7 @@ import {
   isFiltered,
   type DateFilter,
 } from "@/lib/dateFilter";
-import { SESSION_NOW } from "@/lib/time";
+import { useNow } from "@/lib/useNow";
 import type { AlertAttachment } from "@/lib/types";
 import { AlertDetail } from "./AlertDetail";
 import { AlertRow } from "./AlertRow";
@@ -76,9 +76,11 @@ export function AlertsPanel({
     attachment: AlertAttachment;
   } | null>(null);
 
-  const visible = forceEmpty
-    ? []
-    : applyDateFilter(alerts, filter, SESSION_NOW);
+  /* Ticking, not captured. The ranges are computed against the CURRENT time so
+     "last 1 hour" keeps meaning the last hour however long this wall stays
+     open — see `useNow`. */
+  const now = useNow();
+  const visible = forceEmpty ? [] : applyDateFilter(alerts, filter, now);
   const selected = visible.find((a) => a.id === selectedId) ?? null;
   const filtered = isFiltered(filter);
 
@@ -86,7 +88,7 @@ export function AlertsPanel({
   const counts = Object.fromEntries(
     RANGES.map((r) => [
       r.id,
-      applyDateFilter(alerts, { range: r.id }, SESSION_NOW).length,
+      applyDateFilter(alerts, { range: r.id }, now).length,
     ]),
   );
 

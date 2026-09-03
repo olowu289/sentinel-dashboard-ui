@@ -182,6 +182,47 @@ export function UnknownFallback({ since }: { since?: string }) {
  * different reasons it is missing, and an operator deciding whether to wait or
  * escalate needs to know which.
  */
+/**
+ * A camera that is live, and that this screen has deliberately not opened a
+ * stream for.
+ *
+ * ⚠ THIS EXISTS BECAUSE THE ALTERNATIVE IS A PICTURE-SHAPED HOLE. A real camera
+ * carries no poster — `map.ts` refuses to attach one, because the seed's
+ * posters are photographs of a different site and putting one under a LIVE chip
+ * would be the most convincing lie this app could tell. So on the fleet wall,
+ * where the video policy says not to stream, there is nothing to draw: an empty
+ * `<img>` under a green chip reads as a broken tile at best and as a dark scene
+ * at worst.
+ *
+ * The honest answer is to say why the frame is empty and where the picture is.
+ * Grey, because nothing is wrong — this is a choice the app made, not a fault
+ * at the site, and the chip beside it is still correctly reporting the camera
+ * as live.
+ */
+export function NotStreamingFallback({ onOpen }: { onOpen?: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-white/35">
+      <CameraOffGlyph />
+      <p className="text-[0.8125rem] font-medium text-white/70">
+        Live — not streaming here
+      </p>
+      <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-white/35">
+        The fleet wall does not hold sessions open. Open the tower to watch this
+        camera.
+      </p>
+      {onOpen && (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="mt-[2px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white lg:text-[0.6875rem]"
+        >
+          Open tower
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function AwaitingMediaFallback({ name }: { name: string }) {
   return (
     <div className="flex flex-col items-center gap-[12px]">

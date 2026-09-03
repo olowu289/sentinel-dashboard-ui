@@ -4,7 +4,7 @@ import type { Alert, TimelineEvent } from "@/lib/types";
 import { ALERT_BADGE } from "@/lib/data";
 import { ENTER, EXIT } from "@/lib/motion";
 import {
-  SESSION_NOW,
+  siteNow,
   formatClock,
   formatDelta,
   formatDuration,
@@ -168,7 +168,10 @@ export function AlertDetail({
     .sort((a, b) => a.at - b.at)
     .map((e, _i, all): Step => ({ ...e, delta: formatDelta(all[0].at, e.at) }));
 
-  const detected = isSameSiteDay(alert.at, SESSION_NOW)
+  /* Read fresh on every render rather than captured. An alert raised at 23:50
+     is "today" until midnight and dated after it, and this panel can easily be
+     on screen across that boundary. */
+  const detected = isSameSiteDay(alert.at, siteNow())
     ? formatClock(alert.at)
     : `${formatSiteDate(alert.at)}, ${formatClock(alert.at)}`;
 

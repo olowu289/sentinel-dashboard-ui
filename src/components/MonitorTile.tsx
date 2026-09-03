@@ -9,6 +9,7 @@ import { SirenOverlay } from "./SirenOverlay";
 import {
   ConnectingFallback,
   ErrorFallback,
+  NotStreamingFallback,
   OfflineFallback,
   UnknownFallback,
   lastSeenLabel,
@@ -57,6 +58,7 @@ export function MonitorTile({
   onToggleFullscreen,
   onToggleRecord,
   onRetry,
+  onOpenTower,
 }: {
   feed: CameraFeed;
   /** Spoken in the tile's label. The fleet wall mixes sites, so a tile that
@@ -72,6 +74,8 @@ export function MonitorTile({
    *  and this one must not disagree about whether a camera is recording. */
   onToggleRecord?: () => void;
   onRetry?: () => void;
+  /** Drill in to where this camera actually streams. */
+  onOpenTower?: () => void;
 }) {
   const expandRef = useRef<HTMLButtonElement>(null);
   const [firstFrame, setFirstFrame] = useState(false);
@@ -83,6 +87,10 @@ export function MonitorTile({
   const isDead = hasError || DEAD_STATES.has(feed.state);
   const reconnecting =
     feed.state === "connecting" && feed.elapsedSec !== undefined;
+  /* A real camera has no poster and this wall does not stream, so there is
+     genuinely no picture to draw — say so rather than leaving an empty frame
+     under a LIVE chip. A seeded feed has a poster and is unaffected. */
+  const noPicture = !isDead && !feed.poster;
 
   const { controls, view, scale, flash, alarming } = useTileControls({
     feed,
@@ -156,9 +164,11 @@ export function MonitorTile({
       >
         {/* The picture is the tile. Everything else floats over it. */}
         <div className="absolute inset-0 overflow-hidden">
-          {isDead ? (
+          {isDead || noPicture ? (
             <div className="absolute inset-0 flex items-center justify-center">
-              {hasError ? (
+              {noPicture && !isDead ? (
+                <NotStreamingFallback onOpen={onOpenTower} />
+              ) : hasError ? (
                 <ErrorFallback error={feed.error!} onRetry={onRetry} />
               ) : feed.state === "unknown" ? (
                 <UnknownFallback since={lastSeenLabel(feed.lastSeenAt)} />

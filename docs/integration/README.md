@@ -531,6 +531,34 @@ The dashboard's code is ahead of two of its own headers. Ignore both:
 
 ---
 
+## 6a. ⚠ DEMO CABINET READINGS — a recorded, deliberate departure
+
+**Battery, solar array state, cabinet temperature, uplink QUALITY and storage
+shown on a real tower are SEED/DEMO VALUES, not real telemetry.**
+
+None of them exist in coordination's §A.3 projection — not withheld, not
+unimplemented, simply absent from the contract. `map.ts` leaves them absent and
+every read site renders that absence properly (no battery cell on the mast,
+`NO CABINET READINGS` in the hover panel, `Not reported` in the settings rows).
+`src/lib/api/demoCabinet.ts` then puts fabricated values back, so the populated
+UI can be seen during development.
+
+This is an owner-approved departure from the honest-absence rule, taken
+consciously. **One of the following must happen before this ships, and it is not
+optional:**
+
+1. the readings become real — the protocol grows them, `map.ts` maps them, and
+   `demoCabinet.ts` is deleted; or
+2. they are **marked on screen** as demo values, so nobody reads a fabricated
+   87% as their site's actual charge; or
+3. `DEMO_CABINET_READINGS` is set to `false` and the honest-absence states
+   return — a one-line change, already wired.
+
+Shipping as-is is the fake-green failure this integration exists to refuse, in
+the one place an operator would never think to doubt it: a number on a card, in
+the right font, beside real data. On an off-grid site, charge is what a dispatch
+decision gets made on.
+
 ## 6. What does not exist
 
 Grepped across the SDK and coordination. These have **no backend at all**:
@@ -1052,7 +1080,8 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 3 — Vertical slice | 🟡 built, awaiting the live run | Real fleet + one real tower + real WHEP in `CameraTile`. Mapper 42/42; the end-to-end needs the operator's password. See below. |
 | 4 — State grammar | 🟡 built, awaiting the induction run | Stale already landed in Stage 3. Net-new: the shell cannot-reach state (4 classified failures), the fabricated retry count removed, STREAM_ERROR marked simulated, the simulator narrowed. Classifier 15/15; mapper 42/42. |
 | 5 — Mutation primitive | ✅ **GATE PASSED** 14/14 | `useMutation` (keyed) + `MutationFeedback`. Three consumers: fleet reload (REAL, really fails), alert ack/resolve (seeded, proves the AlertDetail keying), tower rename (seeded, quiet). |
-| 6 — Data breadth | ⏳ next — cleared by the Stage 5 gate | |
+| 6a — Read breadth | ✅ **22/22** | All towers/feeds real, live clock, scoping proven cross-account, three fleet states, AlertsView nav. No mutations converted. |
+| 6b — Mutation breadth | ⏳ next | The ~17 remaining mutations onto the Stage 5 pattern. |
 | 7 — Actuators + PTZ | — | |
 | 8 — Enrollment | — | |
 | 9 — Renewal + persistence | — | |
@@ -1096,6 +1125,53 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 6a result — read breadth, 22/22
+
+**Video policy at breadth, confirmed by measurement:** the fleet wall opened
+**0** sessions and drew **0** `<video>` elements; drilling in opened **2** (one
+per live camera) and real frames decoded. A session costs a grant and a busy
+camera, and this app already warns that live viewing drains an off-grid battery
+— four streams on the landing screen would contradict its own advice.
+
+**A gap that only appeared at breadth:** a real camera carries no poster (the
+mapper refuses to attach one), so a live camera on the fleet wall rendered an
+empty `<img>` under a green LIVE chip — a picture-shaped hole with no
+explanation. `NotStreamingFallback` now says *"Live — not streaming here"* with
+a way to open the tower. Grey, because nothing is wrong.
+
+**The clock is live.** `SESSION_NOW` was a module-load constant, so on a wall
+left open for a shift "last hour" meant "the hour before this tab was opened".
+It is now `siteNow()` plus a `useNow(30s)` tick inside the two alert feeds —
+inside them deliberately, because a tick in `TowerView` would push a re-render
+through the tile tree twice a minute and snap the takeover animation. Verified
+by jumping the browser clock +2h with no reload: **`Last hour` 6 → 0** while
+`Last 7 days` held at 12.
+
+**Per-account scoping, proven cross-account** by seeding a second account
+(`Northgate Security`) and trying to reach the first's tower:
+
+| Attempt | Result |
+|---|---|
+| Terra → its own tower | `200` |
+| **Northgate → Terra's tower** | **`404 tower_unknown` "no such tower"** |
+| Northgate → a tower that does not exist | **byte-identical `404`** |
+| Northgate → `createSession` on Terra's camera | `404` — cannot even open one |
+| No token | `401` |
+
+The two 404s are indistinguishable, which is the anti-enumeration property
+working. A new account's fleet is `{"towers": []}` with a **200**, never a 403.
+
+**Three fleet states, kept distinct:** loading · a read failure (the shell
+banner) · genuinely empty (*"No towers on this account yet"*) — verified that
+empty reads as neither a failure nor a signed-out state.
+
+`findTower` is **deleted**, not merely unused: its `?? TOWERS[0]` returned a
+different tower's data for an id it could not find, which under real scoping
+draws another account's telemetry under the requested name.
+
+`AlertsView` gained the arrow stepping it never had — verified Down/Up/Escape,
+matching `AlertsPanel` exactly.
 
 ### Stage 5 result — the gate, passed 14/14
 

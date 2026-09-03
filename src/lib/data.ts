@@ -105,9 +105,15 @@ export const TOWERS: Tower[] = [
   },
 ];
 
-export function findTower(id: string) {
-  return TOWERS.find((t) => t.id === id) ?? TOWERS[0];
-}
+/* `findTower` is gone deliberately, not refactored away.
+ *
+ * It was `TOWERS.find(...) ?? TOWERS[0]`, which returned a DIFFERENT tower's
+ * data for an id it could not find. Under real per-account scoping that draws
+ * another account's telemetry under the requested tower's name — the sharpest
+ * correctness hazard the study pass turned up. Lookups now go through
+ * `api/fleet.ts`, where a miss is `TowerUnavailableError` and the screen says
+ * "unavailable", never "does not exist". Do not add a convenience finder with
+ * a fallback back to this file. */
 
 export const FEEDS: CameraFeed[] = [
   {

@@ -159,8 +159,24 @@ export function formatClockShort(at: number) {
   return `${clockShort.format(at)} ${SITE_TZ_LABEL}`;
 }
 
-/** Captured once at load. Nothing in the feed re-renders off the clock. */
-export const SESSION_NOW = Date.now();
+/**
+ * Now, at the site.
+ *
+ * ⚠ THIS USED TO BE A CONSTANT — `SESSION_NOW = Date.now()`, captured once at
+ * module load — and every alert date filter compared against it. On an
+ * operator wall that stays open for a shift, "last 1 hour" therefore meant "the
+ * hour before this tab was opened", and it drifted further from the truth with
+ * every minute the screen stayed up. An alert that should have aged out of the
+ * range stayed in it, and one that should have entered never appeared.
+ *
+ * It is a function so it cannot be captured by accident. A component that needs
+ * the passage of time to be VISIBLE also has to re-render — see `useNow` — but
+ * a stale render is a smaller wrong than a frozen clock, and any code path that
+ * calls this fresh is now correct by default.
+ */
+export function siteNow(): number {
+  return Date.now();
+}
 
 /**
  * What a feed row shows: a fixed wall-clock time, always. Relative ages were
@@ -172,8 +188,8 @@ export const SESSION_NOW = Date.now();
  * Events off today's date carry the date too, so a row can never be misread as
  * having happened this shift.
  */
-export function formatEventTime(at: number) {
-  if (isSameSiteDay(at, SESSION_NOW)) {
+export function formatEventTime(at: number, now: number = siteNow()) {
+  if (isSameSiteDay(at, now)) {
     return formatClock(at);
   }
   return `${dayMonth.format(at)}, ${clockShort.format(at)} ${SITE_TZ_LABEL}`;

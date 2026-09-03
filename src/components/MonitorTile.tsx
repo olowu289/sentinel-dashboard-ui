@@ -167,8 +167,7 @@ export function MonitorTile({
               ) : (
                 <ConnectingFallback
                   name={feed.name}
-                  attempt={reconnecting ? 3 : undefined}
-                  maxAttempts={reconnecting ? 5 : undefined}
+                  reconnecting={reconnecting}
                 />
               )}
             </div>

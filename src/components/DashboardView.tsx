@@ -135,7 +135,7 @@ export function DashboardView({
   const newest = alerts.find((a) => a.status === "triggered");
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
+    <div className="flex h-full w-full overflow-hidden bg-ink">
       <IconRail
         active="dashboard"
         onSelect={(id) => {

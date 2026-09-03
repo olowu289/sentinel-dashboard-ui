@@ -173,7 +173,7 @@ export function TowerView({
   return (
     /* dvh, not vh: on mobile Safari/Chrome the URL bar makes 100vh taller
        than the visible area, which would push the bottom bar off-screen. */
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
+    <div className="flex h-full w-full overflow-hidden bg-ink">
       <IconRail
         active="towers"
         onSelect={onNavigate}
@@ -345,6 +345,10 @@ export function TowerView({
           feeds={feeds}
           alertsEmpty={alertsEmpty}
           liveViewWarning={liveViewWarning}
+          /* A feed carrying a protocol index came from coordination. Derived
+             from the data rather than passed down as a flag, so it cannot be
+             set wrong by a caller. */
+          realFleet={feeds.some((f) => f.index !== undefined)}
           onSetFeedState={onSetFeedState}
           onToggleAlertsEmpty={() => setAlertsEmpty((e) => !e)}
           onToggleLiveViewWarning={() => onToggleLiveViewWarning?.()}

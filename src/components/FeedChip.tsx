@@ -37,8 +37,24 @@ const DOT: Record<FeedState, string> = {
   unknown: "bg-white/45",
 };
 
-/** The chip is the only thing that says a feed is live. Absence reads as dead. */
-function stateLabel(state: FeedState, name: string, elapsedSec?: number) {
+/**
+ * The chip is the only thing that says a feed is live. Absence reads as dead.
+ *
+ * ⚠ THE `: string` RETURN ANNOTATION IS THE GUARD, and it is not decoration.
+ * Without it a switch missing a `FeedState` simply widens to `string |
+ * undefined`, which flows into JSX without complaint and renders a chip with a
+ * dot and no words — a state that looks handled and says nothing. With it, an
+ * unhandled member makes the function fall through to an implicit `undefined`
+ * return and the build fails.
+ *
+ * Verified by adding a bogus state and watching it break, rather than assumed.
+ * `noFallthroughCasesInSwitch` does NOT do this job — that flag is about one
+ * `case` body running into the next, not about covering the union.
+ *
+ * DO NOT add a `default` case. It would satisfy the annotation and silently
+ * reintroduce exactly the hole this annotation closes.
+ */
+function stateLabel(state: FeedState, name: string, elapsedSec?: number): string {
   switch (state) {
     case "recording":
       return `RECORDING ${formatElapsed(elapsedSec ?? 0)}: ${name}`;

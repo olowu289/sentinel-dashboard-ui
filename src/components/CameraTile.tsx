@@ -334,8 +334,7 @@ export function CameraTile({
           ) : isDead ? (
             <ConnectingFallback
               name={feed.name}
-              attempt={reconnecting ? 3 : undefined}
-              maxAttempts={reconnecting ? 5 : undefined}
+              reconnecting={reconnecting}
             />
           ) : playbackFailure?.failure === "media_unreachable" ? (
             <NoMediaPathFallback onRetry={onRetry} />

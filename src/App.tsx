@@ -1,4 +1,4 @@
-import { MotionConfig } from "motion/react";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
@@ -9,6 +9,8 @@ import { TowerView } from "@/components/TowerView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
 import { listFleet } from "@/lib/api/fleet";
+import { classifyReach, type ReachProblem } from "@/lib/api/reach";
+import { CoordinationBanner } from "@/components/CoordinationBanner";
 import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
 import type { SimState } from "@/components/StateSimulator";
 import {
@@ -28,7 +30,21 @@ import type {
   Tower,
 } from "@/lib/types";
 
-const STREAM_ERROR = "RTSP handshake timeout · ERR_504";
+/**
+ * The error the SIMULATOR raises, and the only fabricated transport string
+ * left in the app.
+ *
+ * It says so in the text. A real stream failure now carries coordination's own
+ * message through `PlaybackError`, printed verbatim by the tile — so the only
+ * way to see this string is to have pressed the review button that produces it,
+ * and an operator reviewing states should be able to tell the review apart from
+ * the thing being reviewed.
+ *
+ * The shape is kept because it is the shape a real one takes: a transport name
+ * and a code, not a sentence. `ErrorFallback` prints whatever it is given in
+ * mono and never paraphrases it, which is the behaviour worth exercising.
+ */
+const SIMULATED_STREAM_ERROR = "SIMULATED · RTSP handshake timeout · ERR_504";
 
 /* How long a live session runs before the tower's battery is worth mentioning.
    Ten minutes is the design's number and it is a reasonable one: long enough
@@ -52,7 +68,7 @@ const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
  */
 function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
   return (
-    <div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-[14px] bg-ink px-[24px] text-center">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-[14px] bg-ink px-[24px] text-center">
       <p className="font-display text-[0.875rem] tracking-[0.14px] text-white">
         {id} IS UNAVAILABLE
       </p>
@@ -120,7 +136,13 @@ export function SentinelApp() {
   /* Loading and failure for the real fleet. `null` problem means fine.
      Deliberately not a spinner-forever: an absent tower is an answer. */
   const [fleetLoading, setFleetLoading] = useState(!seededFleet);
-  const [fleetProblem, setFleetProblem] = useState<string | null>(null);
+  /* Classified rather than stringified, because the four ways this can fail
+     want four different things said — and one of them is "the bug is ours".
+     See `api/reach.ts`. */
+  const [reachProblem, setReachProblem] = useState<ReachProblem | null>(null);
+  /* Bumped by the banner's Try again. Deliberate and operator-driven; there is
+     no automatic retry anywhere, because an absent answer is an answer. */
+  const [fleetAttempt, setFleetAttempt] = useState(0);
 
   /**
    * Load the real fleet.
@@ -144,23 +166,21 @@ export function SentinelApp() {
         if (controller.signal.aborted) return;
         setTowers(snapshot.towers);
         setFeeds(snapshot.feeds);
-        setFleetProblem(null);
+        setReachProblem(null);
       } catch (err) {
         if (controller.signal.aborted) return;
-        /* Say what happened. A 401 has already dropped the gate to login by
-           this point, so anything reaching here is a real failure to read the
-           fleet — and an empty wall with no explanation is the thing this app
-           refuses everywhere else. */
-        setFleetProblem(
-          err instanceof Error ? err.message : "Could not load the fleet",
-        );
+        /* A 401 has already dropped the gate to login by this point, so
+           anything reaching here is a genuine failure to READ the fleet rather
+           than a failure to be allowed one — and an empty wall with no
+           explanation is what this app refuses everywhere else. */
+        setReachProblem(classifyReach(err));
       } finally {
         if (!controller.signal.aborted) setFleetLoading(false);
       }
     })();
 
     return () => controller.abort();
-  }, [seededFleet]);
+  }, [seededFleet, fleetAttempt]);
   /* The setup flow is a third screen rather than a modal. It is six steps deep
      with a phone hand-off in the middle — a dialog that size is a screen
      wearing a scrim, and it would put the fleet behind it pretending the
@@ -604,7 +624,7 @@ export function SentinelApp() {
       prev.map((f) => {
         if (f.id !== feedId) return f;
         if (state === "error") {
-          return { ...f, state: "offline", error: STREAM_ERROR };
+          return { ...f, state: "offline", error: SIMULATED_STREAM_ERROR };
         }
         // A reconnect is a connect that has already failed — the elapsed
         // counter is what promotes it to the "signal lost" tier.
@@ -722,6 +742,29 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
+      {/* Above every screen, because it is not a fact about any one of them.
+          A column so the banner takes space rather than floating over the
+          wall — the frames are the job, and this app never covers them with a
+          notice it could sit above instead. */}
+      {/* The shell owns the viewport height now, and every screen below is
+          `h-full`. That inverted when the banner arrived: five screens each
+          claiming `100dvh` inside a column that had already given the banner
+          43px would each overflow by exactly that much, and the bottom of every
+          wall would sit under the fold. */}
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-ink">
+        <AnimatePresence>
+          {reachProblem && (
+            <CoordinationBanner
+              problem={reachProblem}
+              retrying={fleetLoading}
+              onRetry={() => {
+                setFleetLoading(true);
+                setFleetAttempt((n) => n + 1);
+              }}
+            />
+          )}
+        </AnimatePresence>
+        <div className="min-h-0 flex-1">
       {onAlerts ? (
         <AlertsView
           alerts={alerts}
@@ -776,7 +819,7 @@ export function SentinelApp() {
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
           fleetLoading={fleetLoading}
-          fleetProblem={fleetProblem}
+          fleetProblem={reachProblem?.headline ?? null}
           seededFleet={seededFleet}
         />
       ) : openTowerRecord === undefined ? (
@@ -837,6 +880,8 @@ export function SentinelApp() {
           }}
         />
       )}
+        </div>
+      </div>
     </MotionConfig>
   );
 }

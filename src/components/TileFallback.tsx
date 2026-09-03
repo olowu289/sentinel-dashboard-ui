@@ -269,16 +269,33 @@ export function SessionEndedFallback({
   );
 }
 
+/**
+ * Establishing a stream, or re-establishing one.
+ *
+ * ⚠ THERE IS NO ATTEMPT COUNT, AND THAT IS DELIBERATE. This used to read
+ * "Reconnecting… attempt 3 of 5" with both numbers hardcoded — a fabricated
+ * progress report on the one line whose entire job is to tell an operator how
+ * much longer to wait. It was worse than silence: it implied a bounded retry
+ * that would give up at five, and neither number came from anywhere.
+ *
+ * Nothing exposes a real count. Checked, not assumed: the SDK has no such
+ * field, coordination's projection has none, and the tower agent's own backoff
+ * (`broker/link.py`) is a tower-to-coordination concern that is never
+ * projected to a viewer. The projection's `link` is a WORD with an open arm —
+ * `"up" | "down" | (string & {})` — specifically so a third value like
+ * `"reconnecting"` can arrive later without a breaking change. If it does, that
+ * is where this state comes from, and it will still carry no count.
+ *
+ * So: say that it is reconnecting, and do not say how far along.
+ */
 export function ConnectingFallback({
   name,
-  attempt,
-  maxAttempts,
+  reconnecting = false,
 }: {
   name: string;
-  attempt?: number;
-  maxAttempts?: number;
+  /** Re-establishing after a drop, rather than connecting for the first time. */
+  reconnecting?: boolean;
 }) {
-  const reconnecting = attempt !== undefined;
   return (
     <div className="flex flex-col items-center gap-[12px]">
       <span className={reconnecting ? "text-warn/70" : "text-white/50"}>
@@ -289,13 +306,13 @@ export function ConnectingFallback({
           <p className="text-[0.8125rem] font-medium text-white/75">
             Signal lost
           </p>
-          {/* Tell the operator how long this will take, not just that
-              something is happening. A silent spinner is unfalsifiable. */}
-          <p className="-mt-[6px] flex items-center gap-[6px] text-[0.75rem] text-white/35 tabular-nums">
+          {/* No count. See the header — an invented "3 of 5" was worse than
+              saying nothing, because it promised an end. */}
+          <p className="-mt-[6px] flex items-center gap-[6px] text-[0.75rem] text-white/35">
             <span className="text-warn/70">
               <Spinner size={12} />
             </span>
-            Reconnecting… attempt {attempt} of {maxAttempts}
+            Reconnecting to {name}
           </p>
         </>
       ) : (

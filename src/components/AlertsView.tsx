@@ -86,7 +86,7 @@ export function AlertsView({
   );
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
+    <div className="flex h-full w-full overflow-hidden bg-ink">
       <IconRail
         active="alerts"
         onSelect={onNavigate}

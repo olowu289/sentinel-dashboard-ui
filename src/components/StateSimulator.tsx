@@ -1,8 +1,29 @@
 import type { CameraFeed, FeedState } from "@/lib/types";
 
 /**
- * Review affordance, not product chrome. The design covers one moment in time;
- * this makes every other state the wall can be in reachable without a backend.
+ * Review affordance, not product chrome.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  IT REVIEWS THE GRAMMAR. IT IS NOT THE SOURCE OF IT.
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * This was written when there was no backend, and it made every state the wall
+ * can be in reachable by pressing a button. Most of those states are now REAL:
+ * `live`, `offline` and `unknown` come from coordination's projection, and the
+ * stale decay comes from `as_of` ageing past the freshness threshold. They are
+ * induced by unplugging a tower, not chosen from a list.
+ *
+ * ⚠ SO THE FEED-STATE SWITCHES ARE WITHHELD FOR A REAL FLEET, and that is the
+ * whole point of this stage's narrowing. Pressing "Offline" on a camera that
+ * coordination has just reported as live would overwrite a true reading with a
+ * false one — the app would be lying about a real site, from its own review
+ * tool, with no mark on screen to say so. There is no version of that which is
+ * acceptable on a monitoring surface, so the buttons are simply not there.
+ *
+ * What survives on a real fleet is what is still simulated anyway: the alert
+ * arrival, the empty feed and the extended-viewing banner all sit on seeded
+ * data (alerts have no backend at all) and the last one takes ten real minutes
+ * to reach otherwise.
  */
 /** `reconnecting` is `connecting` that has already failed once — same state,
  *  different tier, so it is its own switch rather than a hidden variant. */
@@ -23,6 +44,7 @@ export function StateSimulator({
   feeds,
   alertsEmpty,
   liveViewWarning,
+  realFleet = false,
   onSetFeedState,
   onToggleAlertsEmpty,
   onToggleLiveViewWarning,
@@ -31,6 +53,10 @@ export function StateSimulator({
 }: {
   feeds: CameraFeed[];
   alertsEmpty: boolean;
+  /**
+   * These cameras are real. Withholds the feed-state switches — see the header.
+   */
+  realFleet?: boolean;
   /** Whether the extended-viewing banner is currently up. */
   liveViewWarning: boolean;
   onSetFeedState: (feedId: string, state: SimState) => void;
@@ -68,7 +94,23 @@ export function StateSimulator({
         </button>
       </div>
 
-      {feeds.map((feed) => {
+      {/* What the states now come from, said plainly, so nobody reads an
+          absent control as a broken one. */}
+      {realFleet && (
+        <div className="mb-[12px] flex flex-col gap-[6px] border-b border-white/8 pb-[10px]">
+          <p className="text-[0.75rem] leading-[16px] text-white/45 lg:text-[0.6875rem]">
+            Feed states are real on this fleet — they come from the tower, not
+            from here.
+          </p>
+          <p className="text-[0.75rem] leading-[16px] text-white/30 lg:text-[0.6875rem]">
+            Induce them: cut the tower's power for offline, block the media path
+            for no-media-path, let a grant lapse for session ended.
+          </p>
+        </div>
+      )}
+
+      {!realFleet &&
+      feeds.map((feed) => {
         const current: SimState = feed.error
           ? "error"
           : feed.state === "connecting" && feed.elapsedSec !== undefined

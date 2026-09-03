@@ -149,7 +149,7 @@ export function AddTowerView({
   };
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-ink">
+    <div className="flex h-full w-full overflow-hidden bg-ink">
       <IconRail
         active="add"
         onSelect={(id) => {

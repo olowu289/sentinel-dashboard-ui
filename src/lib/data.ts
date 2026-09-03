@@ -4,6 +4,7 @@ import type {
   AlertKind,
   CameraFeed,
   Person,
+  SolarState,
   TimelineEvent,
   Tower,
   UnclaimedUnit,
@@ -65,6 +66,7 @@ export const TOWERS: Tower[] = [
     id: "TWR-1042",
     site: "WAREHOUSE: PARKING LOT",
     status: "online",
+    online: true,
     solar: "charging",
     batteryPct: 87,
     tempC: 34,
@@ -82,6 +84,7 @@ export const TOWERS: Tower[] = [
     id: "TWR-2071",
     site: "OIL DEPOT: NORTH GATE",
     status: "online",
+    online: true,
     /* On charge at 34%, which is the case the gauge is built to show: the
        cell climbs the whole way from red through amber into green, where
        TWR-1042 at 87% only tops off. Two towers charging from different depths
@@ -378,11 +381,15 @@ export const PEOPLE: Person[] = [
  * A fault outranks everything. A broken array is broken whether or not the
  * battery happens to be full.
  */
-export function solarState(
-  tower: Pick<Tower, "solar" | "batteryPct">,
-): Tower["solar"] {
+export function solarState(tower: {
+  solar: SolarState;
+  batteryPct?: number;
+}): SolarState {
   if (tower.solar === "fault") return "fault";
-  return tower.batteryPct >= 100 ? "idle" : tower.solar;
+  /* An absent charge cannot be full, so it cannot demote a charging array to
+     idle. A real tower never reaches here — it reports no array at all — but
+     the guard belongs in the function rather than at each call site. */
+  return (tower.batteryPct ?? 0) >= 100 ? "idle" : tower.solar;
 }
 
 export function findPerson(people: Person[], id?: string) {

@@ -104,6 +104,9 @@ export function AddTowerView({
     const tower: Tower = {
       id: claim.towerId,
       site: site.trim().toUpperCase(),
+      /* The checks just passed and the unit answered, so it is connected. Read
+         from the claim rather than assumed the moment enrolment is real. */
+      online: true,
       /* Status is read, not chosen. A tower with a poor uplink or a dead camera
          is degraded the moment it joins the fleet, and saying `online` here
          because it is new would be the one lie the dashboard exists to catch. */
@@ -613,6 +616,7 @@ function NameSite({
     id: claim.towerId,
     site: value.trim().toUpperCase() || "UNNAMED SITE",
     status: "online",
+    online: true,
     solar: claim.solar,
     batteryPct: claim.batteryPct,
     tempC: claim.tempC,

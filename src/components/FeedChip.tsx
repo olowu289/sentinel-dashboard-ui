@@ -7,6 +7,22 @@ export function formatElapsed(totalSec: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * States in which there is no picture, so the tile draws a fallback and every
+ * actuator that reaches the site is disabled.
+ *
+ * It lives here, beside the state grammar, because it was duplicated in
+ * `CameraTile` and `MonitorTile` — and a state added to one and not the other
+ * gives you two walls disagreeing about whether a camera is dead. `unknown`
+ * belongs in the set: nothing has confirmed the camera, so there is nothing to
+ * show and nothing safe to act on.
+ */
+export const DEAD_STATES: ReadonlySet<FeedState> = new Set<FeedState>([
+  "connecting",
+  "offline",
+  "unknown",
+]);
+
 const DOT: Record<FeedState, string> = {
   recording: "bg-critical",
   live: "bg-terra",
@@ -14,6 +30,11 @@ const DOT: Record<FeedState, string> = {
   frozen: "bg-warn",
   connecting: "bg-white/45",
   offline: "bg-white/45",
+  /* Grey, with the dead states. Not green, obviously — but not amber either:
+     amber is a reading (degraded, a detection), and this is the absence of one.
+     A tower that has never reported is not in a degraded condition; it is a
+     tower we cannot speak for. */
+  unknown: "bg-white/45",
 };
 
 /** The chip is the only thing that says a feed is live. Absence reads as dead. */
@@ -31,6 +52,11 @@ function stateLabel(state: FeedState, name: string, elapsedSec?: number) {
       return `CONNECTING: ${name}`;
     case "offline":
       return `OFFLINE: ${name}`;
+    /* "NO REPORT" rather than "UNKNOWN", because it says which half is missing.
+       The camera is not in an unknown condition — nobody has told us its
+       condition, which is a statement about the link, not the lens. */
+    case "unknown":
+      return `NO REPORT: ${name}`;
   }
 }
 

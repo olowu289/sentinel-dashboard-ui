@@ -14,6 +14,9 @@ export function TowersPanel({
   pending,
   onResumeSetup,
   onOpenTower,
+  loading = false,
+  problem = null,
+  seeded = false,
   className = "",
 }: {
   towers: Tower[];
@@ -26,6 +29,12 @@ export function TowersPanel({
    *  wall — the count on a card is a question about alerts, so answering it
    *  should not cost a second click once you are inside. */
   onOpenTower: (towerId: string, showAlerts?: boolean) => void;
+  /** The real fleet has not answered yet. */
+  loading?: boolean;
+  /** Why the fleet could not be read, if it could not. */
+  problem?: string | null;
+  /** The list on screen is fixture data, not this account's fleet. */
+  seeded?: boolean;
   className?: string;
 }) {
   /* Tower ids, not alert ids, and view state rather than fleet state.
@@ -69,6 +78,40 @@ export function TowersPanel({
             pending={pending}
             onResume={() => onResumeSetup?.()}
           />
+        )}
+
+        {/* Fixture data must never pass for a fleet. The reference dashboard
+            carries the same badge for the same reason: "no login needed" and
+            "signed in" must not be confusable, and neither must "demo towers"
+            and "your towers". */}
+        {seeded && (
+          <p className="shrink-0 rounded-[6px] bg-detect/20 px-[10px] py-[6px] font-display text-[0.6875rem] tracking-[0.11px] text-detect">
+            SEEDED FLEET — NOT YOUR TOWERS
+          </p>
+        )}
+
+        {/* Three different empty walls, and they are not the same fact.
+            Loading is a wait. A problem is a failure to read, and it says so
+            rather than looking like an empty fleet. Genuinely empty is a valid
+            answer — a new account has no towers, and coordination returns an
+            empty list with a 200, never a refusal. */}
+        {!loading && problem && towers.length === 0 && (
+          <div className="flex flex-col gap-[6px] rounded-[8px] bg-critical/12 px-[14px] py-[12px]">
+            <p className="text-[0.8125rem] leading-[20px] text-critical">
+              Could not read your fleet.
+            </p>
+            <p className="text-[0.75rem] leading-[16px] text-muted">{problem}</p>
+          </div>
+        )}
+        {loading && towers.length === 0 && (
+          <p className="px-[2px] py-[8px] font-display text-[0.75rem] tracking-[0.12px] text-muted">
+            LOADING FLEET…
+          </p>
+        )}
+        {!loading && !problem && towers.length === 0 && !pending && (
+          <p className="px-[2px] py-[8px] text-[0.8125rem] leading-[20px] text-muted">
+            No towers on this account yet. Add one and it appears here.
+          </p>
         )}
 
         {towers.map((tower) => (

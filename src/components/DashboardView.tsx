@@ -35,6 +35,9 @@ export function DashboardView({
   onOpenTower,
   onRetryFeed,
   onToggleRecord,
+  fleetLoading = false,
+  fleetProblem = null,
+  seededFleet = false,
 }: {
   towers: Tower[];
   feeds: CameraFeed[];
@@ -59,6 +62,12 @@ export function DashboardView({
   onRetryFeed: (feedId: string) => void;
   /** The shell's, not this view's — both walls act on one set of feeds. */
   onToggleRecord: (feedId: string) => void;
+  /** The real fleet has not answered yet. */
+  fleetLoading?: boolean;
+  /** Why the fleet could not be read, if it could not. */
+  fleetProblem?: string | null;
+  /** The list on screen is fixture data. Must be visible, never implied. */
+  seededFleet?: boolean;
 }) {
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
   const [draggingBand, setDraggingBand] = useState<string | null>(null);
@@ -145,6 +154,9 @@ export function DashboardView({
         pending={pending}
         onResumeSetup={onResumeSetup}
         onOpenTower={onOpenTower}
+        loading={fleetLoading}
+        problem={fleetProblem}
+        seeded={seededFleet}
         className="flex"
       />
 

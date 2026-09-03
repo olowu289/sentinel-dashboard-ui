@@ -7,6 +7,9 @@ import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
+import { isSeededFleet } from "@/lib/config";
+import { listFleet } from "@/lib/api/fleet";
+import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
 import type { SimState } from "@/components/StateSimulator";
 import {
   ALERTS,
@@ -15,7 +18,6 @@ import {
   TOWERS,
   alertsForTower,
   feedsForTower,
-  findTower,
 } from "@/lib/data";
 import type {
   Alert,
@@ -37,6 +39,37 @@ const LIVE_VIEW_WARNING_SEC = 10 * 60;
 
 /** Each camera's resting latency, captured before the walk starts moving it. */
 const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
+
+/**
+ * A tower that is not there any more.
+ *
+ * Reached when an operator drills into a tower that has since gone — revoked,
+ * or removed between the fleet load and the click. It says "unavailable" and
+ * never "does not exist", because coordination deliberately returns one
+ * indistinguishable answer for "no such tower" and "not yours" so that the
+ * endpoint cannot be used to enumerate a fleet. Claiming non-existence would
+ * hand back the very fact the server withheld.
+ */
+function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
+  return (
+    <div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-[14px] bg-ink px-[24px] text-center">
+      <p className="font-display text-[0.875rem] tracking-[0.14px] text-white">
+        {id} IS UNAVAILABLE
+      </p>
+      <p className="max-w-[360px] text-[0.8125rem] leading-[20px] text-muted">
+        This tower is not on your fleet any more. It may have been removed, or
+        access to it may have ended.
+      </p>
+      <button
+        type="button"
+        onClick={onBack}
+        className="h-[36px] rounded-[8px] bg-panel px-[16px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+      >
+        Back to all towers
+      </button>
+    </div>
+  );
+}
 
 /**
  * The shell. Two screens — the fleet dashboard and one tower — and the camera
@@ -66,15 +99,68 @@ export function SentinelApp() {
      present here. */
   const { operator: OPERATOR } = useSession();
 
-  const [feeds, setFeeds] = useState<CameraFeed[]>(FEEDS);
+  /* ── THE FLEET SOURCE ─────────────────────────────────────────────────
+     `sdk` is the real thing; `seed` is the fixture, kept as the way back and
+     as an offline dev loop. Read once — flipping it is a restart, not a
+     runtime toggle, because half a screen of each would be worse than either. */
+  const seededFleet = isSeededFleet();
+
+  const [feeds, setFeeds] = useState<CameraFeed[]>(seededFleet ? FEEDS : []);
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
-  /* State rather than the module constant, because the batteries actually fill:
-     these towers are off-grid and the panel is the only thing that refills
-     them, so a card claiming to be charging while the number sits still is the
-     one reading on this screen an operator could catch out. Up here with the
-     feeds for the same reason they are — both screens show towers, and two
-     copies of a moving number disagree within a second. */
-  const [towers, setTowers] = useState<Tower[]>(TOWERS);
+  /* State rather than the module constant, because a seeded battery actually
+     fills: those towers are off-grid and the panel is the only thing that
+     refills them, so a card claiming to be charging while the number sits
+     still is the one reading on that screen an operator could catch out. Up
+     here with the feeds for the same reason they are — both screens show
+     towers, and two copies of a moving number disagree within a second.
+
+     A REAL tower reports no battery at all, so nothing moves and the card says
+     so. See the note on `Tower`. */
+  const [towers, setTowers] = useState<Tower[]>(seededFleet ? TOWERS : []);
+  /* Loading and failure for the real fleet. `null` problem means fine.
+     Deliberately not a spinner-forever: an absent tower is an answer. */
+  const [fleetLoading, setFleetLoading] = useState(!seededFleet);
+  const [fleetProblem, setFleetProblem] = useState<string | null>(null);
+
+  /**
+   * Load the real fleet.
+   *
+   * One attempt, no retry loop — an absent tower is an ANSWER, NOT A WAIT.
+   * StrictMode-guarded on the per-run controller, for the reason written up in
+   * `AuthProvider`: our own abort is not a verdict and must not be interpreted
+   * as one.
+   *
+   * This only ever runs inside `AuthGate`, so there is always a session to
+   * carry; a 401 here is a revocation rather than a missing login, and
+   * `listFleet` routes that through the single session guard.
+   */
+  useEffect(() => {
+    if (seededFleet) return;
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const snapshot = await listFleet(controller.signal);
+        if (controller.signal.aborted) return;
+        setTowers(snapshot.towers);
+        setFeeds(snapshot.feeds);
+        setFleetProblem(null);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        /* Say what happened. A 401 has already dropped the gate to login by
+           this point, so anything reaching here is a real failure to read the
+           fleet — and an empty wall with no explanation is the thing this app
+           refuses everywhere else. */
+        setFleetProblem(
+          err instanceof Error ? err.message : "Could not load the fleet",
+        );
+      } finally {
+        if (!controller.signal.aborted) setFleetLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [seededFleet]);
   /* The setup flow is a third screen rather than a modal. It is six steps deep
      with a phone hand-off in the middle — a dialog that size is a screen
      wearing a scrim, and it would put the fleet behind it pretending the
@@ -110,6 +196,38 @@ export function SentinelApp() {
   const [open, setOpen] = useState<{ id: string; showAlerts: boolean } | null>(
     null,
   );
+
+  /* ── WHAT IS ACTUALLY BEING STREAMED ──────────────────────────────────
+     Only the open tower's live cameras. Two reasons, and the second is the
+     one that decided it.
+
+     A session costs a grant on coordination and a busy camera on the tower,
+     so the set has to match what the operator is looking at rather than what
+     is on screen somewhere. And these are off-grid sites: this app already
+     carries a banner telling an operator that live viewing drains a tower's
+     battery, so opening four simultaneous streams on the *landing* screen
+     would contradict its own advice. The fleet wall stays on stills.
+
+     Cameras the tower reports as anything but live are excluded — asking for a
+     session on a camera that has already said it is down burns a grant to be
+     refused, and the tile has a truer thing to show. Seeded feeds are excluded
+     because there is no session to open for a fixture. */
+  const playbackTargets: PlaybackTarget[] = seededFleet
+    ? []
+    : feeds
+        .filter(
+          (f) =>
+            open !== null &&
+            f.towerId === open.id &&
+            f.state === "live" &&
+            f.index !== undefined,
+        )
+        .map((f) => ({ id: f.id, towerId: f.towerId, index: f.index! }));
+
+  const { phases: playback, retry: retryPlayback } = usePlayback(playbackTargets);
+
+  /* Looked up once, so the render below and the guard above cannot disagree. */
+  const openTowerRecord = open ? towers.find((t) => t.id === open.id) : undefined;
 
   /* Every change of screen goes through here, and it closes the settings
      panel on the way. The panel belongs to the tower the operator opened it
@@ -413,6 +531,12 @@ export function SentinelApp() {
       setTowers((prev) => {
         let changed = false;
         const next = prev.map((tower) => {
+          /* A tower that reports no battery is skipped entirely. Coordination
+             carries no battery or solar state, so a real tower has neither —
+             and filling one in from a timer would be inventing telemetry,
+             which is exactly what this integration refuses. */
+          if (tower.batteryPct === undefined || tower.solar === undefined)
+            return tower;
           if (tower.solar !== "charging" || tower.batteryPct >= 100)
             return tower;
           changed = true;
@@ -445,6 +569,11 @@ export function SentinelApp() {
      not resample from scratch every tick. A degraded state raises the floor so
      the number can never contradict the word next to it. */
   useEffect(() => {
+    /* Seed only. The walk is a simulation — coordination reports no latency at
+       all, and `FeedChip` correctly omits the segment when it is absent. Left
+       running on real feeds it would attach a plausible invented number to a
+       real camera, which is the most quietly dishonest thing in this file. */
+    if (!seededFleet) return;
     const t = setInterval(() => {
       setFeeds((prev) =>
         prev.map((f) => {
@@ -468,7 +597,7 @@ export function SentinelApp() {
       );
     }, 1400);
     return () => clearInterval(t);
-  }, []);
+  }, [seededFleet]);
 
   const setFeedState = useCallback((feedId: string, state: SimState) => {
     setFeeds((prev) =>
@@ -646,7 +775,23 @@ export function SentinelApp() {
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
+          fleetLoading={fleetLoading}
+          fleetProblem={fleetProblem}
+          seededFleet={seededFleet}
         />
+      ) : openTowerRecord === undefined ? (
+        /* The tower is gone from under the operator — revoked, or removed
+           between the fleet load and the drill-in.
+
+           This replaces `?? findTower(open.id)`, which returned a DIFFERENT
+           tower's data for an id it could not find. Under real per-account
+           scoping that would have drawn another account's telemetry under the
+           requested tower's name, which is the sharpest correctness hazard the
+           study pass found. And the copy says "unavailable", never "does not
+           exist": coordination returns one indistinguishable 404 for "no such
+           tower" and "not yours" precisely so the endpoint cannot enumerate a
+           fleet, and claiming non-existence would make it an oracle. */
+        <TowerUnavailable id={open.id} onBack={() => show(null)} />
       ) : (
         <TowerView
           /* Keyed on the tower so drilling into a second site starts from a
@@ -656,9 +801,11 @@ export function SentinelApp() {
              same reason: opening the same tower for its alerts has to start
              on them, not on wherever the last visit was left. */
           key={`${open.id}|${open.showAlerts}`}
-          tower={towers.find((t) => t.id === open.id) ?? findTower(open.id)}
+          tower={openTowerRecord}
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
+          playback={playback}
+          onRetryPlayback={retryPlayback}
           showAlerts={open.showAlerts}
           onBack={() => show(null)}
           onSetFeedState={setFeedState}

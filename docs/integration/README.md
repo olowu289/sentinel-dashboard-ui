@@ -1001,6 +1001,8 @@ Ordered by how quietly the failure would happen.
 | 27 | **`ProjectionLeakError` misdiagnosed** — a leak is a coordination bug, but the first reader debugs the wrong repo. | Carry the dashboard's `explain()` wrapper. |
 | 28 | **Unbacked screens reading as live** — the largest correctness risk here. | A visible marker per unbacked surface + `*_BACKED = false`. Never a silent fallback. |
 | 29 | **A custom request header silently breaks every authenticated call.** Found in Stage 2. Passing `userAgent` to `SentryClient` makes it send `X-Sentry-Client`; coordination's CORS allows exactly `Content-Type, Authorization`, so the browser's preflight refuses it and the request never leaves. The SDK's own comment says "Browsers ignore it", which is true of `User-Agent` and false of a custom header. **It fails as a *network* error, indistinguishable from coordination being down.** | Send no header coordination does not allow. Add one only alongside a CORS change. See the note at the `getClient()` call site. |
+| 31 | **A real tower reports no battery, solar, cabinet temperature, storage, uplink *quality*, location, model, IP, backup connection or serial.** Found in Stage 3. None of those exist in the §A.3 projection. Keeping the seed values would have shown a live site at 87% charge — the fake-green failure, in the one place an operator would never think to doubt it. | Those `Tower` fields are now **optional**, `undefined` means *not reported*, and every read site renders absence: no battery cell on the mast (the pending card's own precedent), `NO CABINET READINGS` in the hover panel, `Not reported` in the settings rows (already the row's fallback), and the battery glyph omitted from the tower bar. The mapper is tested to leave all eleven absent. |
+| 32 | **The latency walk and the battery tick would have invented telemetry on real feeds.** Both are simulations that ran unconditionally. | The walk is gated on the seed source; the battery tick skips any tower with no reported charge. `FeedChip` already omits the latency segment when it is absent. |
 | 30 | **Treating our own `abort` as a verdict.** Found in Stage 2. A StrictMode cleanup aborts the in-flight session probe; if the catch reads that as "unreachable, keep the session", a **revoked session restores to a fully rendered app**. A shared `alive` ref cannot fix it — the second run sets it back to true and un-guards the first run's late handlers. | The per-run `controller.signal.aborted` is the authority, checked after the await **and inside the catch**. On abort, say nothing and let the surviving run decide. |
 
 ---
@@ -1047,7 +1049,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 0 — SDK spike | ✅ **PASSED** | All five criteria green against the live tower. See below. |
 | 1 — Config plumbing | ✅ done | `.env.example`, `src/lib/config.ts`, `src/lib/api/client.ts`, `src/lib/api/session.ts`, the SDK dependency + Vite config. Inert. |
 | 2 — Auth gate | ✅ done | `api/auth.ts`, `AuthProvider`, `AuthGate`, `LoginView`, sign-out in the rail, `OPERATOR` from the session. 17/17 verified. See below. |
-| 3 — Vertical slice | ⏳ next | |
+| 3 — Vertical slice | 🟡 built, awaiting the live run | Real fleet + one real tower + real WHEP in `CameraTile`. Mapper 42/42; the end-to-end needs the operator's password. See below. |
 | 4 — State grammar | — | |
 | 5 — Mutation primitive | — | |
 | 6 — Data breadth | — | |
@@ -1094,6 +1096,48 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 3 result — the vertical slice
+
+Built. The mapper is verified 42/42 as pure functions against the real
+`kln_lab_000001` camera shapes; the end-to-end run needs the operator's
+password and is the outstanding go/no-go.
+
+**What is real now:** the fleet list, one tower's cameras and their status, and
+WHEP playback in `CameraTile` via `srcObject`. **What is still seeded:** alerts,
+people, camera settings, and the fleet wall's pictures.
+
+`VITE_INVENTORY_SOURCE=sdk|seed` (default `sdk`) is the way back, and a seeded
+fleet is badged `SEEDED FLEET — NOT YOUR TOWERS` because fixture towers must
+never pass for an account's own.
+
+**Peer ownership** is `usePlayback`, called from `App.tsx`. Not in the tile:
+`TowerView` is keyed and remounts on every drill-in and `DashboardView`
+unmounts entirely, so a tile-owned peer would renegotiate on every navigation.
+Same problem the live-viewing clock already had, same solution.
+
+**Only the open tower's live cameras stream.** The fleet wall stays on stills —
+a session costs a grant and a busy camera, and this app already warns that live
+viewing drains an off-grid battery, so four streams on the landing screen would
+contradict its own advice.
+
+**Session-leak checking** goes through coordination's own `/dev/status` session
+list rather than `chrome://webrtc-internals`. That is the authoritative count of
+what the SERVER still holds, which is what actually matters — a browser can drop
+a peer and still leave a tower waiting on a reap. Baseline observation: three
+sessions (`ses_f3b5…`, `ses_e442…`, `ses_820e…`) were already open before this
+stage began, most likely from the Stage 0 spike, whose teardown was manual.
+
+The mapper's tested properties, worth keeping true:
+
+- the priority order — a down link outranks a reported `live`, `unknown` is
+  never promoted, a stale `as_of` decays to `unknown`
+- **exactly one of 36 link × reported × freshness combinations yields a live
+  state**, and it is the one where all three agree
+- no camera with no cameras reads `online`; all-unknown reads `degraded`
+- eleven absent tower fields stay absent
+- no poster, no latency, no `as_of` of `0` — inventing a plausible value is the
+  only way this mapper could lie
 
 ### Stage 2 result
 

@@ -7,6 +7,23 @@
  * themselves, and a Retry there just invites pointless clicking.
  */
 
+import { formatClockShort } from "@/lib/time";
+
+/**
+ * How old the bad news is.
+ *
+ * Replaces a hardcoded `"14:02"` — a literal, on the one line whose entire job
+ * was to say when a camera was last confirmed. `null` means the tower has never
+ * reported it, which is a different fact from "a while ago" and says so.
+ * `undefined` is a seeded feed, which has no such stamp; the caller renders
+ * nothing rather than an empty line.
+ */
+export function lastSeenLabel(at: number | null | undefined): string {
+  if (at === null) return "Never reported.";
+  if (at === undefined) return "";
+  return `Last confirmed ${formatClockShort(at)}`;
+}
+
 function CameraOffGlyph() {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -66,6 +83,26 @@ function AlertTriangleGlyph() {
   );
 }
 
+function QuestionGlyph() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M2 6.5A1.5 1.5 0 0 1 3.5 5h9A1.5 1.5 0 0 1 14 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 17.5v-11ZM14 10l6-3.5v11L14 14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.6 10.1a1.5 1.5 0 0 1 2.9.5c0 1-1.5 1.2-1.5 2.2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="15.2" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
 function Spinner({ size = 20 }: { size?: number }) {
   return (
     <svg
@@ -101,9 +138,133 @@ export function OfflineFallback({ lastSeen }: { lastSeen: string }) {
       <p className="text-[0.8125rem] font-medium text-white/70">
         Camera offline
       </p>
-      <p className="-mt-[4px] text-[0.75rem] text-white/35">
-        Last seen {lastSeen}
+      {/* Only when there is a stamp to show. A seeded feed has none, and an
+          empty line is worse than a missing one. */}
+      {lastSeen && (
+        <p className="-mt-[4px] text-[0.75rem] text-white/35">{lastSeen}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Nothing has told us about this camera.
+ *
+ * Distinct from offline, and the distinction is the point: offline is a
+ * *report* — the tower said this camera is down, which is information an
+ * operator can act on. This is the absence of a report, which is a statement
+ * about the link rather than the lens, and it must never be drawn as either
+ * healthy or faulty.
+ *
+ * Grey, with the other dead states, and on the same `tile-dead` surface so a
+ * feed recovering through them never flashes brightness.
+ */
+export function UnknownFallback({ since }: { since?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-[10px] text-white/35">
+      <QuestionGlyph />
+      <p className="text-[0.8125rem] font-medium text-white/70">
+        No report from this camera
       </p>
+      <p className="-mt-[4px] max-w-[240px] text-center text-[0.75rem] text-white/35">
+        {since ?? "The tower has not said whether it is working."}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A session is open and negotiating. There is no picture yet, and none is
+ * being claimed.
+ *
+ * Separate from `ConnectingFallback`, which is about the *camera* reconnecting
+ * to its tower. This is about *our* stream to it — the same picture, two
+ * different reasons it is missing, and an operator deciding whether to wait or
+ * escalate needs to know which.
+ */
+export function AwaitingMediaFallback({ name }: { name: string }) {
+  return (
+    <div className="flex flex-col items-center gap-[12px]">
+      <span className="text-white/50">
+        <Spinner />
+      </span>
+      <p className="text-[0.8125rem] font-medium text-white/75">Awaiting media…</p>
+      <p className="-mt-[6px] text-[0.75rem] text-white/35">
+        Negotiating a direct stream · {name}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Signalling worked and no media arrived.
+ *
+ * ⚠ THIS STATE EARNS ITS OWN FALLBACK BECAUSE SILENCE HERE IS A LIE. Media
+ * flows direct from the tower to this browser while signalling goes through
+ * coordination, so the offer and answer can round-trip perfectly while not one
+ * packet ever arrives. Without a state of its own the operator sees a `<video>`
+ * that simply stays black — which is indistinguishable from a dark scene at
+ * night, and is exactly the fake picture the media seam exists to refuse.
+ *
+ * Amber rather than red: nothing is faulty at the site. The tower is up, the
+ * camera is up, and the route between here and there is the problem — which is
+ * amber's usual claim, *this needs you*, and is usually a network fix rather
+ * than a site visit.
+ */
+export function NoMediaPathFallback({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-[10px]">
+      <span className="text-warn/70">
+        <SignalOffGlyph />
+      </span>
+      <p className="text-[0.8125rem] font-medium text-white/70">No media path</p>
+      <p className="-mt-[4px] max-w-[280px] text-center text-[0.75rem] text-white/35">
+        The tower answered, but its video never arrived here. Media travels
+        direct from the tower, not through coordination.
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white lg:text-[0.6875rem]"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The grant expired, or was revoked, and the picture is no longer authorised.
+ *
+ * Terminal, so it goes on the tile rather than in a dismissible banner — an
+ * operator must not be able to wave away the only thing telling them they are
+ * looking at nothing. Grey, not red: an ending is not a fault.
+ */
+export function SessionEndedFallback({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-[10px] text-white/35">
+      <CameraOffGlyph />
+      <p className="text-[0.8125rem] font-medium text-white/70">Viewing ended</p>
+      <p className="-mt-[4px] max-w-[260px] text-center text-[0.75rem] text-white/35">
+        {message}
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white lg:text-[0.6875rem]"
+        >
+          Resume viewing
+        </button>
+      )}
     </div>
   );
 }

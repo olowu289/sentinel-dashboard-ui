@@ -95,6 +95,31 @@ export function coordinationBaseUrl(): string | undefined {
  * obviously. Throwing beats returning a half-built thing that fails later
  * somewhere less legible.
  */
+/**
+ * Where the fleet comes from — `sdk` (coordination) or `seed` (the fixture).
+ *
+ * `sdk` is the default. `seed` exists so the UI can be worked on with no server
+ * running and no account to scope, which the reference dashboard keeps for the
+ * same reason — and it is the way back if a coordination change breaks the
+ * fleet screen mid-integration.
+ *
+ * ⚠ IT MUST BE VISIBLE WHEREVER IT IS ON. A screen showing fixture towers that
+ * an operator reads as their own fleet is the worst outcome available here, so
+ * the flag is surfaced in the UI rather than merely honoured.
+ */
+export type FleetSource = "sdk" | "seed";
+
+const RAW_SOURCE = import.meta.env.VITE_INVENTORY_SOURCE;
+
+export function fleetSource(): FleetSource {
+  return RAW_SOURCE === "seed" ? "seed" : "sdk";
+}
+
+/** True when the fleet on screen is fixture data rather than the real thing. */
+export function isSeededFleet(): boolean {
+  return fleetSource() === "seed";
+}
+
 export function requireCoordinationUrl(): string {
   if (URL_VALUE === undefined) {
     throw new NotConfiguredError(PROBLEM ?? "coordination is not configured");

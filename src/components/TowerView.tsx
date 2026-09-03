@@ -10,6 +10,7 @@ import { NewAlertBanner } from "@/components/NewAlertBanner";
 import { StateSimulator, type SimState } from "@/components/StateSimulator";
 import { TopBar, type WallLayout } from "@/components/TopBar";
 import { NO_FILTER, type DateFilter } from "@/lib/dateFilter";
+import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { Alert, CameraFeed, CameraSettings, Tower } from "@/lib/types";
 
 /**
@@ -25,6 +26,8 @@ export function TowerView({
   tower,
   feeds,
   alerts,
+  playback,
+  onRetryPlayback,
   showAlerts = false,
   onBack,
   onSetFeedState,
@@ -50,6 +53,10 @@ export function TowerView({
   feeds: CameraFeed[];
   /** This tower's alerts, already filtered by the shell. */
   alerts: Alert[];
+  /** Live playback by feed id, owned by the shell — see `usePlayback`. A feed
+   *  with no entry is simply not being streamed. */
+  playback?: Record<string, PlaybackPhase>;
+  onRetryPlayback?: (feedId: string) => void;
   /** Arrive on the alerts feed rather than the wall. Set when the operator
    *  came in through a fleet card's alert count — they asked a question about
    *  alerts, and the answer should not be one more click away. */
@@ -258,8 +265,17 @@ export function TowerView({
                  box belongs in this key. */
               layoutKey={`${fullscreenId ?? ""}|${layout}|${alertsCollapsed}|${newAlertId ?? ""}|${liveViewWarning}`}
               canSwitch={feeds.length > 1}
+              playback={playback?.[feed.id]}
               onFocus={() => setFocusedFeed(feed.id)}
-              onRetry={() => onRetryFeed(feed.id)}
+              /* A real camera retries its STREAM; a seeded one retries the
+                 simulated feed. Both are "try this picture again", so they
+                 share the button — but they are different operations and the
+                 tile must not call the wrong one. */
+              onRetry={() =>
+                playback?.[feed.id]
+                  ? onRetryPlayback?.(feed.id)
+                  : onRetryFeed(feed.id)
+              }
               onToggleRecord={() => onToggleRecord(feed.id)}
               onToggleFullscreen={() =>
                 setFullscreenId((id) => (id === feed.id ? null : feed.id))

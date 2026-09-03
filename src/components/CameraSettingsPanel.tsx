@@ -214,8 +214,14 @@ export function CameraSettingsPanel({
   const recordingQuality = RECORDING_QUALITY.find(
     (r) => r.value === settings.recordingQuality,
   );
+  /* `undefined` for a real tower, which reports no array. Computed once so
+     the cell and the sun cannot disagree. */
+  const reportedSolar =
+    tower.solar !== undefined
+      ? solarState({ solar: tower.solar, batteryPct: tower.batteryPct })
+      : undefined;
   const usedPct = Math.round(
-    (tower.storageUsedGb / Math.max(1, tower.storageTotalGb)) * 100,
+    ((tower.storageUsedGb ?? 0) / Math.max(1, tower.storageTotalGb ?? 1)) * 100,
   );
 
   if (editingZones) {
@@ -284,8 +290,8 @@ export function CameraSettingsPanel({
             like every other drawing of it. */}
         <div className="relative mx-auto mt-[25px] block h-[282px] w-[163px] shrink-0">
           <TowerBattery
-            pct={tower.batteryPct}
-            charging={solarState(tower) === "charging"}
+            pct={tower.batteryPct ?? 0}
+            charging={reportedSolar === "charging"}
             className="absolute inset-0 size-full"
           />
           <img
@@ -304,7 +310,9 @@ export function CameraSettingsPanel({
                     card, the band header and the breadcrumb all show, so the
                     id was a third value competing for a 417px row beside a
                     switch — and it was the one nobody came here to read. */}
-                <span className="truncate">{tower.location}</span>
+                <span className="truncate">
+                  {tower.location ?? "Location not reported"}
+                </span>
                 <span
                   aria-hidden
                   className="size-[2px] shrink-0 rounded-full bg-muted"
@@ -318,13 +326,15 @@ export function CameraSettingsPanel({
                   <MaskIcon
                     src="/icons/set-battery.svg"
                     size={24}
-                    background={batteryFill(tower.batteryPct)}
+                    background={batteryFill(tower.batteryPct ?? 0)}
                   />
                   <span
-                    className={`flex items-center gap-[2px] font-display text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] tabular-nums ${batteryTone(tower.batteryPct)}`}
+                    className={`flex items-center gap-[2px] font-display text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] tabular-nums ${batteryTone(tower.batteryPct ?? 0)}`}
                   >
-                    {tower.batteryPct}%
-                    {solarState(tower) === "charging" && (
+                    {tower.batteryPct !== undefined
+                      ? `${tower.batteryPct}%`
+                      : "No reading"}
+                    {reportedSolar === "charging" && (
                       <MaskIcon
                         src="/icons/set-bolt.svg"
                         size={16}
@@ -454,15 +464,23 @@ export function CameraSettingsPanel({
                 value on this panel that is not white. */}
             <RowReading
               label="Uplink"
+              /* Quality when the tower graded itself, presence when it did
+                 not. Coordination reports whether the WSS link is up, which is
+                 a different fact from how good it is — and mapping "up" to
+                 "Great" would invent a grade the tower never gave. */
               value={
                 tower.link === "good"
                   ? "Great"
                   : tower.link === "warn"
                     ? "Fair"
-                    : "Poor"
+                    : tower.link === "bad"
+                      ? "Poor"
+                      : tower.online
+                        ? "Connected"
+                        : "Not connected"
               }
               tone={
-                tower.link === "bad"
+                tower.link === "bad" || (!tower.link && !tower.online)
                   ? "text-critical"
                   : tower.link === "warn"
                     ? "text-warn"
@@ -484,10 +502,10 @@ export function CameraSettingsPanel({
                     : undefined
               }
             />
-            <RowReading label="IP Address" value={tower.ipAddress} />
+            <RowReading label="IP Address" value={tower.ipAddress ?? ""} />
             <RowReading
               label="Backup Connection"
-              value={tower.backupConnection}
+              value={tower.backupConnection ?? ""}
               last
             />
           </Group>
@@ -495,7 +513,17 @@ export function CameraSettingsPanel({
           <Group title="Storage">
             <RowReading
               label="Memory"
-              value={`${tower.storageUsedGb}GB / ${tower.storageTotalGb}GB Used`}
+              /* Empty renders as "Not reported" — the row already does that,
+                 which is exactly the absence grammar this app asks for. The
+                 projection carries no storage figures at all; `disk.free_pct`
+                 is a percentage of an unknown total and is not the same
+                 reading, so it is not substituted in here. */
+              value={
+                tower.storageUsedGb !== undefined &&
+                tower.storageTotalGb !== undefined
+                  ? `${tower.storageUsedGb}GB / ${tower.storageTotalGb}GB Used`
+                  : ""
+              }
               tone={usedPct >= 90 ? "text-warn" : undefined}
             />
             <Row
@@ -545,15 +573,15 @@ export function CameraSettingsPanel({
           </Group>
 
           <Group title="About Device">
-            <RowReading label="Model Name" value={tower.model} />
-            <RowReading label="Serial Number" value={tower.serial} />
+            <RowReading label="Model Name" value={tower.model ?? ""} />
+            <RowReading label="Serial Number" value={tower.serial ?? ""} />
             <RowReading label="Cameras" value={`${feeds.length}`} />
             {/* The frame puts an action beside the version. It is the only
                 thing on this panel that reaches the hardware, so it is its own
                 target rather than a row you can land on by accident. */}
             <RowReading
               label="Firmware"
-              value={tower.firmware}
+              value={tower.firmware ?? ""}
               action="Update Firmware"
               last
             />

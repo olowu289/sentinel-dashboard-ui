@@ -4,15 +4,15 @@ import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
 import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
-import { FeedChip } from "./FeedChip";
+import { DEAD_STATES, FeedChip } from "./FeedChip";
 import { SirenOverlay } from "./SirenOverlay";
 import {
   ConnectingFallback,
   ErrorFallback,
   OfflineFallback,
+  UnknownFallback,
+  lastSeenLabel,
 } from "./TileFallback";
-
-const DEAD_STATES = new Set(["connecting", "offline"]);
 
 /**
  * A fleet-wall tile: picture, one chip, one button.
@@ -160,8 +160,10 @@ export function MonitorTile({
             <div className="absolute inset-0 flex items-center justify-center">
               {hasError ? (
                 <ErrorFallback error={feed.error!} onRetry={onRetry} />
+              ) : feed.state === "unknown" ? (
+                <UnknownFallback since={lastSeenLabel(feed.lastSeenAt)} />
               ) : feed.state === "offline" ? (
-                <OfflineFallback lastSeen="14:02" />
+                <OfflineFallback lastSeen={lastSeenLabel(feed.lastSeenAt)} />
               ) : (
                 <ConnectingFallback
                   name={feed.name}

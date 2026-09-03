@@ -11,7 +11,25 @@ export type FeedState =
   | "delayed"
   | "frozen"
   | "connecting"
-  | "offline";
+  | "offline"
+  /**
+   * Nothing has reported this camera's liveness, or what was reported is too
+   * old to stand behind. **NOT the same as live, and never drawn as good.**
+   *
+   * Coordination serves `"unknown"` directly rather than inferring — a tower
+   * that has never connected reports every camera as unknown with a null
+   * `as_of` — and the contract is explicit that a guessed `"live"` is the one
+   * reading it forbids. It is also what a *stale* reading decays to: camera
+   * status is last-known as of `as_of`, so a `"live"` under a down link with an
+   * ageing stamp is true only in the past tense.
+   *
+   * `stateLabel` and `DOT` in `FeedChip` are exhaustive switches with no
+   * `default`, and `tsconfig` sets `noFallthroughCasesInSwitch` — so adding a
+   * state here fails the build until every site has handled it. That compile
+   * error is the guard against a new state silently rendering as healthy. Do
+   * not add a `default` case to make it go away.
+   */
+  | "unknown";
 
 export type LinkQuality = "good" | "warn" | "bad";
 
@@ -25,6 +43,16 @@ export type LinkQuality = "good" | "warn" | "bad";
 export type TowerStatus = "online" | "degraded" | "offline";
 
 /**
+ * Solar array state, where one is reported at all.
+ *
+ * Its own name because `Tower.solar` is now optional — a real tower reports no
+ * array — while the things that DO carry one (a seeded tower, a unit being
+ * claimed) still require it. Writing `Tower["solar"]` at those sites would make
+ * them optional too and lose the guarantee.
+ */
+export type SolarState = "charging" | "idle" | "fault";
+
+/**
  * A tower carries exactly two cameras. This is the hardware, not a layout
  * choice, and the fleet wall is built on it: a band is one site's header over
  * one row of two tiles, which is what the design draws and why the wall caps
@@ -32,43 +60,105 @@ export type TowerStatus = "online" | "degraded" | "offline";
  */
 export const CAMERAS_PER_TOWER = 2;
 
+/**
+ * Cabinet sensors, as coordination's merged `health` block reports them.
+ *
+ * Every member is optional because `tower.state` pushes **partial** health —
+ * only what changed — so a consumer merges rather than replaces. Nothing in the
+ * UI reads this yet; it is here so the mapper has somewhere honest to put what
+ * the projection actually carries, instead of the battery and solar readings it
+ * does not.
+ */
+export interface TowerHealthReading {
+  door?: { open: boolean; since?: string };
+  cover?: { exposed: boolean; since?: string };
+  impact?: { lastDeltaMg: number | null; at?: string };
+  /** SoC temperature — the processor's, **not** the cabinet's. */
+  thermal?: { socC: number | null; state?: string };
+  disk?: { freePct: number };
+}
+
+/**
+ * A tower.
+ *
+ * ── WHY SO MANY FIELDS ARE OPTIONAL ────────────────────────────────────
+ *
+ * They were all required while every tower came from the seed, which could
+ * invent whatever it liked. A real tower comes from coordination's §A.3
+ * projection, and that carries `device_id`, `label`, `link`, `as_of`,
+ * `cameras`, `sensors`, and a `health` block of door · cover · impact ·
+ * thermal · disk. It carries **no battery, no solar array state, no cabinet
+ * temperature, no storage figures, and no uplink *quality*** — those are not
+ * withheld, they do not exist anywhere in the contract.
+ *
+ * So the choice was: invent them, or admit they are absent. Absence is
+ * diagnostic in this app — the fleet card already draws a mast with no battery
+ * cell for an unfinished tower, on the stated grounds that "drawing one would
+ * be inventing a reading" — and that is exactly the right instinct here. A real
+ * site showing 87% because the seed said so is the fake-green failure this
+ * whole integration exists to refuse.
+ *
+ * `undefined` therefore means **not reported**, and every read site renders it
+ * as such. A seeded tower still fills them all in, so the demo screens are
+ * unchanged.
+ */
 export interface Tower {
   id: string;
   /** Site the tower watches, e.g. "WAREHOUSE: PARKING LOT". */
   site: string;
   status: TowerStatus;
-  /** Solar array state. These towers are off-grid; the panel is the only thing
-   *  that refills the battery, so its health is a first-class signal. */
-  solar: "charging" | "idle" | "fault";
-  /** Battery charge, 0–100. */
-  batteryPct: number;
-  /** Cabinet temperature in °C. These are sealed enclosures in the sun with a
-   *  battery inside; heat is what kills them, so it is a reading in its own
-   *  right rather than weather. */
-  tempC: number;
-  /** Uplink quality — the same three tiers the tile chips use. */
-  link: LinkQuality;
-  /** Where it stands, as the settings panel prints it. One region, one zone —
-   *  see the note at the top of `time.ts`; the offset is part of the string
-   *  because it never varies. */
-  location: string;
-  /** Hardware model, for the About group. */
-  model: string;
-  ipAddress: string;
-  /** What it falls back to when the primary uplink drops. */
-  backupConnection: string;
-  /** Chassis serial, printed on the cabinet label beside the QR. The id is
-   *  assigned by the platform and is what gets spoken on the radio; this is
-   *  what is physically stamped on the box, and it is the only handle an
-   *  installer standing at the tower has. */
-  serial: string;
-  /** Running firmware. Read-only here; updating one is a field operation. */
-  firmware: string;
-  /** On-tower recording, in GB. Off-grid sites buffer locally and ship on the
-   *  uplink, so this fills and empties on its own — it is a reading, not a
-   *  quota the operator manages. */
-  storageUsedGb: number;
-  storageTotalGb: number;
+  /**
+   * Presence — coordination watches the WSS link itself, so unlike everything
+   * below this is **always current**. It is the one signal that says whether
+   * anything else can be trusted.
+   */
+  online: boolean;
+  /**
+   * When the camera statuses were last confirmed; `null` before the tower has
+   * ever reported. **Not** when the request was served.
+   *
+   * This is what stops a stale reading being drawn as a current one, and the
+   * SDK deliberately refuses to interpret it — the freshness threshold is
+   * ours. See `STALE_AFTER_MS` in `lib/api/map.ts`.
+   */
+  asOf?: number | null;
+  /** When the sensor block was last updated. Kept distinct from `asOf`. */
+  healthAsOf?: number | null;
+  /** What the cabinet sensors report. Nothing renders it yet. */
+  health?: TowerHealthReading;
+
+  /** Solar array state. Not in the projection — absent for a real tower. */
+  solar?: SolarState;
+  /** Battery charge, 0–100. Not in the projection — absent for a real tower. */
+  batteryPct?: number;
+  /** Cabinet temperature in °C. Not in the projection. Note `health.thermal` is
+   *  the *SoC* temperature, which is a different reading and not a substitute. */
+  tempC?: number;
+  /**
+   * Uplink *quality*, in three tiers.
+   *
+   * Absent for a real tower, and this one is worth being clear about:
+   * coordination's `link` is **presence**, not quality, and it lands on
+   * `online` above. Mapping `up` to `"good"` would be inventing a grade the
+   * tower never gave.
+   */
+  link?: LinkQuality;
+  /** Where it stands, as the settings panel prints it. Not in the projection. */
+  location?: string;
+  /** Hardware model, for the About group. Not in the projection. */
+  model?: string;
+  ipAddress?: string;
+  /** What it falls back to when the primary uplink drops. Not in the projection. */
+  backupConnection?: string;
+  /** Chassis serial, printed on the cabinet label beside the QR. Not in the
+   *  projection — the platform id is, and that is what the radio uses. */
+  serial?: string;
+  /** Running firmware. `agent_version` is the nearest real field. */
+  firmware?: string;
+  /** On-tower recording, in GB. Not in the projection; `health.disk.freePct` is
+   *  a percentage of an unknown total and is not the same reading. */
+  storageUsedGb?: number;
+  storageTotalGb?: number;
 }
 
 /**
@@ -85,7 +175,8 @@ export interface UnclaimedUnit {
   serial: string;
   /** Printed under the QR inside the cabinet door. */
   pairingCode: string;
-  solar: Tower["solar"];
+  /** Required here: a unit reports its own array at claim time. */
+  solar: SolarState;
   batteryPct: number;
   tempC: number;
   link: LinkQuality;
@@ -237,10 +328,22 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
 };
 
 export interface CameraFeed {
+  /** Stable key. For a real camera this is `${towerId}:${index}`. */
   id: string;
   /** Owning tower. The fleet wall mixes cameras from several towers, so a tile
    *  has to be able to say which site it is looking at. */
   towerId: string;
+  /**
+   * THE PROTOCOL ADDRESS. 1-based, unique within a tower, and **the only camera
+   * name a session, a PTZ command or a grant may carry**.
+   *
+   * A session request body is `{device_id, camera}` and nothing else — that is
+   * a security boundary rather than a convention, because a vocabulary that
+   * could name something *inside* a camera is one that can ask for more. So
+   * `id` is for React and lookups; this is for the wire. Never send `id`, and
+   * never send a presentation grouping.
+   */
+  index?: number;
   /** Zone label shown in the tile chip, e.g. "GAS YARD". */
   name: string;
   state: FeedState;
@@ -253,8 +356,27 @@ export interface CameraFeed {
   video?: string;
   /** Raw transport error, surfaced verbatim when known. */
   error?: string;
-  /** Tiles with PTZ hardware get the joystick; fixed cameras do not. */
+  /**
+   * Tiles with PTZ hardware get the joystick; fixed cameras do not.
+   *
+   * ⚠ CAPABILITY, NOT PERMISSION — populated from the projection's
+   * `ptz_capable`. Whether *this viewer* may steer lives in the grant, which
+   * the viewer never receives, so the only way to learn that is to issue a
+   * command and catch `403 grant_permission`. A tile drawing the pad is not a
+   * promise that the pad will work.
+   */
   ptz?: boolean;
+  /** Optical class, straight from the projection. */
+  lens?: "ptz" | "fixed";
+  /**
+   * When this camera's `state` was last confirmed, from the tower's `as_of`.
+   * `null` means it has never reported.
+   *
+   * Replaces the hardcoded "Last seen 14:02" the offline fallback used to
+   * print — which was a literal, on the one line whose whole job is to say how
+   * old the bad news is.
+   */
+  lastSeenAt?: number | null;
 }
 
 export type AlertKind = "alert" | "vehicle" | "person" | "speaker" | "fault";

@@ -78,8 +78,21 @@ export function TowerCard({
   const status = STATUS[tower.status];
   /* Not `tower.solar` — see `solarState`. A full battery is not being charged,
      and the word, the sun and the mast sweep all read from this one call so
-     they cannot drift apart at 100%. */
-  const solar = solarState(tower);
+     they cannot drift apart at 100%.
+
+     `undefined` when the tower reports no solar array at all, which is every
+     real tower: coordination's projection carries no such field. The card then
+     draws no sun and no cell rather than a cheerful green one. */
+  const solar =
+    tower.solar !== undefined
+      ? solarState({ solar: tower.solar, batteryPct: tower.batteryPct })
+      : undefined;
+  const hasBattery = tower.batteryPct !== undefined;
+  const hasTemp = tower.tempC !== undefined;
+  /* Nothing to hover for. A panel that opens onto three blank rows is worse
+     than a mast that simply does not offer one. */
+  const hasReadings =
+    hasBattery || hasTemp || solar !== undefined || tower.link !== undefined;
   const alertCount = alerts.length;
   /* The strip reports the newest one still waiting on somebody. A card is a
      summary; the feed inside the tower is where the rest of them live, and an
@@ -90,9 +103,24 @@ export function TowerCard({
 
   /* The gauge on the mast is decorative; this is where the reading actually
      lives for anyone not looking at it, so the charging state has to be in it. */
-  const telemetry = `${SOLAR_LABEL[solar]} · Battery ${tower.batteryPct}%${
-    solar === "charging" ? " and rising" : ""
-  } · ${LINK_LABEL[tower.link]}`;
+  /* Only what the tower actually reported. A real tower reports none of it, so
+     the label says so outright rather than listing invented figures — the
+     screen-reader path must not be the one place a lie survives. */
+  const telemetry = hasReadings
+    ? [
+        solar !== undefined ? SOLAR_LABEL[solar] : null,
+        hasBattery
+          ? "Battery " +
+            tower.batteryPct +
+            "%" +
+            (solar === "charging" ? " and rising" : "")
+          : null,
+        hasTemp ? tower.tempC + " degrees" : null,
+        tower.link !== undefined ? LINK_LABEL[tower.link] : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "No cabinet readings reported";
   const alertsLabel = `${alertCount} ${alertCount === 1 ? "alert" : "alerts"}`;
 
   return (
@@ -168,11 +196,17 @@ export function TowerCard({
           latest ? "bottom-[58px]" : "bottom-[14px]"
         }`}
       >
-        <TowerBattery
-          pct={tower.batteryPct}
-          charging={solar === "charging"}
-          className="absolute inset-0 size-full"
-        />
+        {/* No cell when there is no charge to draw. The pending card already
+            does exactly this, on the stated grounds that drawing one "would be
+            inventing a reading" — which applies with more force to a live site
+            than to an unfinished one. */}
+        {hasBattery && (
+          <TowerBattery
+            pct={tower.batteryPct!}
+            charging={solar === "charging"}
+            className="absolute inset-0 size-full"
+          />
+        )}
         {/* Both axes pinned. The export is 59×101, so a width-only rule would
             let the intrinsic ratio decide the height and land it 1.7px short of
             the frame. */}
@@ -197,8 +231,12 @@ export function TowerCard({
              it, and blanking that out mid-hover reads as the drawing being
              replaced. 4px, not the 5 the feed chips use: those sit over live
              video and need more, this sits over line art. */
-          className="pointer-events-none absolute bottom-[24px] right-[-18px] flex h-[32px] origin-bottom-right scale-95 items-center rounded-[8px] bg-black/60 opacity-0 backdrop-blur-[4px] transition-[opacity,transform] duration-150 ease-out group-hover/mast:scale-100 group-hover/mast:opacity-100 group-focus-visible/mast:scale-100 group-focus-visible/mast:opacity-100"
+          className={
+            "pointer-events-none absolute bottom-[24px] right-[-18px] flex h-[32px] origin-bottom-right scale-95 items-center rounded-[8px] bg-black/60 opacity-0 backdrop-blur-[4px] transition-[opacity,transform] duration-150 ease-out group-hover/mast:scale-100 group-hover/mast:opacity-100 group-focus-visible/mast:scale-100 group-focus-visible/mast:opacity-100 " +
+            (hasReadings ? "" : "hidden")
+          }
         >
+          {solar !== undefined && (
           <span className="flex items-center gap-[6px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/78">
             {/* Only while it is actually taking charge. An idle or faulted
                 array is a still sun, which is the reading. */}
@@ -213,26 +251,35 @@ export function TowerCard({
             </span>
             {SOLAR_LABEL[solar].toUpperCase()}
           </span>
+          )}
 
-          <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
-            <span className={tempTone(tower.tempC)}>
-              <MaskIcon src="/icons/twr-temp.svg" size={16} />
+          {hasTemp && (
+            <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+              <span className={tempTone(tower.tempC!)}>
+                <MaskIcon src="/icons/twr-temp.svg" size={16} />
+              </span>
+              {tower.tempC}˚
             </span>
-            {tower.tempC}˚
-          </span>
+          )}
 
-          <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
-            {/* 19.2 in a 16 box, as the frame draws it — the glyph is bled to
-                its own edges where the other two carry a margin. */}
-            <span className="flex size-[16px] items-center">
-              <MaskIcon
-                src="/icons/twr-battery.svg"
-                size={19.2}
-                background={batteryFill(tower.batteryPct)}
-              />
+          {hasBattery ? (
+            <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+              {/* 19.2 in a 16 box, as the frame draws it — the glyph is bled to
+                  its own edges where the other two carry a margin. */}
+              <span className="flex size-[16px] items-center">
+                <MaskIcon
+                  src="/icons/twr-battery.svg"
+                  size={19.2}
+                  background={batteryFill(tower.batteryPct!)}
+                />
+              </span>
+              {tower.batteryPct}%
             </span>
-            {tower.batteryPct}%
-          </span>
+          ) : (
+            <span className="px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] tracking-[0.12px] whitespace-nowrap text-white/45">
+              NO CABINET READINGS
+            </span>
+          )}
         </span>
       </button>
 

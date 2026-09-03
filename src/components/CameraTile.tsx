@@ -4,16 +4,20 @@ import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
 import { useTileControls, ZOOM_MIN } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
-import { FeedChip, formatElapsed } from "./FeedChip";
+import { DEAD_STATES, FeedChip, formatElapsed } from "./FeedChip";
 import { PtzPad } from "./PtzPad";
 import { SirenOverlay } from "./SirenOverlay";
 import {
+  AwaitingMediaFallback,
   ConnectingFallback,
   ErrorFallback,
+  NoMediaPathFallback,
   OfflineFallback,
+  SessionEndedFallback,
+  UnknownFallback,
+  lastSeenLabel,
 } from "./TileFallback";
-
-const DEAD_STATES = new Set(["connecting", "offline"]);
+import type { PlaybackPhase } from "@/lib/usePlayback";
 
 export function CameraTile({
   feed,
@@ -22,6 +26,7 @@ export function CameraTile({
   fullscreen = false,
   layoutKey = "",
   canSwitch = false,
+  playback,
   onFocus,
   onRetry,
   onToggleRecord,
@@ -32,6 +37,14 @@ export function CameraTile({
   towerId?: string;
   focused?: boolean;
   fullscreen?: boolean;
+  /**
+   * Live playback for this camera, owned by the shell.
+   *
+   * Absent means nothing is being played here — which is the ordinary state for
+   * a seeded feed and for the fleet wall. It is deliberately NOT the same as a
+   * failure: an absent phase draws the poster, a failed one draws why.
+   */
+  playback?: PlaybackPhase;
   /** Changes only when something that actually reflows the wall changes — the
       takeover or the landscape/portrait split. See `layoutDependency` below. */
   layoutKey?: string;
@@ -44,6 +57,7 @@ export function CameraTile({
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const fsBtnRef = useRef<HTMLButtonElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [firstFrame, setFirstFrame] = useState(false);
   /* Exiting the takeover drops `z-100` immediately, but the tile still covers
      the viewport for the length of the animation — and the alerts panel is a
@@ -54,6 +68,14 @@ export function CameraTile({
   const isDead = hasError || DEAD_STATES.has(feed.state);
   const reconnecting =
     feed.state === "connecting" && feed.elapsedSec !== undefined;
+
+  /* Real playback, when the shell is running one for this camera. `stream` is a
+     `MediaStream` and therefore cannot go on `<video src>` — see the media
+     block below. A failure outranks the poster: a still from a *different* site
+     under a live label is the most convincing lie this app could tell. */
+  const stream = playback?.kind === "playing" ? playback.stream : null;
+  const playbackFailure = playback?.kind === "failed" ? playback.error : null;
+  const awaitingMedia = playback?.kind === "connecting";
 
   /* Always fill, in the wall and in the takeover. Contain would collapse a 4:3
      source to a strip in a tile, and letterbox ~350px a side on an ultrawide
@@ -84,6 +106,37 @@ export function CameraTile({
   useEffect(() => {
     if (isDead) setFirstFrame(false);
   }, [isDead]);
+
+  /**
+   * Attach the live stream.
+   *
+   * ⚠ A `MediaStream` CANNOT GO ON `src`. `<video src>` takes a URL; a live
+   * peer track is handed over as `srcObject`, which is why this is an effect
+   * and a ref rather than an attribute. That one line is the whole difference
+   * between the branch that was already here and real video.
+   *
+   * Detached on teardown so a replaced peer's tracks are not held alive by the
+   * element.
+   */
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (!stream) {
+      el.srcObject = null;
+      return;
+    }
+    el.srcObject = stream;
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream]);
+
+  /* A new stream is a new first frame to wait for. Without this a reconnect
+     would paint the previous stream's opacity state onto an element that has
+     not decoded anything yet. */
+  useEffect(() => {
+    if (stream) setFirstFrame(false);
+  }, [stream]);
 
   /* Handlers live in a ref because the parent rebuilds them on every latency
      tick. Depending on them directly would tear this effect down and re-run it
@@ -198,20 +251,26 @@ export function CameraTile({
       {/* The media sits in its own frame so the two transform systems never
           share an element: this wrapper is what animates between tile and
           fullscreen, while the media below keeps the PTZ transform. */}
-      {!isDead && (
+      {!isDead && !playbackFailure && !awaitingMedia && (
         <motion.div
           layout="preserve-aspect"
           layoutDependency={layoutDep}
           transition={transition}
           className="absolute inset-0 overflow-hidden"
         >
-          {feed.video ? (
+          {stream || feed.video ? (
             <video
-              src={feed.video}
-              poster={feed.poster}
+              /* `src` ONLY for a file-backed clip. A live `MediaStream` is
+                 attached via `srcObject` in the effect above — setting it here
+                 would be ignored, which is the trap this branch was written
+                 around before there was real media. */
+              {...(stream ? {} : { src: feed.video, poster: feed.poster })}
+              ref={videoRef}
               autoPlay
               muted
-              loop
+              /* A live stream must not loop. Looping a peer track is
+                 meaningless, and on a recorded clip it is the intent. */
+              loop={!stream}
               playsInline
               onLoadedData={() => setFirstFrame(true)}
               style={mediaStyle}
@@ -259,18 +318,37 @@ export function CameraTile({
         />
       )}
 
-      {isDead && (
+      {/* Why there is no picture, in priority order.
+          A camera the tower says is dead outranks anything about our stream to
+          it — there is no point explaining a media path to a camera that is
+          off. Below that, a playback failure outranks "awaiting", because a
+          spinner over a failure is a promise that will not be kept. */}
+      {(isDead || playbackFailure || awaitingMedia) && (
         <div className="absolute inset-0 flex items-center justify-center">
           {hasError ? (
             <ErrorFallback error={feed.error!} onRetry={onRetry} />
+          ) : feed.state === "unknown" ? (
+            <UnknownFallback since={lastSeenLabel(feed.lastSeenAt)} />
           ) : feed.state === "offline" ? (
-            <OfflineFallback lastSeen="14:02" />
-          ) : (
+            <OfflineFallback lastSeen={lastSeenLabel(feed.lastSeenAt)} />
+          ) : isDead ? (
             <ConnectingFallback
               name={feed.name}
               attempt={reconnecting ? 3 : undefined}
               maxAttempts={reconnecting ? 5 : undefined}
             />
+          ) : playbackFailure?.failure === "media_unreachable" ? (
+            <NoMediaPathFallback onRetry={onRetry} />
+          ) : playbackFailure?.failure === "session_expired" ? (
+            <SessionEndedFallback message={playbackFailure.message} onRetry={onRetry} />
+          ) : playbackFailure ? (
+            /* Everything else the media seam can report — not permitted, tower
+               offline, tower timeout, camera unavailable, negotiation failed —
+               carries its own message, and `ErrorFallback` prints it verbatim
+               rather than paraphrasing it into "oops". */
+            <ErrorFallback error={playbackFailure.message} onRetry={onRetry} />
+          ) : (
+            <AwaitingMediaFallback name={feed.name} />
           )}
         </div>
       )}

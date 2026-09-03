@@ -24,8 +24,13 @@ export function TopBar({
   towerName: string;
   /** Charge, shown beside the status pill. The bar is on screen for the whole
    *  visit, so it carries the reading rather than making an operator open a
-   *  panel to learn whether the site is running down. */
-  batteryPct: number;
+   *  panel to learn whether the site is running down.
+   *
+   *  `undefined` when the tower reports no battery, which is every real tower —
+   *  coordination's projection has no such field. The glyph is then omitted
+   *  entirely rather than drawn at some default, because a battery icon is a
+   *  reading and an invented one is worse than a gap. */
+  batteryPct?: number;
   online: boolean;
   /** Up to the fleet dashboard. The crumb named a parent long before one
    *  existed; now that it does, it is a real control rather than an anchor to
@@ -76,6 +81,7 @@ export function TopBar({
               pulses, and this bar is on screen for the whole visit. A pulse in
               permanent chrome is the thing the per-row age counters were thrown
               out for. */}
+          {batteryPct !== undefined && (
           <span
             role="img"
             aria-label={`Battery ${batteryPct}%`}
@@ -97,6 +103,7 @@ export function TopBar({
               <span className="pl-[4px]">{batteryPct}%</span>
             </span>
           </span>
+          )}
           <span
             className={`flex items-center justify-center rounded-[2px] px-[6px] py-px font-display text-[0.75rem] uppercase tracking-[0.12px] ${
               online ? "bg-terra/15 text-terra" : "bg-critical/15 text-critical"

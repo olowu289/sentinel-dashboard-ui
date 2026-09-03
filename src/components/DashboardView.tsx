@@ -4,7 +4,8 @@ import { MaskIcon } from "@/components/Icon";
 import { MonitorTile } from "@/components/MonitorTile";
 import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
-import type { Alert, CameraFeed, PendingTower, Tower } from "@/lib/types";
+import type { Alert, CameraFeed, Tower } from "@/lib/types";
+import type { Claim } from "@/lib/api/claim";
 
 /**
  * The fleet view: every tower on the left, every camera on the right.
@@ -29,7 +30,7 @@ export function DashboardView({
   alerts,
   order,
   onReorder,
-  pending,
+  pendingClaim,
   onNavigate,
   onResumeSetup,
   onOpenTower,
@@ -51,8 +52,8 @@ export function DashboardView({
    *  it, and stepping through that one tile at a time would walk the wall
    *  through arrangements nobody asked for. */
   onReorder: (next: string[]) => void;
-  /** A claim that has landed but not been finished, if there is one. */
-  pending: PendingTower | null;
+  /** An open registration from the server, if there is one. */
+  pendingClaim: Claim | null;
   /** Every rail destination, routed by the shell. Deliberately not wired here:
    *  four screens render this rail and each one wiring its own meant two of
    *  them shipped a nav bar that did not navigate. */
@@ -151,7 +152,7 @@ export function DashboardView({
       <TowersPanel
         towers={towers}
         alerts={alerts}
-        pending={pending}
+        pendingClaim={pendingClaim}
         onResumeSetup={onResumeSetup}
         onOpenTower={onOpenTower}
         loading={fleetLoading}

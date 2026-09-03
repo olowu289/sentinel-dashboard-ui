@@ -161,51 +161,13 @@ export interface Tower {
   storageTotalGb?: number;
 }
 
-/**
- * A unit that exists in the field and has not been claimed by anyone yet.
+/* `UnclaimedUnit` and `PendingTower` are gone.
  *
- * Everything a tower knows about itself — charge, temperature, uplink, how many
- * cameras it has — comes off the hardware at claim time. The setup flow asks a
- * human for exactly two things it cannot read: what to call the site, and what
- * to call each camera. Anything else on this screen would be a field the
- * operator can get wrong about their own equipment.
- */
-export interface UnclaimedUnit {
-  towerId: string;
-  serial: string;
-  /** Printed under the QR inside the cabinet door. */
-  pairingCode: string;
-  /** Required here: a unit reports its own array at claim time. */
-  solar: SolarState;
-  batteryPct: number;
-  tempC: number;
-  link: LinkQuality;
-  firmware: string;
-  storageTotalGb: number;
-  model: string;
-  ipAddress: string;
-  backupConnection: string;
-  /** Always `CAMERAS_PER_TOWER` of them. `poster` absent means the camera is
-   *  wired but not returning frames — it is still named during setup, because a
-   *  dead camera you cannot label is a dead camera you cannot report. */
-  cameras: { id: string; poster?: string }[];
-}
-
-/**
- * A claim that has landed but has not been finished.
- *
- * The unit is already this operator's from the moment the phone scans — that is
- * what claiming means — so dropping it because they navigated away would strand
- * a tower nobody can see and nobody else can claim. It waits in the panel with
- * whatever naming was done, and setup resumes where it stopped.
- */
-export interface PendingTower {
-  unit: UnclaimedUnit;
-  /** Whatever the operator had typed. Empty until they reach the site step.
-   *  The only thing setup asks for now — the cameras are named by position at
-   *  claim time, so there is nothing else a half-finished draft can hold. */
-  site: string;
-}
+ * They modelled a fabricated unit and a half-finished local claim — the shapes
+ * the old setup flow invented because there was no server to ask. Registration
+ * is real now: the only two inputs are a pairing code and a label, the pending
+ * state is a `Claim` that lives on the server (`lib/api/claim.ts`), and a tower
+ * appears when it has enrolled rather than when this app decides to draw one. */
 
 /**
  * Somebody the fleet is watching for.

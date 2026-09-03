@@ -1,173 +1,115 @@
 import { motion } from "motion/react";
 import {
+  useCallback,
   useEffect,
-  useId,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
 } from "react";
 import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
-import { TowerCard } from "@/components/TowerCard";
+import { MutationError } from "@/components/MutationFeedback";
 import { ENTER, FADE } from "@/lib/motion";
-import { findUnclaimed, nextUnclaimed, solarState } from "@/lib/data";
-import type {
-  CameraFeed,
-  PendingTower,
-  Tower,
-  UnclaimedUnit,
-} from "@/lib/types";
+import { useMutation } from "@/lib/useMutation";
+import {
+  CODE_CHARS,
+  createClaim,
+  formatCountdown,
+  isCompleteCode,
+  msUntilExpiry,
+  normalisePairingCode,
+  PairingCodeError,
+  type Claim,
+} from "@/lib/api/claim";
 
 /**
  * Adding a tower is a *claim*, not a create.
  *
  * The unit is already bolted to the ground and powered on by the time anyone
- * opens this screen — the design's own copy says so. So nothing here asks the
- * operator to describe their hardware: charge, temperature, uplink and camera
- * count all come off the box at claim time. The flow asks for exactly the two
- * things the box cannot know, the site's name and each camera's zone, and then
- * shows the readings coming up so the operator can see it is actually live.
+ * opens this screen. So nothing here asks the operator to describe their
+ * hardware — the tower reports itself the moment it enrols. The flow asks for
+ * exactly two things, because those are exactly the two the real API takes:
+ * the pairing code printed on the tower's console, and what to call the site.
  *
- * The QR is printed inside the cabinet door, in a field, and this is a desktop
- * console — so "Scan QR Code" cannot mean "point this machine at it". It means
- * hand the job to a phone: the desktop shows a link, the phone does the
- * scanning, and this page advances by itself when the claim lands.
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHAT CHANGED FROM THE PROTOTYPE, AND WHY
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * THE SERIAL IS GONE. There is no serial anywhere in this system. The pairing
+ * code IS the identifier — it is derived from the tower's own public key and is
+ * the thing the tower proves possession of. A serial box would have been a
+ * field that looks like it matters and does not, on the one screen where
+ * getting the identifier wrong is the whole failure mode.
+ *
+ * THE NAME IS ASKED FOR BEFORE THE WAIT, NOT AFTER. The design put "NAME THIS
+ * SITE" after the tower reported itself, which reads better — but
+ * `create_pending_claim` takes the label alongside the code and carries it into
+ * the tower record at enrolment, and coordination serves no route to change a
+ * label afterwards. Asking after would mean either inventing an endpoint or
+ * showing a name field that quietly does nothing. So both real inputs are
+ * collected together, and the confirmation screen shows the name the tower came
+ * up under.
+ *
+ * THE WAIT IS REAL AND LIVES ON THE SERVER. It used to be
+ * `setTimeout(4500) → onClaimed(unit)`, which fabricated a tower unconditionally
+ * — it could not fail, could not be refused, and vanished on a reload. The
+ * pending state is now a real claim, polled from `GET /v1/viewer/claims`, and it
+ * survives closing the browser because it was never ours to hold.
+ *
+ * THE QR PATH CANNOT COMPLETE. Its screens stay, because it is a real intended
+ * feature and the design is worth keeping — but there is no phone-claim backend,
+ * so it says so and adds nothing. A walk-through that ends in a tower would be
+ * the same lie the timer was.
  */
 
-type Step = "intro" | "handoff" | "manual" | "site" | "online";
-
-/** How long the stubbed phone takes to scan. No backend; see `useClaimPoll`. */
-const HANDOFF_MS = 4500;
-
-const CHECKS = ["UPLINK", "SOLAR", "BATTERY", "FIRST FRAME"] as const;
+type Step = "intro" | "handoff" | "code" | "waiting";
 
 export function AddTowerView({
-  pending,
+  pendingClaim,
   onNavigate,
   onCancel,
-  onAdd,
-  taken,
+  onClaimed,
+  onDone,
 }: {
-  /** A claim left unfinished on a previous visit. Setup resumes from it rather
-   *  than starting over — the unit is already this operator's, and making them
-   *  re-scan a tower they have already claimed is asking them to prove
-   *  something they have proved. */
-  pending?: PendingTower | null;
-  /** Back to the fleet, carrying whatever has been claimed and typed so far.
-   *  `null` only when nothing was claimed. */
-  onCancel: (draft: PendingTower | null) => void;
-  /** Ids already on the fleet. A unit is claimed once, and nothing in the
-   *  prototype removes it from `UNCLAIMED` — so the flow has to do the
-   *  removing itself or it hands out the same tower twice. */
-  taken: string[];
-  /** Rail destinations, routed by the shell. Leaving this way still saves the
-   *  claim — a rail click is an exit like any other. */
+  /** An open claim from a previous visit, loaded by the shell from the server. */
+  pendingClaim?: Claim | null;
+  /** Rail destinations, routed by the shell. */
   onNavigate: (id: string) => void;
-  onAdd: (tower: Tower, feeds: CameraFeed[]) => void;
+  onCancel: () => void;
+  /** A claim was registered. The shell starts polling for it. */
+  onClaimed: (claim: Claim) => void;
+  /** The claim was consumed — the tower is real now. */
+  onDone: (deviceLabel: string) => void;
 }) {
-  /* The unit this run will claim, minted past every id already on the fleet.
-     Claiming used to hand back the same seeded unit every time, which added a
-     second tower under the id of the first: two towers keyed the same, two
-     cameras per feed id, one control moving both, and the second site
-     unreachable because every lookup resolved the first. */
-  /* Memoised on the fleet's ids, not rebuilt per render. `nextUnclaimed`
-     mints an object, and the handoff's timer is keyed on it — an identity that
-     changed every render cleared and restarted that timer forever, so the
-     screen sat on the QR code and never advanced. The seeded unit is a stable
-     reference, which is why the first tower added fine and only the second
-     hung. */
-  const takenKey = taken.join("|");
-  const unit = useMemo(
-    () => nextUnclaimed(takenKey ? takenKey.split("|") : []),
-    [takenKey],
-  );
+  /* Resume straight into the wait if a claim is already open. The operator has
+     already done the part that needed them. */
+  const [step, setStep] = useState<Step>(pendingClaim ? "waiting" : "intro");
+  const [claim, setClaim] = useState<Claim | null>(pendingClaim ?? null);
 
-  const [step, setStep] = useState<Step>(pending ? "site" : "intro");
-  const [claim, setClaim] = useState<UnclaimedUnit | null>(
-    pending?.unit ?? null,
-  );
-  const [site, setSite] = useState(pending?.site ?? "");
-
-  /* Every exit runs through here. A claim in hand becomes a draft in the panel;
-     nothing claimed leaves nothing behind. */
-  const leave = () =>
-    onCancel(claim ? { unit: claim, site } : null);
-
-  const claimed = (unit: UnclaimedUnit) => {
-    setClaim(unit);
-    setStep("site");
-  };
-
-  const finish = () => {
-    if (!claim) return;
-    const tower: Tower = {
-      id: claim.towerId,
-      site: site.trim().toUpperCase(),
-      /* The checks just passed and the unit answered, so it is connected. Read
-         from the claim rather than assumed the moment enrolment is real. */
-      online: true,
-      /* Status is read, not chosen. A tower with a poor uplink or a dead camera
-         is degraded the moment it joins the fleet, and saying `online` here
-         because it is new would be the one lie the dashboard exists to catch. */
-      status:
-        claim.link === "bad" || claim.cameras.some((c) => !c.poster)
-          ? "degraded"
-          : "online",
-      solar: claim.solar,
-      batteryPct: claim.batteryPct,
-      tempC: claim.tempC,
-      link: claim.link,
-      serial: claim.serial,
-      firmware: claim.firmware,
-      /* Location is the one field the box cannot report, so it inherits the
-         fleet's single region until somebody edits it — see `time.ts`. */
-      location: "Abuja GMT +1",
-      model: claim.model,
-      ipAddress: claim.ipAddress,
-      backupConnection: claim.backupConnection,
-      /* A tower joins with an empty buffer, which is the honest reading — it
-         has not recorded anything yet. */
-      storageUsedGb: 0,
-      storageTotalGb: claim.storageTotalGb,
-    };
-    const feeds: CameraFeed[] = claim.cameras.map((cam, i) => ({
-      id: cam.id,
-      towerId: claim.towerId,
-      /* Named by position rather than by the operator. The step that asked
-         for these was cut: it sat between naming the site and bringing the
-         tower online, and it asked somebody standing at a desk to name a view
-         they had one thumbnail of — one of which is routinely a dead feed with
-         nothing to look at. A positional name is honest about what is known at
-         claim time, and the wall labels each tile with its site anyway. */
-      name: `CAMERA ${i + 1}`,
-      state: cam.poster ? "live" : "offline",
-      latencyMs: cam.poster ? 24 : undefined,
-      poster: cam.poster ?? "",
-    }));
-    onAdd(tower, feeds);
-  };
+  useEffect(() => {
+    if (!pendingClaim) return;
+    setClaim(pendingClaim);
+    if (pendingClaim.status === "consumed") onDone(pendingClaim.label);
+  }, [pendingClaim, onDone]);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
       <IconRail
         active="add"
         onSelect={(id) => {
-          leave();
+          onCancel();
           onNavigate(id);
         }}
         className="hidden lg:block"
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-line pl-[16px] pr-[16px]">
-          <nav
-            aria-label="Breadcrumb"
-            className="flex min-w-0 items-center gap-[4px]"
-          >
+        <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-line px-[16px]">
+          <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-[4px]">
             <button
               type="button"
-              onClick={leave}
+              onClick={onCancel}
               title="Back to all towers"
               className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
             >
@@ -184,42 +126,30 @@ export function AddTowerView({
           <MaskIcon src="/icons/bell.svg" size={20} className="text-white/70" />
         </header>
 
-        {/* One column, 483px, centred — the frame's measurement, and every step
-            keeps it so the page never reflows between them. Scrolls rather than
-            centring below ~700px tall: the camera list is the one step that can
-            outgrow a laptop screen. */}
+        {/* One column, 483px, centred — the frame's measurement, kept so the
+            page never reflows between steps. */}
         <main className="flex min-h-0 flex-1 justify-center overflow-y-auto px-[24px] py-[48px]">
           <div className="my-auto w-[483px] max-w-full">
             {step === "intro" && (
-              <Intro
-                onScan={() => setStep("handoff")}
-                onManual={() => setStep("manual")}
-              />
+              <Intro onScan={() => setStep("handoff")} onCode={() => setStep("code")} />
             )}
-            {step === "handoff" && (
-              <Handoff
-                unit={unit}
-                onClaimed={claimed}
-                onManual={() => setStep("manual")}
-              />
-            )}
-            {step === "manual" && (
-              <Manual
-                unit={unit}
-                onClaimed={claimed}
+            {step === "handoff" && <Handoff onCode={() => setStep("code")} />}
+            {step === "code" && (
+              <EnterCode
+                onRegistered={(c) => {
+                  setClaim(c);
+                  onClaimed(c);
+                  setStep("waiting");
+                }}
                 onBack={() => setStep("intro")}
               />
             )}
-            {step === "site" && claim && (
-              <NameSite
+            {step === "waiting" && claim && (
+              <Waiting
                 claim={claim}
-                value={site}
-                onChange={setSite}
-                onContinue={() => setStep("online")}
+                onDone={() => onDone(claim.label)}
+                onReenter={() => setStep("code")}
               />
-            )}
-            {step === "online" && claim && (
-              <BringingOnline claim={claim} onFinish={finish} />
             )}
           </div>
         </main>
@@ -247,22 +177,18 @@ function Action({
   tone = "secondary",
   type = "button",
   disabled,
-  describedBy,
   onClick,
 }: {
   children: React.ReactNode;
   tone?: "primary" | "secondary";
   type?: "button" | "submit";
   disabled?: boolean;
-  /** Points a disabled control at whatever explains why it is disabled. */
-  describedBy?: string;
   onClick?: () => void;
 }) {
   return (
     <button
       type={type}
       disabled={disabled}
-      aria-describedby={describedBy}
       onClick={onClick}
       className={`h-[57px] w-full rounded-[8px] text-[1rem] leading-[20px] font-medium transition-colors disabled:cursor-not-allowed ${
         tone === "primary"
@@ -277,13 +203,7 @@ function Action({
 
 /* ----------------------------------------------------------------- 1 */
 
-function Intro({
-  onScan,
-  onManual,
-}: {
-  onScan: () => void;
-  onManual: () => void;
-}) {
+function Intro({ onScan, onCode }: { onScan: () => void; onCode: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -291,26 +211,21 @@ function Intro({
       transition={FADE}
       className="flex flex-col items-center gap-[45px]"
     >
-      <img
-        src="/icons/twr-mast-lg.svg"
-        alt=""
-        width={183}
-        height={317}
-        className="block"
-      />
+      <img src="/icons/twr-mast-lg.svg" alt="" width={183} height={317} className="block" />
       <div className="flex w-full flex-col gap-[26px]">
         <Heading
           title="ADD A NEW TOWER"
-          body="To add your tower after installation is complete and it’s turned on, scan the QR Code inside the cabinet door to begin setup."
+          body="Once the tower is installed and powered on, register it with the pairing code on its console."
         />
         <div className="flex flex-col gap-[12px]">
-          <Action tone="primary" onClick={onScan}>
-            Scan QR Code
+          {/* Enter code is the PRIMARY action now, because it is the one that
+              works. The QR path keeps its place in the flow and its screen, but
+              promoting a route that cannot finish would be the wrong emphasis
+              on the one screen where finishing is the point. */}
+          <Action tone="primary" onClick={onCode}>
+            Enter pairing code
           </Action>
-          {/* Not the frame's "Manually Enter": verb-first, and the same words
-              the hand-off uses for the same destination. Two labels for one
-              place is the cheapest kind of confusion to remove. */}
-          <Action onClick={onManual}>Enter serial instead</Action>
+          <Action onClick={onScan}>Scan QR Code</Action>
         </div>
       </div>
     </motion.div>
@@ -320,22 +235,68 @@ function Intro({
 /* ---------------------------------------------------------------- 2a */
 
 /**
- * A QR that encodes nothing.
+ * A QR that encodes nothing, on a path that cannot finish.
  *
- * There is no backend to point it at, so drawing a real code would be a
- * more convincing lie than an obviously-fake one. The module grid is derived
- * from the pairing code so it is stable across renders rather than flickering,
- * and it carries the three finder squares so it reads as a QR at a glance.
- * Swap this for a real encoder the moment there is a link worth encoding.
+ * ⚠ THIS SCREEN USED TO FABRICATE A TOWER. It ran a 4.5-second timer and then
+ * called `onClaimed` unconditionally — no server, no code, no possibility of
+ * refusal — and an operator who walked it got a real-looking tower on their
+ * fleet that had never existed. That timer is gone.
+ *
+ * The screen stays because phone hand-off is a real intended feature and the
+ * design is worth keeping warm. The drawn code stays because it is obviously
+ * decorative and a *convincing* fake QR would be the worse lie. What is not
+ * here any more is any way for this path to end in a tower.
  */
-function FakeQr({ seed }: { seed: string }) {
-  const n = 21;
-  let h = 0;
-  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+function Handoff({ onCode }: { onCode: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={FADE}
+      className="flex flex-col items-center gap-[32px]"
+    >
+      <Heading
+        title="SCAN FROM YOUR PHONE"
+        body="Scanning the QR code inside the cabinet door will register the tower from your phone."
+      />
 
+      <div className="relative overflow-hidden rounded-[8px] bg-white/12 p-[12px]">
+        <DecorativeQr />
+      </div>
+
+      <div
+        role="status"
+        className="flex w-full flex-col gap-[6px] rounded-[8px] bg-warn/12 px-[14px] py-[12px]"
+      >
+        <p className="text-[0.875rem] leading-[20px] font-medium text-warn">
+          Phone registration isn&rsquo;t available yet
+        </p>
+        <p className="text-[0.8125rem] leading-[20px] text-sub">
+          There is nothing behind this code to scan yet, so this screen cannot
+          add a tower. Register it with the pairing code from the tower&rsquo;s
+          console instead — it takes the same two details.
+        </p>
+      </div>
+
+      <Action tone="primary" onClick={onCode}>
+        Enter pairing code instead
+      </Action>
+    </motion.div>
+  );
+}
+
+/**
+ * A drawn code, deliberately not a real one.
+ *
+ * There is nothing to encode — no claim URL, no token — so a scannable code
+ * would either point nowhere or point somewhere fabricated. Greyed and inert,
+ * behind copy that says it does not work yet, it reads as the placeholder it is.
+ */
+function DecorativeQr() {
+  const n = 21;
+  let h = 987654321;
   const finder = (x: number, y: number) =>
     (x < 7 && y < 7) || (x > n - 8 && y < 7) || (x < 7 && y > n - 8);
-
   const cells: { x: number; y: number }[] = [];
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
@@ -344,9 +305,8 @@ function FakeQr({ seed }: { seed: string }) {
       if ((h >>> 16) % 100 < 46) cells.push({ x, y });
     }
   }
-
   return (
-    <svg viewBox={`0 0 ${n} ${n}`} className="size-[160px]" aria-hidden>
+    <svg viewBox={`0 0 ${n} ${n}`} className="size-[160px] opacity-40" aria-hidden>
       <rect width={n} height={n} fill="#ffffff" />
       {cells.map((c) => (
         <rect key={`${c.x}-${c.y}`} x={c.x} y={c.y} width={1} height={1} fill="#000000" />
@@ -366,135 +326,65 @@ function FakeQr({ seed }: { seed: string }) {
   );
 }
 
-function Handoff({
-  unit,
-  onClaimed,
-  onManual,
-}: {
-  unit: UnclaimedUnit;
-  onClaimed: (unit: UnclaimedUnit) => void;
-  onManual: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const link = `sentinel.app/p/${unit.pairingCode}`;
-
-  /* Stands in for polling the claim. The real version is a subscription that
-     fires when the phone posts the scan; what matters for the design is that
-     the desktop advances on its own, because a page that needs a Continue
-     click after the work has already happened on the phone reads as two
-     flows rather than one. */
-  const done = useRef(onClaimed);
-  done.current = onClaimed;
-  useEffect(() => {
-    const t = setTimeout(() => done.current(unit), HANDOFF_MS);
-    return () => clearTimeout(t);
-  }, [unit]);
-
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={FADE}
-      className="flex flex-col items-center gap-[32px]"
-    >
-      <Heading
-        title="SCAN FROM YOUR PHONE"
-        body="Open this link on your phone, then scan the QR Code inside the cabinet door."
-      />
-
-      {/* White, because a QR has to be. It is the one light surface in the app
-          and that is correct — it is a target, not a panel. */}
-      <div className="relative overflow-hidden rounded-[8px] bg-white p-[12px]">
-        <FakeQr seed={unit.pairingCode} />
-        {/* Clipped to the card, so the beam belongs to the code rather than
-            crossing the page. Symmetric, because it travels both ways and a
-            leading edge would swap ends halfway. */}
-        <span
-          aria-hidden
-          className="qr-scan pointer-events-none absolute inset-x-0 top-0 h-[40%] bg-gradient-to-b from-terra/0 via-terra/45 to-terra/0"
-        />
-      </div>
-
-      <div className="flex w-full items-center justify-between gap-[12px] rounded-[8px] bg-card px-[12px] py-[10px]">
-        <span className="truncate font-display text-[0.875rem] tracking-[0.14px] text-white">
-          {link}
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            navigator.clipboard?.writeText(`https://${link}`);
-            setCopied(true);
-          }}
-          aria-live="polite"
-          className="shrink-0 font-display text-[0.8125rem] tracking-[0.13px] text-muted transition-colors hover:text-white"
-        >
-          {copied ? "COPIED" : "COPY LINK"}
-        </button>
-      </div>
-
-      {/* The live bit. Same dot and same pulse as a recording feed, because it
-          is the same claim — something is happening that you are not driving. */}
-      <p
-        aria-live="polite"
-        className="flex items-center gap-[8px] font-display text-[0.875rem] tracking-[0.14px] text-muted"
-      >
-        <span aria-hidden className="pulse-dot size-[8px] rounded-full bg-terra" />
-        WAITING FOR TOWER
-      </p>
-
-      <button
-        type="button"
-        onClick={onManual}
-        className="text-[0.875rem] leading-[20px] text-muted underline underline-offset-4 transition-colors hover:text-white"
-      >
-        Enter serial instead
-      </button>
-    </motion.div>
-  );
-}
-
 /* ---------------------------------------------------------------- 2b */
 
-function Manual({
-  unit,
-  onClaimed,
+/**
+ * The real registration: a pairing code and a site name.
+ *
+ * Both, together, because both are what `POST /v1/viewer/claims` takes. The
+ * name is not a nicety collected later — it is carried into the tower record at
+ * enrolment and there is no route to change it afterwards.
+ */
+function EnterCode({
+  onRegistered,
   onBack,
 }: {
-  /** The one unit this run can claim. A serial that is already on the fleet
-   *  has to fail the same way a wrong one does, or the flow issues a
-   *  duplicate tower. */
-  unit: UnclaimedUnit;
-  onClaimed: (unit: UnclaimedUnit) => void;
+  onRegistered: (claim: Claim) => void;
   onBack: () => void;
 }) {
-  const [serial, setSerial] = useState("");
   const [code, setCode] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  /* The faked caret below is a ring on a box, and a ring drawn whether or not
-     the input behind it holds focus is a lie about where typing will go — the
-     screen opened with the serial empty and the pairing code apparently
-     active. It only shows while the code input is actually focused. */
-  const [codeFocused, setCodeFocused] = useState(false);
-  const serialRef = useRef<HTMLInputElement>(null);
+  const [label, setLabel] = useState("");
+  const [codeProblem, setCodeProblem] = useState<string | null>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const register = useMutation({ quiet: true });
+  const phase = register.phase("claim");
 
-  /* First field first. The label is read top to bottom off a cabinet door, and
-     landing anywhere else asks the operator to click before they can type. */
-  useEffect(() => serialRef.current?.focus(), []);
+  useEffect(() => codeRef.current?.focus(), []);
 
-  const submit = (e: FormEvent) => {
+  const ready = isCompleteCode(code) && label.trim().length >= 3;
+
+  const submit = useCallback(
+    (e?: FormEvent) => {
+      e?.preventDefault();
+      if (!ready || phase.kind === "pending") return;
+
+      let normalised: string;
+      try {
+        normalised = normalisePairingCode(code);
+      } catch (err) {
+        setCodeProblem(err instanceof PairingCodeError ? err.message : "Invalid code");
+        return;
+      }
+      setCodeProblem(null);
+
+      void register.run("claim", async () => {
+        const claim = await createClaim(normalised, label.trim().toUpperCase());
+        /* The code leaves component state the moment it is no longer needed.
+           It is a live secret until the tower consumes it. */
+        setCode("");
+        onRegistered(claim);
+      });
+    },
+    [code, label, onRegistered, phase.kind, ready, register],
+  );
+
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== "Enter") return;
     e.preventDefault();
-    const match = findUnclaimed(serial, code, [unit]);
-    if (!match) {
-      /* On the fields, never as a page banner: the operator is reading a label
-         off a cabinet door and the answer is "one of these two is wrong". */
-      setError(
-        "No tower matches that serial and code. Check the label inside the cabinet door.",
-      );
-      return;
-    }
-    onClaimed(match);
+    submit();
   };
+
+  const failed = phase.kind === "error" || codeProblem !== null;
 
   return (
     <motion.form
@@ -505,87 +395,71 @@ function Manual({
       className="flex flex-col items-center gap-[32px]"
     >
       <Heading
-        title="ENTER THE SERIAL AND CODE"
-        body="Both are on the label inside the cabinet door, beside the QR Code."
+        title="REGISTER THIS TOWER"
+        body="The pairing code is on the tower's console. The tower reports everything else itself."
       />
 
       <div className="flex w-full flex-col gap-[20px]">
         <label className="flex flex-col gap-[8px]">
           <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-            SERIAL
+            PAIRING CODE
           </span>
           <input
-            ref={serialRef}
-            value={serial}
+            ref={codeRef}
+            value={code}
             onChange={(e) => {
-              setSerial(e.target.value);
-              setError(null);
+              setCode(e.target.value);
+              setCodeProblem(null);
             }}
-            placeholder="SN-0000-X"
+            onKeyDown={onKey}
+            disabled={phase.kind === "pending"}
+            placeholder="K7QM-4X8N-P2W3"
             autoComplete="off"
+            autoCapitalize="characters"
+            autoCorrect="off"
             spellCheck={false}
-            aria-invalid={Boolean(error)}
-            className={`h-[52px] rounded-[8px] bg-card px-[14px] font-display text-[1rem] tracking-[0.16px] text-white uppercase outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra ${
-              error ? "ring-1 ring-critical" : ""
+            aria-invalid={failed || undefined}
+            aria-describedby="code-help"
+            className={`h-[52px] rounded-[8px] bg-card px-[14px] font-display text-[1.25rem] tracking-[0.2em] text-white uppercase outline-none placeholder:text-white/20 focus-visible:outline-1 focus-visible:outline-terra ${
+              failed ? "ring-1 ring-critical" : ""
             }`}
           />
+          <span id="code-help" className="text-[0.75rem] leading-[16px] text-muted">
+            {CODE_CHARS} characters. Dashes and spaces are ignored, and the
+            letters I, L, O and U are never used.
+          </span>
+          {codeProblem && (
+            <span role="alert" className="text-[0.8125rem] leading-[20px] text-critical">
+              {codeProblem}
+            </span>
+          )}
         </label>
 
         <label className="flex flex-col gap-[8px]">
           <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-            PAIRING CODE
+            SITE NAME
           </span>
-          {/* One input behind six boxes rather than six inputs. Six fields need
-              focus-shuttling, break paste, and turn a backspace into a puzzle;
-              the caret is faked with a ring on the active box instead. */}
-          <div className="relative h-[52px]">
-            <input
-              value={code}
-              onChange={(e) => {
-                setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
-                setError(null);
-              }}
-              onFocus={() => setCodeFocused(true)}
-              onBlur={() => setCodeFocused(false)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              aria-label="Pairing code, six digits"
-              aria-invalid={Boolean(error)}
-              className="absolute inset-0 z-10 w-full bg-transparent tracking-[2.6em] text-transparent caret-transparent outline-none"
-            />
-            <div aria-hidden className="pointer-events-none flex h-full gap-[8px]">
-              {Array.from({ length: 6 }, (_, i) => (
-                <span
-                  key={i}
-                  className={`flex flex-1 items-center justify-center rounded-[8px] bg-card font-display text-[1.25rem] text-white ${
-                    error
-                      ? "ring-1 ring-critical"
-                      : codeFocused && i === Math.min(code.length, 5)
-                        ? "ring-1 ring-terra/70"
-                        : ""
-                  }`}
-                >
-                  {code[i] ?? ""}
-                </span>
-              ))}
-            </div>
-          </div>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={onKey}
+            disabled={phase.kind === "pending"}
+            placeholder="WAREHOUSE: PARKING LOT"
+            autoComplete="off"
+            className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white uppercase outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra"
+          />
+          <span className="text-[0.75rem] leading-[16px] text-muted">
+            Place, then zone. This is the name your team will use on the radio —
+            it is set now and travels with the tower.
+          </span>
         </label>
 
-        {error && (
-          <p role="alert" className="text-[0.8125rem] leading-[20px] text-critical">
-            {error}
-          </p>
-        )}
+        <MutationError phase={phase} onRetry={() => void register.retry("claim")} />
       </div>
 
       <div className="flex w-full flex-col gap-[12px]">
-        <Action
-          tone="primary"
-          type="submit"
-          disabled={serial.trim().length < 4 || code.length < 6}
-        >
-          Continue
+        <Action tone="primary" type="submit" disabled={!ready || phase.kind === "pending"}>
+          {phase.kind === "pending" ? "REGISTERING…" : "Register tower"}
         </Action>
         <Action onClick={onBack}>Back</Action>
       </div>
@@ -595,182 +469,40 @@ function Manual({
 
 /* ----------------------------------------------------------------- 3 */
 
-function NameSite({
+/**
+ * Waiting for the tower to enrol.
+ *
+ * This is a REAL wait on a real deadline. The claim lives on the server, so
+ * closing the browser and coming back finds it still here — which is the point,
+ * and is what the old 4.5-second timer could never do.
+ *
+ * The countdown is the honest shape for it: the window is fifteen minutes and
+ * then the claim lapses, so a spinner with no end would be lying about what
+ * happens next.
+ */
+function Waiting({
   claim,
-  value,
-  onChange,
-  onContinue,
+  onDone,
+  onReenter,
 }: {
-  claim: UnclaimedUnit;
-  value: string;
-  onChange: (v: string) => void;
-  onContinue: () => void;
+  claim: Claim;
+  onDone: () => void;
+  onReenter: () => void;
 }) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => ref.current?.focus(), []);
-
-  /* Rendered as the card it will become, live. `ZONE: PLACE` is a two-part
-     convention nobody infers from a placeholder, and one keystroke against the
-     real card teaches it in a way helper text cannot. */
-  const preview: Tower = {
-    id: claim.towerId,
-    site: value.trim().toUpperCase() || "UNNAMED SITE",
-    status: "online",
-    online: true,
-    solar: claim.solar,
-    batteryPct: claim.batteryPct,
-    tempC: claim.tempC,
-    link: claim.link,
-    serial: claim.serial,
-    firmware: claim.firmware,
-    location: "Abuja GMT +1",
-    model: claim.model,
-    ipAddress: claim.ipAddress,
-    backupConnection: claim.backupConnection,
-    storageUsedGb: 0,
-    storageTotalGb: claim.storageTotalGb,
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={ENTER}
-      className="flex flex-col items-center gap-[32px]"
-    >
-      <Heading
-        title="NAME THIS SITE"
-        body="The tower reported everything else itself. This is the name your team will use on the radio."
-      />
-
-      {/* What was claimed, read-only. The point is not the metadata, it is
-          confirming you have hold of the right box before naming it. */}
-      <dl className="flex w-full items-center gap-[24px] rounded-[12px] bg-card px-[16px] py-[14px]">
-        <img
-          src="/icons/twr-mast-lg.svg"
-          alt=""
-          width={30}
-          height={52}
-          className="block shrink-0"
-        />
-        <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
-          <dt className="sr-only">Tower</dt>
-          <dd className="font-display text-[0.875rem] tracking-[0.14px] text-white">
-            {claim.towerId}
-          </dd>
-          <dt className="sr-only">Serial</dt>
-          <dd className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">
-            {/* No "claimed just now" — it stops being true the moment setup
-                is resumed, and the CONNECTED chip beside it already says the
-                state. A time nobody can act on is not worth being wrong about. */}
-            {claim.serial}
-          </dd>
-        </div>
-        <span className="flex items-center gap-[6px] font-display text-[0.75rem] tracking-[0.12px] text-terra">
-          <span aria-hidden className="size-[6px] rounded-full bg-terra" />
-          CONNECTED
-        </span>
-      </dl>
-
-      <label className="flex w-full flex-col gap-[8px]">
-        <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-          SITE NAME
-        </span>
-        <input
-          ref={ref}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="WAREHOUSE: PARKING LOT"
-          autoComplete="off"
-          className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white uppercase outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra"
-        />
-        <span className="text-[0.75rem] leading-[16px] text-muted">
-          Place, then zone.
-        </span>
-      </label>
-
-      <div className="w-full">
-        <p className="mb-[10px] font-display text-[0.75rem] tracking-[0.12px] text-muted">
-          ON THE FLEET
-        </p>
-        <div className="pointer-events-none w-[386px] max-w-full opacity-90">
-          <TowerCard
-            tower={preview}
-            alerts={[]}
-            onOpen={() => {}}
-            onOpenAlerts={() => {}}
-          />
-        </div>
-      </div>
-
-      <Action
-        tone="primary"
-        disabled={value.trim().length < 3}
-        onClick={onContinue}
-      >
-        Continue
-      </Action>
-    </motion.div>
-  );
-}
-
-/* ----------------------------------------------------------------- 4 */
-
-/* ----------------------------------------------------------------- 5 */
-
-function BringingOnline({
-  claim,
-  onFinish,
-}: {
-  claim: UnclaimedUnit;
-  onFinish: () => void;
-}) {
-  const [done, setDone] = useState(0);
-  const checksId = useId();
+  const [left, setLeft] = useState(() => msUntilExpiry(claim));
 
   useEffect(() => {
-    if (done >= CHECKS.length) return;
-    const t = setTimeout(() => setDone((d) => d + 1), 900);
-    return () => clearTimeout(t);
-  }, [done]);
+    setLeft(msUntilExpiry(claim));
+    const t = setInterval(() => setLeft(msUntilExpiry(claim)), 1000);
+    return () => clearInterval(t);
+  }, [claim]);
 
-  const dead = claim.cameras.filter((c) => !c.poster).length;
-  const readings: { value: string; tone: string }[] = [
-    {
-      value: claim.link === "good" ? "GOOD" : claim.link === "warn" ? "FAIR" : "POOR",
-      tone:
-        claim.link === "good"
-          ? "text-terra"
-          : claim.link === "warn"
-            ? "text-warn"
-            : "text-critical",
-    },
-    {
-      /* Derived, like everywhere else — a unit that arrives with a full
-         battery is not charging it, and the first reading an operator ever
-         sees of a tower should not be the one lie. */
-      value: solarState(claim) === "fault" ? "FAULT" : solarState(claim).toUpperCase(),
-      tone: solarState(claim) === "fault" ? "text-critical" : "text-terra",
-    },
-    {
-      value: `${claim.batteryPct}%`,
-      tone:
-        claim.batteryPct < 20
-          ? "text-critical"
-          : claim.batteryPct < 40
-            ? "text-warn"
-            : "text-terra",
-    },
-    {
-      value: dead
-        ? `${claim.cameras.length - dead} OF ${claim.cameras.length}`
-        : "ALL CAMERAS",
-      tone: dead ? "text-warn" : "text-terra",
-    },
-  ];
+  const consumed = claim.status === "consumed";
+  const dead = claim.status === "expired" || claim.status === "superseded" || left <= 0;
 
-  const settled = done >= CHECKS.length;
-  const nominal = readings.every((r) => r.tone === "text-terra");
+  useEffect(() => {
+    if (consumed) onDone();
+  }, [consumed, onDone]);
 
   return (
     <motion.div
@@ -779,70 +511,50 @@ function BringingOnline({
       transition={ENTER}
       className="flex flex-col items-center gap-[32px]"
     >
+      <img src="/icons/twr-mast-lg.svg" alt="" width={183} height={317} className="block max-h-[220px] w-auto" />
+
       <Heading
-        title="BRINGING IT ONLINE"
-        body="The tower is reporting itself. This takes a few seconds."
+        title={dead ? "REGISTRATION EXPIRED" : "WAITING FOR THE TOWER"}
+        body={
+          dead
+            ? "The tower did not connect in time. The code is still valid — register it again."
+            : "The tower will connect on its own. You can leave this page; the registration is saved."
+        }
       />
 
-      <ul
-        id={checksId}
-        className="flex w-full flex-col gap-px overflow-hidden rounded-[12px]"
-      >
-        {CHECKS.map((label, i) => {
-          const shown = i < done;
-          return (
-            <li
-              key={label}
-              className="flex h-[52px] items-center justify-between bg-card px-[16px]"
-            >
-              <span className="font-display text-[0.875rem] tracking-[0.14px] text-muted">
-                {label}
-              </span>
-              {shown ? (
-                <motion.span
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={FADE}
-                  className={`flex items-center gap-[8px] font-display text-[0.875rem] tracking-[0.14px] tabular-nums ${readings[i].tone}`}
-                >
-                  {readings[i].value}
-                  <span
-                    aria-hidden
-                    className={`size-[8px] rounded-full ${readings[i].tone.replace("text-", "bg-")}`}
-                  />
-                </motion.span>
-              ) : (
-                <span
-                  aria-hidden
-                  className="pulse-dot size-[8px] rounded-full bg-white/25"
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <dl className="flex w-full items-center gap-[24px] rounded-[12px] bg-card px-[16px] py-[14px]">
+        <img src="/icons/twr-mast-lg.svg" alt="" width={30} height={52} className="block shrink-0" />
+        <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
+          <dt className="sr-only">Site name</dt>
+          <dd className="truncate font-display text-[0.875rem] tracking-[0.14px] text-white">
+            {claim.label}
+          </dd>
+          <dt className="sr-only">Status</dt>
+          <dd className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">
+            {dead ? "Not registered" : "Registered — waiting to connect"}
+          </dd>
+        </div>
+        {!dead && (
+          <span className="flex shrink-0 items-center gap-[6px] font-display text-[0.75rem] tracking-[0.12px] text-detect tabular-nums">
+            <span aria-hidden className="pulse-dot size-[6px] rounded-full bg-detect" />
+            {formatCountdown(left)}
+          </span>
+        )}
+      </dl>
 
-      {/* Amber does not block. The tower is real and already claimed; refusing
-          to finish because a camera is down would leave the operator holding a
-          site they cannot see, which is the opposite of the point. */}
-      {settled && !nominal && (
-        <p className="text-[0.8125rem] leading-[20px] text-warn">
-          Not everything is nominal. The tower is added either way — watch it
-          from the fleet.
+      {dead ? (
+        <Action tone="primary" onClick={onReenter}>
+          Register again
+        </Action>
+      ) : (
+        <p
+          aria-live="polite"
+          className="flex items-center gap-[8px] font-display text-[0.875rem] tracking-[0.14px] text-muted"
+        >
+          <span aria-hidden className="pulse-dot size-[8px] rounded-full bg-terra" />
+          WAITING FOR TOWER
         </p>
       )}
-
-      {/* One label throughout. Swapping it for a status while the checks run
-          puts a moving target under the pointer and states in a button what the
-          list above already says. */}
-      <Action
-        tone="primary"
-        disabled={!settled}
-        describedBy={checksId}
-        onClick={onFinish}
-      >
-        Open {claim.towerId}
-      </Action>
     </motion.div>
   );
 }

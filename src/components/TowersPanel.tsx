@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { Alert, PendingTower, Tower } from "@/lib/types";
+import type { Alert, Tower } from "@/lib/types";
+import type { Claim } from "@/lib/api/claim";
 import { PendingTowerCard } from "./PendingTowerCard";
 import { TowerCard } from "./TowerCard";
 
@@ -11,7 +12,7 @@ import { TowerCard } from "./TowerCard";
 export function TowersPanel({
   towers,
   alerts,
-  pending,
+  pendingClaim,
   onResumeSetup,
   onOpenTower,
   loading = false,
@@ -21,9 +22,9 @@ export function TowersPanel({
 }: {
   towers: Tower[];
   alerts: Alert[];
-  /** Claimed, not finished. Sits at the top because it is the only card on
-   *  this panel with something outstanding on it. */
-  pending?: PendingTower | null;
+  /** Registered, not yet connected. Sits at the top because it is the only
+   *  card on this panel with something outstanding on it. */
+  pendingClaim?: Claim | null;
   onResumeSetup?: () => void;
   /** `showAlerts` lands the tower view on its alerts feed rather than its
    *  wall — the count on a card is a question about alerts, so answering it
@@ -73,9 +74,9 @@ export function TowersPanel({
           of the 46px bar. Extra bottom padding on small screens so the last
           card scrolls clear of the home indicator. */}
       <div className="flex min-h-0 flex-1 flex-col gap-[8px] overflow-y-auto px-[15px] pb-[calc(20px+env(safe-area-inset-bottom))] pt-[12px]">
-        {pending && (
+        {pendingClaim && (
           <PendingTowerCard
-            pending={pending}
+            claim={pendingClaim}
             onResume={() => onResumeSetup?.()}
           />
         )}
@@ -108,7 +109,7 @@ export function TowersPanel({
             LOADING FLEET…
           </p>
         )}
-        {!loading && !problem && towers.length === 0 && !pending && (
+        {!loading && !problem && towers.length === 0 && !pendingClaim && (
           <p className="px-[2px] py-[8px] text-[0.8125rem] leading-[20px] text-muted">
             No towers on this account yet. Add one and it appears here.
           </p>

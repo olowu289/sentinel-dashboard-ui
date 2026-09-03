@@ -1,38 +1,45 @@
-import type { PendingTower } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { formatCountdown, msUntilExpiry, type Claim } from "@/lib/api/claim";
 
 /**
- * A tower that has been claimed but not finished.
+ * A tower that has been registered but has not connected yet.
  *
  * Deliberately not a `TowerCard`. That card is a set of readings — status word,
- * charge, temperature, uplink — and this tower has none of them yet, because
- * nobody has told it what it is watching. Rendering it as a fleet card with the
- * readings blanked would be the one thing the dashboard must never do: show a
- * site that looks monitored and is not.
+ * charge, temperature, uplink — and this tower has none of them, because it has
+ * not spoken to coordination yet. Rendering it as a fleet card with the readings
+ * blanked would be the one thing the dashboard must never do: show a site that
+ * looks monitored and is not.
  *
  * The frame gives it a 20% wash of detect amber. That is the palette stretched
  * one notch — amber has meant "degraded or a detection", and this is neither —
  * but it is the same underlying claim in both cases: *something here is not
- * finished and it is on you*. It is the only card on the panel carrying an
- * outstanding action, and the mast is drawn without its battery cell because a
- * tower that has not been named is not reporting a charge either.
+ * finished and it is on you*. The mast is drawn without its battery cell,
+ * because a tower that has not connected is not reporting a charge either.
+ *
+ * ── WHAT CHANGED ───────────────────────────────────────────────────────
+ *
+ * This used to count local setup steps — "2 of 3 steps left" — over a claim
+ * held in browser memory. There are no steps now: registration is one act, and
+ * what follows is a wait on the tower. So the card shows the real deadline
+ * instead, which is the thing an operator can actually act on. Fifteen minutes,
+ * from the server, ticking.
  */
-
-/** Claim, name the site, watch it come online. Naming the cameras was a fourth
- *  step until it was cut — they are named by position at claim time now. */
-const STEPS = 3;
-
 export function PendingTowerCard({
-  pending,
+  claim,
   onResume,
 }: {
-  pending: PendingTower;
+  claim: Claim;
   onResume: () => void;
 }) {
-  const named = pending.site.trim();
+  const [left, setLeft] = useState(() => msUntilExpiry(claim));
 
-  /* The claim is always done — that is why this card exists at all. */
-  const done = 1 + (named ? 1 : 0);
-  const remaining = STEPS - done;
+  useEffect(() => {
+    setLeft(msUntilExpiry(claim));
+    const t = setInterval(() => setLeft(msUntilExpiry(claim)), 1000);
+    return () => clearInterval(t);
+  }, [claim]);
+
+  const dead = claim.status === "expired" || left <= 0;
 
   return (
     <div className="relative h-[129px] w-full shrink-0 overflow-hidden rounded-[12px] bg-detect/20">
@@ -40,9 +47,9 @@ export function PendingTowerCard({
         type="button"
         onClick={onResume}
         aria-label={
-          named
-            ? `Finish setting up ${named.toUpperCase()}, ${remaining} of ${STEPS} steps remaining`
-            : `Finish setting up ${pending.unit.towerId}, ${remaining} of ${STEPS} steps remaining`
+          dead
+            ? `${claim.label} — registration expired, register again`
+            : `${claim.label} — registered, waiting for the tower to connect, ${formatCountdown(left)} left`
         }
         className="absolute inset-0 rounded-[12px]"
       />
@@ -51,25 +58,21 @@ export function PendingTowerCard({
         aria-hidden
         className="pointer-events-none absolute left-[15px] right-[90px] top-[13px] flex flex-col gap-[4px]"
       >
-        {/* "finish setup" — the frame writes it "finish set up" on this line and
-            "FINISH SETUP" on the button below it. Two words is the verb (to set
-            up a tower); one word is the noun, and "finish" takes the noun. */}
-        <span className="truncate text-[0.75rem] leading-[15px] font-medium tracking-[0.12px] text-white">
-          {named
-            ? "Name the cameras to finish setup"
-            : "Name the tower and cameras to finish setup"}
+        <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white">
+          {claim.label}
         </span>
-        {/* Not the frame's "Step 3/4 remaining", which reads as "step 3 of 4" —
-            i.e. which step you are on — while meaning the opposite. After a
-            claim you are *on* step 2 and three are left, so the frame's own
-            numbers only work under the reading nobody takes first. */}
         <span className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-detect">
-          {remaining} of {STEPS} steps left
+          {dead ? "Registration expired" : "Waiting for the tower to connect"}
         </span>
+        {!dead && (
+          <span className="font-display text-[0.75rem] leading-[15px] tracking-[0.12px] text-detect/80 tabular-nums">
+            {formatCountdown(left)} left
+          </span>
+        )}
       </span>
 
-      {/* No battery cell — see `twr-mast.svg`. A tower nobody has named is not
-          reporting a charge, and drawing one would be inventing a reading. */}
+      {/* No battery cell — see `twr-mast.svg`. A tower that has not connected is
+          not reporting a charge, and drawing one would be inventing a reading. */}
       <img
         src="/icons/twr-mast.svg"
         alt=""
@@ -85,7 +88,7 @@ export function PendingTowerCard({
         aria-hidden
         className="pointer-events-none absolute bottom-[15px] left-[15px] flex h-[31px] items-center justify-center rounded-[60px] bg-white px-[24px] text-[0.75rem] leading-[15px] font-semibold tracking-[0.12px] text-black"
       >
-        FINISH SETUP
+        {dead ? "REGISTER AGAIN" : "VIEW REGISTRATION"}
       </span>
     </div>
   );

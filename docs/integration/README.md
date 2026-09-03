@@ -1083,7 +1083,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6a — Read breadth | ✅ **22/22** | All towers/feeds real, live clock, scoping proven cross-account, three fleet states, AlertsView nav. No mutations converted. |
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
-| 8 — Enrollment | — | |
+| 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
 | 9 — Renewal + persistence | — | |
 | 10 — Sweep | — | |
 
@@ -1125,6 +1125,57 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 8 result — real enrolment, 21/21
+
+**Two contract findings reshaped the flow**, both checked in coordination's
+source rather than assumed:
+
+1. **The pairing code is 12 Crockford characters**, not 6 digits —
+   `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, with `I`, `L`, `O` and `U` absent by
+   construction and **rejected rather than remapped** (silently turning a typed
+   `O` into `0` would authenticate a code the operator never read). Grouped
+   `K7QM-4X8N-P2W3`; case and separators are ignored.
+2. **The label is set AT CLAIM TIME**, not after. `create_pending_claim` takes
+   it alongside the code and carries it into the tower record at enrolment, and
+   `do_PATCH` serves only session ICE — there is no route to change a label
+   later. So the design's "NAME THIS SITE after it connects" ordering is not
+   possible: asking after would mean inventing an endpoint or showing a field
+   that quietly does nothing. Both real inputs are collected together instead.
+
+**The serial is gone.** There is no serial anywhere in this system — the
+pairing code IS the identifier, derived from the tower's own public key. The
+field, its validation and `findUnclaimed`'s serial match are all removed.
+
+**The fake provisioning is deleted**, not left unused: `UNCLAIMED`,
+`nextUnclaimed`, `findUnclaimed`, `UnclaimedUnit`, `PendingTower` and
+`addTower`. **No path in this app can now put a tower on a fleet the server
+does not already have** — grep-confirmed: no client-side tower insertion
+anywhere.
+
+**The QR path keeps its screens and cannot finish.** The old
+`setTimeout(4500) → onClaimed(unit)` fabricated a tower unconditionally.
+Verified: sitting on that screen for 7s — well past the old timer — leaves the
+tower count at 1 → 1.
+
+**The pending state is real and server-side.** A registered claim survives a
+full browser reload, because it was never ours to hold — `GET /v1/viewer/claims`
+is the only reason a registered-but-not-yet-connected tower is anywhere at all.
+15-minute TTL with a real countdown; a lapsed claim says "register again"
+rather than spinning forever.
+
+**Honest failures, all real:** a `409` from another account claiming the same
+code says so specifically and is *not* phrased as a bad code; a severed network
+reads `Can't reach coordination`; an excluded letter cannot even be submitted.
+The pairing code is a parameter only — never logged, never in a response
+(verified absent from the claim body), cleared from state on success.
+
+**The "bringing online" checks were removed rather than faked.** They were four
+`setTimeout(900)` ladders reporting `UPLINK`, `SOLAR`, `BATTERY`, `FIRST FRAME`
+as pass/fail probes we cannot run — coordination exposes no such probe, and
+three of the four are the cabinet readings that do not exist. What replaces them
+is the tower simply appearing on the fleet with its real link state and real
+per-camera status, which is the same information without the theatre.
 
 ### Stage 7 result — real PTZ, 15/15
 

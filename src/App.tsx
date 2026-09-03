@@ -10,6 +10,7 @@ import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
 import { listFleet } from "@/lib/api/fleet";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
+import { listClaims, type Claim } from "@/lib/api/claim";
 import { CoordinationBanner } from "@/components/CoordinationBanner";
 import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
 import { useMutation } from "@/lib/useMutation";
@@ -26,7 +27,6 @@ import type {
   Alert,
   CameraFeed,
   CameraSettings,
-  PendingTower,
   Person,
   Tower,
 } from "@/lib/types";
@@ -227,11 +227,21 @@ export function SentinelApp() {
      wearing a scrim, and it would put the fleet behind it pretending the
      operator could still reach it. */
   const [adding, setAdding] = useState(false);
-  /* A claim survives leaving the flow. The unit belongs to this operator from
-     the moment the phone scans, so dropping it on a navigation would strand a
-     tower nobody can see and nobody else can claim — it waits in the panel
-     instead, with whatever naming was done. */
-  const [pending, setPending] = useState<PendingTower | null>(null);
+  /* Bumped when a claim is registered, so the poll picks it up at once rather
+     than on its next tick. */
+  const [claimTick, setClaimTick] = useState(0);
+  /**
+   * Open registrations, from the server.
+   *
+   * ⚠ THIS USED TO BE LOCAL STATE holding a fabricated unit, which meant a
+   * claim survived navigation and died on a reload. A claim is ownership: it
+   * belongs on the server, and `GET /v1/viewer/claims` is the only reason a
+   * registered-but-not-yet-connected tower is anywhere at all — no tower record
+   * exists until enrolment binds one, so the pending window is invisible in
+   * `/v1/viewer/towers`.
+   */
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const openClaim = claims.find((c) => c.status === "open") ?? null;
 
   /* The watchlist, and the screen that edits it. Up here with the feeds and the
      towers because a match is an alert like any other — the roster and the feed
@@ -616,31 +626,15 @@ export function SentinelApp() {
     [applyExtendWatch, deliberate],
   );
 
-  /* A claimed tower arrives whole: the unit reported its own readings and the
-     operator named the site and the cameras. Landing straight on it is the
-     honest end of the flow — "added" is a claim you should be able to check. */
-  const applyAddTower = useCallback(
-    (tower: Tower, feeds: CameraFeed[]) => {
-      setTowers((prev) => [...prev, tower]);
-      setFeeds((prev) => [...prev, ...feeds]);
-      setPending(null);
-      setAdding(false);
-      show({ id: tower.id, showAlerts: false });
-    },
-    [show],
-  );
-
-  /* Routine, and the one place that word needs defending: adding a tower is
-     enormously consequential, but the flow LANDS ON THE TOWER — the operator is
-     looking at the site they just added. A check on a screen that has already
-     been replaced would be shown to nobody. */
-  const addTower = useCallback(
-    (tower: Tower, feeds: CameraFeed[]) =>
-      routine.run(`add:${tower.id}`, async () => {
-        applyAddTower(tower, feeds);
-      }),
-    [applyAddTower, routine],
-  );
+  /* `addTower` is gone, and its absence is the point.
+   *
+   * It used to take a fabricated `Tower` and splice it into local state, which
+   * is how the old flow "added" a site that had never spoken to coordination.
+   * A real tower arrives the only way it can: it enrols against the pairing
+   * code, coordination binds it to this account, and it turns up in the next
+   * read of `GET /v1/viewer/towers`. Nothing client-side mints one, so there is
+   * no longer any path in this app that can put a tower on a fleet that the
+   * server does not already have. */
   const openTower = useCallback(
     (id: string, showAlerts = false) => show({ id, showAlerts }),
     [show],
@@ -674,6 +668,50 @@ export function SentinelApp() {
         : [...kept, ...added];
     });
   }, [fleet]);
+
+  /**
+   * Poll while a registration is open.
+   *
+   * Only while one is open: there is nothing to watch otherwise, and a fleet
+   * screen quietly polling forever is the kind of traffic nobody notices until
+   * it matters. When a claim flips to `consumed` the tower appears in the fleet,
+   * so the fleet is re-read once and the polling stops.
+   */
+  useEffect(() => {
+    if (seededFleet) return;
+    const controller = new AbortController();
+    let stopped = false;
+
+    const read = async () => {
+      try {
+        const next = await listClaims(controller.signal);
+        if (controller.signal.aborted || stopped) return;
+        setClaims(next);
+        /* A claim that has just been consumed means a real tower now exists
+           that the fleet has not seen. One re-read, not a poll. */
+        const consumed = next.some((c) => c.status === "consumed");
+        if (consumed) {
+          const snapshot = await listFleet(controller.signal);
+          if (!controller.signal.aborted && !stopped) {
+            setTowers(snapshot.towers);
+            setFeeds(snapshot.feeds);
+          }
+        }
+      } catch {
+        /* A failed claims read is not a reason to shout — the fleet banner
+           already reports an unreachable coordination, and a second notice
+           about the same outage would be noise. */
+      }
+    };
+
+    void read();
+    const t = setInterval(() => void read(), 5000);
+    return () => {
+      stopped = true;
+      controller.abort();
+      clearInterval(t);
+    };
+  }, [seededFleet, adding, claimTick]);
 
   /* Only counts while something is actually on air. A tower whose cameras are
      offline or reconnecting is not being streamed from and its battery is not
@@ -1037,14 +1075,17 @@ export function SentinelApp() {
         />
       ) : adding ? (
         <AddTowerView
-          pending={pending}
-          taken={towers.map((t) => t.id)}
+          pendingClaim={openClaim}
           onNavigate={navigate}
-          onCancel={(draft) => {
-            setPending(draft);
-            setAdding(false);
+          onCancel={() => setAdding(false)}
+          onClaimed={(claim) => {
+            setClaims((prev) => [claim, ...prev.filter((c) => c.claim_id !== claim.claim_id)]);
+            setClaimTick((n) => n + 1);
           }}
-          onAdd={addTower}
+          onDone={() => {
+            setAdding(false);
+            setClaimTick((n) => n + 1);
+          }}
         />
       ) : open === null ? (
         <DashboardView
@@ -1053,7 +1094,7 @@ export function SentinelApp() {
           alerts={alerts}
           order={wallOrder}
           onReorder={reorderWall}
-          pending={pending}
+          pendingClaim={openClaim}
           onNavigate={navigate}
           onResumeSetup={() => setAdding(true)}
           onOpenTower={openTower}

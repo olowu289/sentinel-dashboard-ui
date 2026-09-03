@@ -31,6 +31,15 @@ export interface TileControl {
   hold?: { onStart: () => void; onEnd: () => void };
   /** Survives the hover reveal — the tile's one permanent affordance. */
   persistent?: boolean;
+  /**
+   * The command is in flight.
+   *
+   * Distinct from `disabled`, which it usually accompanies: disabled says "you
+   * cannot", busy says "you already did, wait". On a control that reaches a
+   * physical site — a siren, a talk-down, a recording — those are different
+   * things to tell somebody, and only one of them is temporary.
+   */
+  busy?: boolean;
   disabled?: boolean;
   onSelect?: () => void;
   /** Lets the tile hand focus back to a control after chrome unmounts. */
@@ -119,6 +128,7 @@ export function ControlStack({
             aria-pressed={c.active}
             title={c.label}
             disabled={c.disabled}
+            aria-busy={c.busy || undefined}
             onClick={c.hold ? undefined : c.onSelect}
             onPointerDown={
               c.hold &&
@@ -197,7 +207,24 @@ export function ControlStack({
               />
             )}
             <span className="relative flex items-center justify-center">
-              <MaskIcon src={c.icon} size={c.size ?? 20} />
+              {/* Busy replaces the glyph rather than sitting beside it: a
+                  32px chip has room for one mark, and while a command is in
+                  flight the useful mark is that it is in flight. */}
+              {c.busy ? (
+                <svg
+                  width={c.size ?? 20}
+                  height={c.size ?? 20}
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  aria-hidden
+                  className="animate-spin [animation-duration:800ms]"
+                >
+                  <circle cx="10" cy="10" r="8" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
+                  <path d="M18 10a8 8 0 0 0-8-8" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <MaskIcon src={c.icon} size={c.size ?? 20} />
+              )}
               {critical && (
                 <span
                   aria-hidden

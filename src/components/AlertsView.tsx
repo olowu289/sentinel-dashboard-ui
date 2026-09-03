@@ -45,6 +45,7 @@ export function AlertsView({
   onBack,
   onSetStatus,
   statusMutation,
+  rejectMutation,
   onWatchPerson,
   onRejectMatch,
 }: {
@@ -57,6 +58,8 @@ export function AlertsView({
   onSetStatus: (id: string, status: Alert["status"]) => void;
   /** Keyed by alert id, owned by the shell. Never held below this. */
   statusMutation?: Mutation;
+  /** Keyed by alert id. */
+  rejectMutation?: Mutation;
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
 }) {
@@ -268,6 +271,10 @@ export function AlertsView({
               statusPhase={statusMutation?.phase(selected.id)}
               onRetryStatus={() => void statusMutation?.retry(selected.id)}
               onDismissStatus={() => statusMutation?.reset(selected.id)}
+              rejectPhase={rejectMutation?.phase(`reject:${selected.id}`)}
+              onRetryReject={() =>
+                void rejectMutation?.retry(`reject:${selected.id}`)
+              }
               onWatchPerson={() => onWatchPerson?.(selected)}
               onRejectMatch={() => onRejectMatch?.(selected.id)}
               onPlayClip={(at, attachment) =>

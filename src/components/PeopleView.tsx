@@ -7,6 +7,8 @@ import { isExpired } from "@/lib/data";
 import { formatEventTime } from "@/lib/time";
 import { SiteClock } from "@/components/SiteClock";
 import type { Alert, Person } from "@/lib/types";
+import type { Mutation, MutationPhase } from "@/lib/useMutation";
+import { MutationError, MutationIcon, MutationStatus } from "@/components/MutationFeedback";
 
 /**
  * The watchlist: who the fleet is looking for, and where they have been seen.
@@ -61,6 +63,7 @@ export function PeopleView({
   onExtend,
   onStopWatching,
   onDelete,
+  mutation,
 }: {
   people: Person[];
   /** Every alert in the fleet. Sightings are found in here by
@@ -83,6 +86,17 @@ export function PeopleView({
   onStopWatching: (personId: string, reason: string) => void;
   /** Erase the entry. Only offered once it is already stopped. */
   onDelete: (personId: string) => void;
+  /**
+   * Every act on this screen is deliberate, so all four carry a real
+   * pending/failure/retry. Keyed by action AND person — `stop:POI-03` and
+   * `delete:POI-03` are separate, so the two-press guard cannot show one act's
+   * failure against the other.
+   *
+   * `PersonDetail` IS keyed on the person, unlike `AlertDetail`, so it would be
+   * safe to hold this below — but it is held above anyway, because one rule for
+   * where mutation state lives is easier to keep than two.
+   */
+  mutation?: Mutation;
 }) {
   /* Nothing selected on arrival. The roster used to be a 417px column with a
      detail pane beside it, where an empty pane was wasted screen and opening
@@ -215,6 +229,9 @@ export function PeopleView({
       >
         {enrolling ? (
           <Enrol
+            phase={mutation?.phase("enrol")}
+            onRetry={() => void mutation?.retry("enrol")}
+            onDismiss={() => mutation?.reset("enrol")}
             operator={operator}
             presetPhoto={enrolFrom?.attachment?.thumbnail}
             presetReason={
@@ -235,6 +252,7 @@ export function PeopleView({
                documents. */
             key={selected.id}
             person={selected}
+            mutation={mutation}
             sightings={sightingsFor(selected.id)}
             onClose={() => setSelectedId(null)}
             onExtend={(days) => onExtend(selected.id, days)}
@@ -366,6 +384,7 @@ function PoiCard({
 
 function PersonDetail({
   person,
+  mutation,
   sightings,
   onClose,
   onExtend,
@@ -378,6 +397,8 @@ function PersonDetail({
    *  was a pane beside a 417px list there was nothing to close — it was just
    *  the other half of the screen. */
   onClose: () => void;
+  /** Keyed by action and person id, owned by the shell. */
+  mutation?: Mutation;
   onExtend: (days: number) => void;
   onStopWatching: (reason: string) => void;
   onDelete: () => void;
@@ -395,6 +416,15 @@ function PersonDetail({
   const [why, setWhy] = useState<string>("");
   const [note, setNote] = useState("");
   const reason = why === "Other" ? note.trim() : why;
+
+  /* Whichever of the two destructive acts this panel is currently offering.
+     They are keyed separately upstream, so a failed stop cannot surface against
+     a later delete. */
+  const actKey = expired ? `delete:${person.id}` : `stop:${person.id}`;
+  const actPhase = mutation?.phase(actKey) ?? { kind: "idle" as const };
+  const extendPhase = mutation?.phase(`extend:${person.id}`) ?? {
+    kind: "idle" as const,
+  };
 
   return (
     <motion.div
@@ -420,6 +450,17 @@ function PersonDetail({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto p-[24px]">
+        {/* Said where the acts are, above the buttons that run them. */}
+        <MutationError
+          phase={actPhase.kind === "error" ? actPhase : extendPhase}
+          onRetry={() =>
+            void mutation?.retry(actPhase.kind === "error" ? actKey : `extend:${person.id}`)
+          }
+          onDismiss={() =>
+            mutation?.reset(actPhase.kind === "error" ? actKey : `extend:${person.id}`)
+          }
+        />
+        <MutationStatus phase={actPhase} label={`Updating ${person.name}`} />
         <div className="flex items-start gap-[20px]">
           <img
             src={person.photo}
@@ -510,6 +551,11 @@ function PersonDetail({
             <div className="flex items-center gap-[8px]">
               <button
                 type="button"
+                disabled={
+                  (!expired && !reason) ||
+                  actPhase.kind === "pending"
+                }
+                aria-busy={actPhase.kind === "pending" || undefined}
                 /* Closing after the stop is load-bearing. The panel is keyed to
                    the person, not to the action, so leaving it open re-armed it
                    as `Delete entry` the instant watching stopped — the second
@@ -520,9 +566,9 @@ function PersonDetail({
                   if (expired) onDelete();
                   else onStopWatching(reason);
                 }}
-                disabled={!expired && !reason}
-                className="h-[36px] rounded-[8px] bg-critical px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+                className="flex h-[36px] items-center gap-[8px] rounded-[8px] bg-critical px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-40"
               >
+                <MutationIcon phase={actPhase} idle={null} />
                 {expired ? "Delete entry" : "Stop watching"}
               </button>
               <button
@@ -539,8 +585,11 @@ function PersonDetail({
             <button
               type="button"
               onClick={() => onExtend(DEFAULT_DAYS)}
-              className="h-[36px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+              disabled={extendPhase.kind === "pending"}
+              aria-busy={extendPhase.kind === "pending" || undefined}
+              className="flex h-[36px] items-center gap-[8px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e] disabled:opacity-50"
             >
+              <MutationIcon phase={extendPhase} idle={null} />
               {expired
                 ? `Watch again for ${DEFAULT_DAYS} days`
                 : `Extend by ${DEFAULT_DAYS} days`}
@@ -626,10 +675,17 @@ export function Enrol({
   operator,
   presetPhoto,
   presetReason,
+  phase = { kind: "idle" },
+  onRetry,
+  onDismiss,
   onCancel,
   onSave,
 }: {
   operator: string;
+  /** The enrolment's own pending/failure. Never state in here. */
+  phase?: MutationPhase;
+  onRetry?: () => void;
+  onDismiss?: () => void;
   /** A frame carried in from an alert. The face is already on screen there,
    *  which is the path this feature is actually used through. */
   presetPhoto?: string;
@@ -835,12 +891,17 @@ export function Enrol({
         </section>
       </div>
 
-      <footer className="flex shrink-0 items-center gap-[8px] border-t border-line px-[24px] py-[16px]">
+      <footer className="flex shrink-0 flex-col gap-[8px] border-t border-line px-[24px] py-[16px]">
+        <MutationError phase={phase} onRetry={onRetry} onDismiss={onDismiss} />
+        <MutationStatus phase={phase} label="Adding this person to the watchlist" />
+        <div className="flex items-center gap-[8px]">
         <button
           type="submit"
-          disabled={!ready}
-          className="h-[44px] rounded-[8px] bg-white px-[20px] text-[0.875rem] font-medium text-black transition-colors hover:bg-white/90 disabled:bg-white/25 disabled:text-black/40"
+          disabled={!ready || phase.kind === "pending"}
+          aria-busy={phase.kind === "pending" || undefined}
+          className="flex h-[44px] items-center gap-[8px] rounded-[8px] bg-white px-[20px] text-[0.875rem] font-medium text-black transition-colors hover:bg-white/90 disabled:bg-white/25 disabled:text-black/40"
         >
+          <MutationIcon phase={phase} idle={null} />
           Start watching
         </button>
         <button
@@ -855,6 +916,7 @@ export function Enrol({
             A photo, a name and a reason are required.
           </p>
         )}
+        </div>
       </footer>
     </motion.form>
   );

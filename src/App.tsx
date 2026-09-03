@@ -349,6 +349,28 @@ export function SentinelApp() {
    */
   const renameMutation = useMutation({ quiet: true });
 
+  /**
+   * The two shared mutation instances, and the split between them is the
+   * pending/success decision made once rather than argued per call site.
+   *
+   * ROUTINE — the new value IS the confirmation, so a check would be the
+   * control congratulating itself. A renamed tower already reads as renamed; a
+   * flipped setting already shows its new value; a tile that starts recording
+   * changes its own glyph from a circle to a square.
+   *
+   * DELIBERATE — an act whose result is not obviously visible where it was
+   * performed, or whose consequence is worth confirming. Stopping a watch,
+   * deleting an entry, rejecting an identity: the row does not move much, and
+   * "did that land?" is a question an operator should not have to ask about an
+   * auditable act.
+   *
+   * Keys are prefixed by action, not just by target, so two different acts on
+   * one person cannot collide — `stop:POI-03` and `delete:POI-03` are separate
+   * even though the UI only ever offers one of them at a time.
+   */
+  const routine = useMutation({ quiet: true });
+  const deliberate = useMutation();
+
   const renameTower = useCallback((towerId: string, to: string) => {
     const next = to.trim().toUpperCase();
     if (!next) return;
@@ -365,7 +387,7 @@ export function SentinelApp() {
     [renameMutation, renameTower],
   );
 
-  const changeSettings = useCallback(
+  const applySettings = useCallback(
     (feedId: string, next: Partial<CameraSettings>) => {
       setSettings((prev) => ({
         ...prev,
@@ -381,6 +403,17 @@ export function SentinelApp() {
        changes on a sign-in or sign-out, and the gate unmounts this whole tree on
        either — so in practice this identity is as stable as `[]` was. */
     [OPERATOR],
+  );
+
+  /* Routine: every one of these rows shows its own new value the moment it
+     lands, so there is nothing a tick would add. Zones go through here too —
+     the drawn rectangle appearing on the frame is the confirmation. */
+  const changeSettings = useCallback(
+    (feedId: string, next: Partial<CameraSettings>) =>
+      routine.run(`settings:${feedId}`, async () => {
+        applySettings(feedId, next);
+      }),
+    [applySettings, routine],
   );
 
   const watchPerson = useCallback(
@@ -451,11 +484,23 @@ export function SentinelApp() {
     [alerts, show, towers],
   );
 
-  const rejectMatch = useCallback((id: string) => {
+  const applyRejectMatch = useCallback((id: string) => {
     setAlerts((prev) =>
       prev.map((a) => (a.id === id ? { ...a, matchRejected: true } : a)),
     );
   }, []);
+
+  /* Deliberate. Saying "not them" drops an identity from a detection that keeps
+     its own record, which is a judgement worth confirming — and it happens on
+     the alerts surface, so it is keyed by alert id and held here, above the
+     panel that never remounts. */
+  const rejectMatch = useCallback(
+    (id: string) =>
+      deliberate.run(`reject:${id}`, async () => {
+        applyRejectMatch(id);
+      }),
+    [applyRejectMatch, deliberate],
+  );
 
   /* Monotonic, and deliberately not derived from the list. Numbering off
      `people.length` reused an id the moment anything was deleted — remove the
@@ -469,11 +514,22 @@ export function SentinelApp() {
     PEOPLE.reduce((max, p) => Math.max(max, Number(p.id.slice(4)) || 0), 0),
   );
 
-  const enrolPerson = useCallback((person: Omit<Person, "id">) => {
+  const applyEnrol = useCallback((person: Omit<Person, "id">) => {
     nextPoi.current += 1;
     const id = `POI-${String(nextPoi.current).padStart(2, "0")}`;
     setPeople((prev) => [{ ...person, id }, ...prev]);
   }, []);
+
+  /* Deliberate, and of everything in this file the one most worth confirming:
+     it puts a named person under fleet-wide automated matching on one
+     operator's say-so, and that person is not in the room. */
+  const enrolPerson = useCallback(
+    (person: Omit<Person, "id">) =>
+      deliberate.run("enrol", async () => {
+        applyEnrol(person);
+      }),
+    [applyEnrol, deliberate],
+  );
 
   /* Two halves of one removal, and the split is the point. Stopping is what an
      operator does when somebody should not be watched any more: matching ends
@@ -481,7 +537,7 @@ export function SentinelApp() {
      Deleting is only offered once it is already stopped — you cannot erase the
      record of somebody the fleet is still looking for, and by then the entry is
      a record rather than an instruction. */
-  const stopWatching = useCallback((personId: string, reason: string) => {
+  const applyStopWatching = useCallback((personId: string, reason: string) => {
     const at = Date.now();
     setPeople((prev) =>
       prev.map((p) =>
@@ -498,16 +554,36 @@ export function SentinelApp() {
     );
   }, [OPERATOR]);
 
+  /* Deliberate. Matching ends immediately and the entry drops to EXPIRED, and
+     neither of those is loud on the card that triggered it. */
+  const stopWatching = useCallback(
+    (personId: string, reason: string) =>
+      deliberate.run(`stop:${personId}`, async () => {
+        applyStopWatching(personId, reason);
+      }),
+    [applyStopWatching, deliberate],
+  );
+
   /* The alerts a person's matches raised are not touched. They record what a
      camera saw, which happened whether or not the entry still exists. */
-  const deletePerson = useCallback((personId: string) => {
+  const applyDeletePerson = useCallback((personId: string) => {
     setPeople((prev) => prev.filter((p) => p.id !== personId));
   }, []);
+
+  /* Deliberate, and irreversible. The one act here with no way back, so it is
+     also the one where a silent success would be least acceptable. */
+  const deletePerson = useCallback(
+    (personId: string) =>
+      deliberate.run(`delete:${personId}`, async () => {
+        applyDeletePerson(personId);
+      }),
+    [applyDeletePerson, deliberate],
+  );
 
   /* Extending is always a deliberate act, and always from *now* rather than
      from the old expiry — renewing a lapsed entry is a fresh decision to watch
      somebody, not a correction of a clerical slip. */
-  const extendWatch = useCallback((personId: string, days: number) => {
+  const applyExtendWatch = useCallback((personId: string, days: number) => {
     setPeople((prev) =>
       prev.map((p) =>
         p.id === personId
@@ -526,16 +602,41 @@ export function SentinelApp() {
     );
   }, []);
 
+  /* Deliberate. Renewing is a fresh decision to keep watching somebody, and the
+     only visible change is a date further down the panel. */
+  const extendWatch = useCallback(
+    (personId: string, days: number) =>
+      deliberate.run(`extend:${personId}`, async () => {
+        applyExtendWatch(personId, days);
+      }),
+    [applyExtendWatch, deliberate],
+  );
+
   /* A claimed tower arrives whole: the unit reported its own readings and the
      operator named the site and the cameras. Landing straight on it is the
      honest end of the flow — "added" is a claim you should be able to check. */
-  const addTower = useCallback((tower: Tower, feeds: CameraFeed[]) => {
-    setTowers((prev) => [...prev, tower]);
-    setFeeds((prev) => [...prev, ...feeds]);
-    setPending(null);
-    setAdding(false);
-    show({ id: tower.id, showAlerts: false });
-  }, [show]);
+  const applyAddTower = useCallback(
+    (tower: Tower, feeds: CameraFeed[]) => {
+      setTowers((prev) => [...prev, tower]);
+      setFeeds((prev) => [...prev, ...feeds]);
+      setPending(null);
+      setAdding(false);
+      show({ id: tower.id, showAlerts: false });
+    },
+    [show],
+  );
+
+  /* Routine, and the one place that word needs defending: adding a tower is
+     enormously consequential, but the flow LANDS ON THE TOWER — the operator is
+     looking at the site they just added. A check on a screen that has already
+     been replaced would be shown to nobody. */
+  const addTower = useCallback(
+    (tower: Tower, feeds: CameraFeed[]) =>
+      routine.run(`add:${tower.id}`, async () => {
+        applyAddTower(tower, feeds);
+      }),
+    [applyAddTower, routine],
+  );
   const openTower = useCallback(
     (id: string, showAlerts = false) => show({ id, showAlerts }),
     [show],
@@ -709,7 +810,7 @@ export function SentinelApp() {
     );
   }, []);
 
-  const retryFeed = useCallback(
+  const applyRetryFeed = useCallback(
     (feedId: string) => {
       setFeedState(feedId, "connecting");
       /* A retry that resolves instantly reads as a no-op; hold the connecting
@@ -733,7 +834,7 @@ export function SentinelApp() {
     [setFeedState],
   );
 
-  const toggleRecord = useCallback((feedId: string) => {
+  const applyToggleRecord = useCallback((feedId: string) => {
     setFeeds((prev) =>
       prev.map((f) =>
         f.id === feedId
@@ -744,6 +845,35 @@ export function SentinelApp() {
       ),
     );
   }, []);
+
+  /**
+   * Routine in appearance, consequential in fact — and wrapped now precisely
+   * because of the second half.
+   *
+   * The control changes shape on success (a ring around a circle becomes a ring
+   * around a square), so it confirms itself and needs no tick. But recording
+   * decides whether evidence exists, and once Stage 7 makes this a real command
+   * to a real tower it must not be fire-and-forget: an operator who pressed
+   * record and got silence would believe a camera was capturing when it was
+   * not. The failure half is here waiting for that.
+   */
+  /* Routine: the tile immediately shows CONNECTING, which is the confirmation.
+     Wrapped because Stage 7's real retry reaches a tower and can be refused. */
+  const retryFeed = useCallback(
+    (feedId: string) =>
+      routine.run(`retry:${feedId}`, async () => {
+        applyRetryFeed(feedId);
+      }),
+    [applyRetryFeed, routine],
+  );
+
+  const toggleRecord = useCallback(
+    (feedId: string) =>
+      routine.run(`record:${feedId}`, async () => {
+        applyToggleRecord(feedId);
+      }),
+    [applyToggleRecord, routine],
+  );
 
   /* `acknowledgedBy` is deliberately NOT collapsed into the session, unlike
      `changedBy` and `stoppedBy` above, and the difference is a real one rather
@@ -877,6 +1007,7 @@ export function SentinelApp() {
           onBack={() => setOnAlerts(false)}
           onSetStatus={changeStatus}
           statusMutation={statusMutation}
+          rejectMutation={deliberate}
           onWatchPerson={watchPerson}
           onRejectMatch={rejectMatch}
         />
@@ -898,6 +1029,7 @@ export function SentinelApp() {
           onExtend={extendWatch}
           onStopWatching={stopWatching}
           onDelete={deletePerson}
+          mutation={deliberate}
         />
       ) : adding ? (
         <AddTowerView
@@ -968,6 +1100,9 @@ export function SentinelApp() {
           onToggleSettings={() => setSettingsOpen((o) => !o)}
           onCloseSettings={() => setSettingsOpen(false)}
           onChangeSettings={changeSettings}
+          settingsMutation={routine}
+          recordMutation={routine}
+          rejectMutation={deliberate}
           onSetStatus={changeStatus}
           statusMutation={statusMutation}
           onWatchPerson={watchPerson}

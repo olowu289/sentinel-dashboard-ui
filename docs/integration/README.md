@@ -1081,7 +1081,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 4 — State grammar | 🟡 built, awaiting the induction run | Stale already landed in Stage 3. Net-new: the shell cannot-reach state (4 classified failures), the fabricated retry count removed, STREAM_ERROR marked simulated, the simulator narrowed. Classifier 15/15; mapper 42/42. |
 | 5 — Mutation primitive | ✅ **GATE PASSED** 14/14 | `useMutation` (keyed) + `MutationFeedback`. Three consumers: fleet reload (REAL, really fails), alert ack/resolve (seeded, proves the AlertDetail keying), tower rename (seeded, quiet). |
 | 6a — Read breadth | ✅ **22/22** | All towers/feeds real, live clock, scoping proven cross-account, three fleet states, AlertsView nav. No mutations converted. |
-| 6b — Mutation breadth | ⏳ next | The ~17 remaining mutations onto the Stage 5 pattern. |
+| 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | — | |
 | 8 — Enrollment | — | |
 | 9 — Renewal + persistence | — | |
@@ -1125,6 +1125,50 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 6b result — every mutation wrapped
+
+**13 wrapped · 2 intentionally optimistic · 0 left fire-and-forget.**
+
+| Mutation | Decision | Why |
+|---|---|---|
+| fleet reload | pending-silent | **REAL server.** The fleet appearing is the confirmation |
+| rename tower | pending-silent | the new name is already on four surfaces |
+| settings (+ zones) | pending-silent | each row shows its own new value; the drawn rectangle is the confirmation |
+| add tower | pending-silent | the flow **lands on the tower** — a check on a replaced screen is shown to nobody |
+| record | pending-silent | the glyph changes shape, circle → square |
+| retry feed | pending-silent | the tile shows CONNECTING at once |
+| siren · talk · screenshot | pending-silent | each confirms itself: the beacon lights, the timer starts, the frame flashes |
+| acknowledge / resolve | **pending-check** | changes an auditable record whose row does not visibly move |
+| reject match | **pending-check** | drops an identity from a detection that keeps its record |
+| enrol person | **pending-check** | puts a named person under fleet-wide matching; the subject is not in the room |
+| stop watching | **pending-check** | matching ends now, and the card does not say so loudly |
+| delete person | **pending-check** | irreversible |
+| extend watch | **pending-check** | only visible change is a date further down the panel |
+| **reorder wall** | **optimistic** | pure view preference; instant is correct |
+| **dismiss notice** | **optimistic** | pure view preference |
+
+`setFeedState` and `raiseAlert` are simulator affordances, not product
+mutations, and are already withheld on a real fleet.
+
+**Talk-down's release is deliberately never wrapped.** `onEnd` fires
+unconditionally, following the same rule the protocol gives PTZ stop: refusing
+to close a channel can only leave a microphone open into a live yard; accepting
+one can only leave it shut. It must not be gated behind a pending state, a
+permission check, or a failure.
+
+**How the failure path was proven without shipping a synthetic failure:** the
+suite was run twice. Once against the product as it ships, and once against a
+build where ONE seeded mutation (`extendWatch`) was temporarily given a
+one-shot throw. That run showed the inline error carrying the thrown message
+verbatim, `role="alert"`, Try again and Dismiss, and a **retry that genuinely
+re-ran and succeeded** — the throw being one-shot is what makes the re-run
+observable rather than assumed. The edit was reverted and the absence of any
+`forced failure` string re-grepped; the normal suite then passed again.
+
+`TileControl` gained `busy`, distinct from `disabled`: disabled says *you
+cannot*, busy says *you already did, wait*. On a control that reaches a physical
+site those are different things to tell somebody, and only one is temporary.
 
 ### Stage 6a result — read breadth, 22/22
 

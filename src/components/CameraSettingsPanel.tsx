@@ -186,6 +186,9 @@ export function CameraSettingsPanel({
   renamePhase = { kind: "idle" },
   onRetryRename,
   onDismissRename,
+  settingsPhase = { kind: "idle" },
+  onRetrySettings,
+  onDismissSettings,
   onClose,
   className = "",
 }: {
@@ -199,6 +202,15 @@ export function CameraSettingsPanel({
   renamePhase?: MutationPhase;
   onRetryRename?: () => void;
   onDismissRename?: () => void;
+  /**
+   * Every row on this panel writes through one keyed mutation, so a failed
+   * change is reported once, at the top, rather than each of eighteen rows
+   * growing its own error slot. Routine: each row already shows its own new
+   * value, which is the confirmation.
+   */
+  settingsPhase?: MutationPhase;
+  onRetrySettings?: () => void;
+  onDismissSettings?: () => void;
   onClose: () => void;
   /** The panel stands in the alerts column, so it answers to the same
    *  breakpoint rules — see the call site in `TowerView`. */
@@ -383,6 +395,15 @@ export function CameraSettingsPanel({
               raise an alert.
             </p>
           )}
+
+          {/* One place for a failed write, above the groups. The rows below
+              each show their own value, so a per-row error slot would be
+              eighteen empty boxes to say what one line says here. */}
+          <MutationError
+            phase={settingsPhase}
+            onRetry={onRetrySettings}
+            onDismiss={onDismissSettings}
+          />
 
           <Group title="Detection">
             <Row

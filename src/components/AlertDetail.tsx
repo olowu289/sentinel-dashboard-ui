@@ -121,6 +121,8 @@ export function AlertDetail({
   statusPhase = { kind: "idle" },
   onRetryStatus,
   onDismissStatus,
+  rejectPhase = { kind: "idle" },
+  onRetryReject,
   onPlayClip,
   onWatchPerson,
   onRejectMatch,
@@ -141,6 +143,9 @@ export function AlertDetail({
   statusPhase?: MutationPhase;
   onRetryStatus?: () => void;
   onDismissStatus?: () => void;
+  /** "Not them" — deliberate, and keyed by alert id like everything else here. */
+  rejectPhase?: MutationPhase;
+  onRetryReject?: () => void;
   /** Put the person in this detection on the watchlist. The face is already on
    *  screen here, which is the door this feature actually gets used through —
    *  uploading a file at a desk is the fallback, not the path. */
@@ -399,6 +404,7 @@ export function AlertDetail({
           onRetry={onRetryStatus}
           onDismiss={onDismissStatus}
         />
+        <MutationError phase={rejectPhase} onRetry={onRetryReject} />
         <MutationStatus
           phase={statusPhase}
           label={`${alert.status === "triggered" ? "Acknowledging" : "Resolving"} ${alert.id}`}
@@ -441,8 +447,11 @@ export function AlertDetail({
           <button
             type="button"
             onClick={onRejectMatch}
-            className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12"
+            disabled={rejectPhase.kind === "pending"}
+            aria-busy={rejectPhase.kind === "pending" || undefined}
+            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12 disabled:opacity-60 ${errorRing(rejectPhase)}`}
           >
+            <MutationIcon phase={rejectPhase} idle={null} />
             Not them
           </button>
         )}

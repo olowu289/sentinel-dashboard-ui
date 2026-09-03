@@ -18,6 +18,7 @@ import {
   lastSeenLabel,
 } from "./TileFallback";
 import type { PlaybackPhase } from "@/lib/usePlayback";
+import type { MutationPhase } from "@/lib/useMutation";
 
 export function CameraTile({
   feed,
@@ -27,6 +28,7 @@ export function CameraTile({
   layoutKey = "",
   canSwitch = false,
   playback,
+  recordPhase,
   onFocus,
   onRetry,
   onToggleRecord,
@@ -45,6 +47,16 @@ export function CameraTile({
    * failure: an absent phase draws the poster, a failed one draws why.
    */
   playback?: PlaybackPhase;
+  /**
+   * The record command's own phase.
+   *
+   * Routine today — the button changes shape on success, from a ring around a
+   * circle to a ring around a square — but wired now because recording decides
+   * whether evidence exists, and Stage 7's real command must not be
+   * fire-and-forget. An operator who pressed record and got silence would
+   * believe a camera was capturing when it was not.
+   */
+  recordPhase?: MutationPhase;
   /** Changes only when something that actually reflows the wall changes — the
       takeover or the landscape/portrait split. See `layoutDependency` below. */
   layoutKey?: string;
@@ -99,6 +111,7 @@ export function CameraTile({
     isDead,
     fullscreen,
     fsBtnRef,
+    recordPhase,
     onToggleFullscreen,
     onToggleRecord,
   });

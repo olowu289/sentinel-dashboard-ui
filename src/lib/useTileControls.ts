@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TileControl } from "@/components/ControlStack";
 import type { CameraFeed } from "@/lib/types";
+import type { MutationPhase } from "@/lib/useMutation";
 import { useSiren } from "@/lib/useSiren";
+import { useMutation } from "@/lib/useMutation";
 
 /* The feed renders slightly over-scaled at rest so the PTZ head has somewhere
    to travel before any letterboxing shows. Without it, panning a 1x image just
@@ -46,6 +48,7 @@ export function useTileControls({
   isDead,
   fullscreen = false,
   fsBtnRef,
+  recordPhase,
   onToggleFullscreen,
   onToggleRecord,
 }: {
@@ -55,6 +58,8 @@ export function useTileControls({
   fullscreen?: boolean;
   /** Never unmounts, so the tile can hand focus back to it. */
   fsBtnRef?: React.Ref<HTMLButtonElement>;
+  /** The record command's phase, so the control can go busy while it runs. */
+  recordPhase?: MutationPhase;
   onToggleFullscreen?: () => void;
   onToggleRecord?: () => void;
 }) {
@@ -64,6 +69,25 @@ export function useTileControls({
   const [talkSec, setTalkSec] = useState(0);
   const [flash, setFlash] = useState(false);
   const [view, setView] = useState<View>(HOME);
+
+  /**
+   * The actuators that reach the physical site.
+   *
+   * Local today — the siren sounds in this browser, the talk timer counts
+   * nothing, the shutter writes nothing — so these resolve at once and the
+   * pending flash is genuinely brief. Wrapped anyway, and the reason is Stage 7:
+   * these become real commands to a real tower, and a fire-and-forget siren is
+   * a hazard rather than a rough edge. An operator who pressed it and got
+   * silence would believe a speaker was sounding in a yard when it was not.
+   *
+   * Keyed per feed AND per action, so two tiles cannot share a phase and the
+   * siren's failure cannot appear on the shutter.
+   *
+   * `quiet`: each of these confirms itself — the beacon lights, the timer
+   * starts, the frame flashes white.
+   */
+  const command = useMutation({ quiet: true });
+  const key = (action: string) => `${action}:${feed.id}`;
 
   const isRecording = feed.state === "recording";
   const scale = BASE_SCALE * view.zoom;
@@ -124,10 +148,15 @@ export function useTileControls({
     });
   }, []);
 
-  const captureStill = useCallback(() => {
-    setFlash(true);
-    setTimeout(() => setFlash(false), 180);
-  }, []);
+  const captureStill = useCallback(
+    () =>
+      command.run(key("snap"), async () => {
+        setFlash(true);
+        setTimeout(() => setFlash(false), 180);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [command, feed.id],
+  );
 
   const controls: TileControl[] = [
     {
@@ -157,7 +186,11 @@ export function useTileControls({
       icon: isRecording ? "/icons/ctl-stop.svg" : "/icons/ctl-record.svg",
       tone: "critical",
       active: isRecording,
-      disabled: isDead,
+      /* Disabled while the command is in flight as well as on a dead feed. A
+         second press mid-command is how an operator ends up believing they
+         stopped a recording they actually restarted. */
+      disabled: isDead || recordPhase?.kind === "pending",
+      busy: recordPhase?.kind === "pending",
       onSelect: onToggleRecord,
     },
     {
@@ -167,10 +200,15 @@ export function useTileControls({
       tone: "critical",
       active: talking,
       disabled: isDead,
+      busy: command.phase(key("talk")).kind === "pending",
       /* Held, not toggled — see `hold` on `TileControl`. The label has always
          said "release to stop"; it is now true. */
       hold: {
-        onStart: () => setTalking(true),
+        onStart: () => void command.run(key("talk"), async () => setTalking(true)),
+        /* UNCONDITIONAL, and never wrapped. The same rule PTZ stop follows:
+           refusing to close a channel can only leave a microphone open into a
+           live yard, accepting one can only leave it shut. It must not be
+           gated behind a pending state, a permission check, or a failure. */
         onEnd: () => setTalking(false),
       },
     },
@@ -184,13 +222,16 @@ export function useTileControls({
       tone: "alarm",
       active: siren,
       disabled: isDead,
-      onSelect: () => setSiren((s) => !s),
+      onSelect: () =>
+        void command.run(key("siren"), async () => setSiren((v) => !v)),
+      busy: command.phase(key("siren")).kind === "pending",
     },
     {
       id: "screenshot",
       label: "Capture still",
       icon: "/icons/ctl-screenshot.svg",
       disabled: isDead,
+      busy: command.phase(key("snap")).kind === "pending",
       onSelect: captureStill,
     },
     {

@@ -45,6 +45,9 @@ export function TowerView({
   onSetStatus,
   statusMutation,
   renameMutation,
+  settingsMutation,
+  recordMutation,
+  rejectMutation,
   onWatchPerson,
   onRejectMatch,
   liveViewWarning = false,
@@ -87,6 +90,12 @@ export function TowerView({
   statusMutation?: Mutation;
   /** Keyed by TOWER id, owned by the shell. */
   renameMutation?: Mutation;
+  /** Keyed `settings:<towerId>`. Routine — the row shows its own new value. */
+  settingsMutation?: Mutation;
+  /** Keyed `record:<feedId>`. The control changes shape on success. */
+  recordMutation?: Mutation;
+  /** Keyed `reject:<alertId>`. Deliberate. */
+  rejectMutation?: Mutation;
   /** Enrol the person in a detection. Hands the whole alert up because the
    *  watchlist wants its frame and its zone, not just an id. */
   onWatchPerson?: (alert: Alert) => void;
@@ -273,6 +282,7 @@ export function TowerView({
               layoutKey={`${fullscreenId ?? ""}|${layout}|${alertsCollapsed}|${newAlertId ?? ""}|${liveViewWarning}`}
               canSwitch={feeds.length > 1}
               playback={playback?.[feed.id]}
+              recordPhase={recordMutation?.phase(`record:${feed.id}`)}
               onFocus={() => setFocusedFeed(feed.id)}
               /* A real camera retries its STREAM; a seeded one retries the
                  simulated feed. Both are "try this picture again", so they
@@ -306,6 +316,13 @@ export function TowerView({
           renamePhase={renameMutation?.phase(tower.id)}
           onDismissRename={() => renameMutation?.reset(tower.id)}
           onRetryRename={() => void renameMutation?.retry(tower.id)}
+          settingsPhase={settingsMutation?.phase(`settings:${tower.id}`)}
+          onRetrySettings={() =>
+            void settingsMutation?.retry(`settings:${tower.id}`)
+          }
+          onDismissSettings={() =>
+            settingsMutation?.reset(`settings:${tower.id}`)
+          }
           onChange={(next) => onChangeSettings(tower.id, next)}
           onClose={onCloseSettings}
           /* It stands where the alerts feed stands, so it takes that column's
@@ -334,6 +351,7 @@ export function TowerView({
         onAcknowledge={(id) => onSetStatus(id, "acknowledged")}
         onResolve={(id) => onSetStatus(id, "resolved")}
         statusMutation={statusMutation}
+        rejectMutation={rejectMutation}
         onWatchPerson={onWatchPerson}
         onRejectMatch={onRejectMatch}
         onCollapse={() => setAlertsCollapsed(true)}

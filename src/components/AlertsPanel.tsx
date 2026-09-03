@@ -30,6 +30,7 @@ export function AlertsPanel({
   onAcknowledge,
   onResolve,
   statusMutation,
+  rejectMutation,
   onWatchPerson,
   onRejectMatch,
   onCollapse,
@@ -57,6 +58,8 @@ export function AlertsPanel({
    * alert id — see the note in `App.tsx`.
    */
   statusMutation?: Mutation;
+  /** Keyed by alert id. Same discipline, same reason. */
+  rejectMutation?: Mutation;
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
   /** Omitted below lg, where the panel is a whole view rather than a column. */
@@ -248,6 +251,10 @@ export function AlertsPanel({
             statusPhase={statusMutation?.phase(selected.id)}
             onRetryStatus={() => void statusMutation?.retry(selected.id)}
             onDismissStatus={() => statusMutation?.reset(selected.id)}
+            rejectPhase={rejectMutation?.phase(`reject:${selected.id}`)}
+            onRetryReject={() =>
+              void rejectMutation?.retry(`reject:${selected.id}`)
+            }
             onWatchPerson={() => onWatchPerson?.(selected)}
             onRejectMatch={() => onRejectMatch?.(selected.id)}
             onPlayClip={(at, attachment) =>

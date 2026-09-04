@@ -8,7 +8,7 @@ import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
-import { listFleet } from "@/lib/api/fleet";
+import { listFleet, renameTower as renameTowerOnServer } from "@/lib/api/fleet";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
 import { loadPrefs, savePrefs } from "@/lib/prefs";
@@ -385,16 +385,18 @@ export function SentinelApp() {
      the same field the fleet card, the band header and the breadcrumb already
      read. Editing it in settings changes all four because there is only one. */
   /**
-   * CONSUMER 3 — renaming a tower.
+   * CONSUMER 3 — renaming a tower. REAL as of the `PATCH` route landing.
    *
-   * `quiet`: the new name appears on the fleet card, the band header, the
-   * breadcrumb and the panel at once, and that IS the confirmation. A check
-   * beside a field that already shows the answer is noise.
+   * `quiet`: once the write lands, the new name appears on the fleet card, the
+   * band header, the breadcrumb and the panel at once, and that IS the
+   * confirmation. A check beside a field that already shows the answer is
+   * noise. The spinner during the flight is not — see below.
    *
-   * Local today. Coordination's registry has `set_label` but serves no route
-   * for it — `do_PATCH` handles only session ICE — so this is the same shape
-   * auth was in before its route landed: the client half is ready and the
-   * server half is not.
+   * The client half was written before the server half existed and edited local
+   * state, so a renamed tower reverted on the next load. It now calls
+   * `PATCH /v1/viewer/towers/{device_id}` and the local-only path is GONE:
+   * keeping it as a fallback would give this app two names for one site and no
+   * way to tell which the registry actually holds.
    */
   const renameMutation = useMutation({ quiet: true });
 
@@ -420,20 +422,46 @@ export function SentinelApp() {
   const routine = useMutation({ quiet: true });
   const deliberate = useMutation();
 
-  const renameTower = useCallback((towerId: string, to: string) => {
-    const next = to.trim().toUpperCase();
-    if (!next) return;
-    setTowers((prev) =>
-      prev.map((t) => (t.id === towerId ? { ...t, site: next } : t)),
-    );
-  }, []);
-
+  /**
+   * ⚠ NOTHING IS WRITTEN BEFORE THE SERVER ANSWERS.
+   *
+   * The optimistic version of this is what shipped first, and it produced
+   * exactly the bug being fixed: the name changed on screen, the write went
+   * nowhere, and the old one came back on reload. A rename that can revert is
+   * worse than one that takes a moment, because the operator has already moved
+   * on by the time it un-happens.
+   *
+   * So the order is: run → the field shows it is saving → the registry
+   * answers → and the name that lands is the one in `renamed.site`, read back
+   * out of the server's own projection rather than the string that was typed.
+   * If the write fails, `towers` is untouched and the panel shows why.
+   */
   const changeTowerName = useCallback(
     (towerId: string, to: string) =>
       renameMutation.run(towerId, async () => {
-        renameTower(towerId, to);
+        const { towers: [renamed] } = await renameTowerOnServer(towerId, to);
+        if (!renamed) return;
+        setTowers((prev) =>
+          prev.map((t) =>
+            t.id === towerId
+              ? {
+                  ...renamed,
+                  /* One exception to taking the projection wholesale. The
+                     battery is a DEMO reading that this shell ticks upward
+                     while a tower charges, and the fresh projection reseeds it
+                     from the device id — so replacing it would rewind a number
+                     the operator has been watching climb. Everything else here
+                     is either served or deterministic per tower, and identical
+                     in both copies. */
+                  ...(t.batteryPct !== undefined
+                    ? { batteryPct: t.batteryPct }
+                    : {}),
+                }
+              : t,
+          ),
+        );
       }),
-    [renameMutation, renameTower],
+    [renameMutation],
   );
 
   const applySettings = useCallback(

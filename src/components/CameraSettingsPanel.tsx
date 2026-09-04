@@ -9,7 +9,7 @@ import { solarState } from "@/lib/data";
 import { MaskIcon } from "./Icon";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
-import { MutationError, errorRing } from "./MutationFeedback";
+import { MutationError, MutationSpinner, errorRing } from "./MutationFeedback";
 import type { MutationPhase } from "@/lib/useMutation";
 import {
   MAX_ZONES,
@@ -647,6 +647,18 @@ export function CameraSettingsPanel({
  * settings map all hang off it — and renaming a key to fix a typo is how a site
  * loses its cameras. The name is what the fleet card, the band header and the
  * breadcrumb already show, so editing it here changes all four.
+ *
+ * ⚠ WHAT WAS TYPED IS WHAT IS SENT. This used to `.trim().toUpperCase()` before
+ * committing and drop an empty result on the floor. Both had to go once the
+ * write became real: `set_label` on the server is the only validator, it
+ * refuses an empty, over-long or control-character label and its `422` says
+ * which — so trimming here would silently repair some labels and the emptiness
+ * check would swallow the one error the operator most needs to see. The field
+ * still *displays* uppercase; that is CSS, and it does not touch the value.
+ *
+ * The name shown is always the prop, never the draft, so a failed rename leaves
+ * the old name standing — a field that keeps showing what you typed after the
+ * server refused it is the revert bug in a smaller box.
  */
 function TowerName({
   name,
@@ -666,11 +678,14 @@ function TowerName({
     if (editing) ref.current?.select();
   }, [editing]);
 
+  const saving = phase.kind === "pending";
+
   const commit = () => {
     setEditing(false);
-    const next = draft.trim().toUpperCase();
-    if (next && next !== name) onRename(next);
-    else setDraft(name);
+    /* Identical is the only thing worth not sending: it is not a change, and a
+       round trip to be told so would be a spinner for nothing. Everything else
+       — including the empty string — is the server's to judge. */
+    if (draft !== name) onRename(draft);
   };
 
   if (editing) {
@@ -678,6 +693,7 @@ function TowerName({
       <input
         ref={ref}
         value={draft}
+        disabled={saving}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -696,19 +712,29 @@ function TowerName({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        setDraft(name);
-        setEditing(true);
-      }}
-      title="Rename this tower"
-      /* A text cursor, because what happens on click is that you start typing.
-         The default arrow says "this does something"; the caret says what. */
-      className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white transition-colors hover:bg-card"
-    >
-      {name}
-    </button>
+    <span className="flex min-w-0 items-center gap-[6px]">
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(name);
+          setEditing(true);
+        }}
+        disabled={saving}
+        title={saving ? "Saving this name…" : "Rename this tower"}
+        /* A text cursor, because what happens on click is that you start typing.
+           The default arrow says "this does something"; the caret says what. */
+        className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white transition-colors hover:bg-card disabled:cursor-wait disabled:text-muted"
+      >
+        {name}
+      </button>
+      {/* The one place this panel shows a spinner. Everywhere else a change
+          confirms itself by displaying its own new value — but a rename now
+          waits for the registry, so for that moment the field shows the OLD
+          name and nothing at all would be happening as far as the operator can
+          tell. This says the difference between "not saved yet" and "not
+          saved". */}
+      {saving && <MutationSpinner size={14} />}
+    </span>
   );
 }
 

@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 11 — Real rename | ✅ **18/18** | The first setting on the panel to become real. |
 | 10 — The final sweep | ✅ **23/23** | Dead controls disabled-not-removed, the settings key named, `sharp` dropped. |
 | 9 — Renewal + persistence | ✅ **25/25** | Part 1 was already complete from Stage 3 — verified, not rebuilt. Part 2 net-new: per-account view prefs. |
 | 10 — Sweep | — | |
@@ -1126,6 +1127,56 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 11 result — the tower rename is real, 18/18
+
+The first field on the settings panel to stop pretending. `PATCH
+/v1/viewer/towers/{device_id}` landed in coordination and `renameTower` in the
+SDK, so the client half written back in 6b finally has the server half it was
+waiting for.
+
+**The bug that is fixed:** an operator renamed a site, the name changed on
+screen, the write went nowhere, and the old name came back on the next load.
+Verified gone — rename, reload, and the new name is on the fleet card, the band
+header, the breadcrumb and the panel, because all four read one field that now
+lives in the registry.
+
+**No optimism, and that is the point.** The old path wrote to local state before
+anything was sent, which is *how* the revert bug looked correct for a second.
+The order is now run → the field shows it is saving → the registry answers →
+and the name that lands is read out of the server's own projection, not the
+string that was typed. A failed write leaves `towers` untouched.
+
+| Failure | Induced by | Result |
+|---|---|---|
+| bad label | committing an empty name | **`422`**, *"label: must be a non-empty string"* shown verbatim, **name unchanged**, retry offered |
+| unreachable | aborting the PATCH | *"failed: Failed to fetch"* — reads as a network problem, **not** as a bad name; **name unchanged** |
+| retry | letting the request through, clicking retry | **genuinely re-runs**: a second PATCH, `200`, and the name lands |
+
+**Two client-side rules were deleted, not kept.** The old commit did
+`.trim().toUpperCase()` and dropped an empty result silently. Both had to go:
+`set_label` is the only validator, its `422` says which rule was broken, and a
+copy of that policy here would be free to drift — while the emptiness check
+swallowed the one error an operator most needs to see. The field still displays
+uppercase, which is CSS and does not touch the value.
+
+**The local-only path is gone.** Not kept as a fallback: two names for one site
+with no way to tell which the registry holds is a worse failure than the one
+being fixed.
+
+A rename touches the registry and nothing else — no envelope, no WSS relay, no
+tower involvement — so **an offline tower can still be renamed**. It is the one
+write on the fleet screen that does not need the site to be reachable.
+
+⚠ **Operational note.** The route 404'd for the first run of this suite, and the
+cause was not the code: coordination had been running since 03:54 the previous
+day and `server.py` was edited at 12:56, so the running process had no such
+route. The tell was the 404 *body* — `{code: "not_found", message: "<path>"}`,
+byte-identical to a route that does not exist, where the real route answers
+`tower_unknown`. Worth knowing: **the `towers` table is empty in the DB and
+tower records are held in memory**, established when the tower links. Whether a
+label survives a coordination restart is a separate question from surviving a
+browser reload, and is not yet answered.
 
 ### Stage 10 result — the final sweep, 23/23
 

@@ -1,7 +1,7 @@
 /**
  * The fleet, from coordination.
  *
- * Two calls, both §4.2.3, both through the SDK. No retry loop anywhere: an
+ * Three calls, all §4.2.3, all through the SDK. No retry loop anywhere: an
  * absent tower is an ANSWER, NOT A WAIT — v1 lost eight days to spinning on
  * that, and a fleet screen that shows a spinner where a tower should be teaches
  * an operator nothing.
@@ -41,11 +41,38 @@ export class TowerUnavailableError extends Error {
   }
 }
 
+/**
+ * The server refused the label.
+ *
+ * `422 invalid_label` — empty, over-long, or carrying control characters. Its
+ * message says WHICH, and that message is shown verbatim: the rule lives in
+ * `set_label` and only the server knows it, so paraphrasing here would be a
+ * second copy of a policy free to drift from the one actually enforced.
+ *
+ * Distinct from `TowerUnavailableError` because the remedy is opposite. A
+ * refused label is the operator's to fix, in the field they are already in. An
+ * unavailable tower is not their doing and nothing they retype will help.
+ */
+export class LabelRejectedError extends Error {
+  constructor(detail?: string) {
+    super(detail?.trim() || "That name was refused.");
+    this.name = "LabelRejectedError";
+  }
+}
+
 function isNotFound(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const status = (err as { status?: unknown }).status;
   const code = (err as { code?: unknown }).code;
   return status === 404 || code === "tower_unknown";
+}
+
+/** `422 invalid_label` — the label itself, not the request or the response. */
+function isInvalidLabel(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const status = (err as { status?: unknown }).status;
+  const code = (err as { code?: unknown }).code;
+  return code === "invalid_label" || status === 422;
 }
 
 /**
@@ -106,5 +133,53 @@ export async function getTower(
   }
   const mapped = toTower(raw);
   // Same demo readings as the list, so the two views cannot disagree.
+  return { towers: [withDemoCabinetReadings(mapped.tower)], feeds: mapped.feeds };
+}
+
+/**
+ * Rename one tower — `PATCH /v1/viewer/towers/{device_id}`.
+ *
+ * ⚠ THIS REPLACES A LOCAL-ONLY RENAME. Until the route landed, the edit wrote
+ * to `towers` in the shell and was gone on the next load — an operator renamed
+ * a site, came back, and found the old name. That was the whole bug, and the
+ * reason nothing here is optimistic: the value that lands is the one the SERVER
+ * returns, so the name can never show a change the registry did not make.
+ *
+ * The label is **account-layer metadata** and touches nothing else: the tower
+ * does not know its own label, `device_id` stays the identity everywhere, and
+ * there is no envelope and no WSS relay. An OFFLINE TOWER CAN STILL BE RENAMED,
+ * which is worth knowing — it is the one write on the whole fleet screen that
+ * does not depend on the site being reachable.
+ *
+ * ⚠ THE LABEL GOES UP VERBATIM. No trim, no case-folding, no emptiness check.
+ * `set_label` is the only validator, its `422` says why it refused, and a
+ * client-side rule would be a second copy of that policy — free to drift, and
+ * silently mangling what somebody typed instead of telling them it was wrong.
+ *
+ * Returns the updated **projection**, not an acknowledgement, so the caller
+ * re-renders from the server's answer rather than the string it just sent.
+ */
+export async function renameTower(
+  deviceId: string,
+  label: string,
+  signal?: AbortSignal,
+): Promise<FleetSnapshot> {
+  let raw;
+  try {
+    raw = await getClient().renameTower(deviceId, label, signal ? { signal } : {});
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    /* Order matters: 404 before 422. Both are "the server said no", but only
+       one of them is about the text that was typed. */
+    if (isNotFound(err)) throw new TowerUnavailableError(deviceId);
+    if (isInvalidLabel(err)) {
+      throw new LabelRejectedError(
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+    throw err;
+  }
+  const mapped = toTower(raw);
+  // The same demo readings as the list and the detail, so no view disagrees.
   return { towers: [withDemoCabinetReadings(mapped.tower)], feeds: mapped.feeds };
 }

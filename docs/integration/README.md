@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 13 — Per-camera playback | ✅ **13/13** | One camera's switch no longer drops its sibling's peer. |
 | 12 — Real stream profiles | ✅ **20/20** | The Stream Quality row stops inventing options and drives the session. |
 | 11 — Real rename | ✅ **18/18** | The first setting on the panel to become real. |
 | 10 — The final sweep | ✅ **23/23** | Dead controls disabled-not-removed, the settings key named, `sharp` dropped. |
@@ -1128,6 +1129,57 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 13 result — playback is per camera, 13/13
+
+**The bug.** Switching camera 1's profile tore down camera 2's peer as well —
+both tiles went to *awaiting media* when only one had been asked to change.
+
+**Root cause: one effect owned every camera, and a cleanup cannot close *some*
+of what it owns.** `usePlayback` built its `entries` map fresh inside the
+effect, so the only way to close anything was the effect's cleanup — which
+loops over every entry unconditionally. The dependency is a single string joined
+across all targets, so any one camera's segment changing re-ran the whole
+effect: cleanup closed all peers, the body reopened all peers.
+
+Not tower-scoped by design — **list-scoped**, and the list happens to be the
+open tower's cameras. Two independent sessions with one shared fate.
+
+⚠ **This predates the profile work.** `attempts[t.id]` was already in that same
+key, so *retrying camera 1 already dropped camera 2*. Stage 12 only made it easy
+to hit: a retry is rare, changing quality is not.
+
+**The fix is a `continue`.** The pool of open peers moved to a ref that survives
+across effect runs, so the effect can now reconcile instead of rebuild:
+
+1. close only entries whose own per-camera key changed, or that are gone;
+2. prune phases for cameras nobody is watching;
+3. open only what is missing.
+
+`targetKey` is now **one camera's** identity — `towerId:index/profile#attempt` —
+compared per feed rather than concatenated into a list. The joined string stays
+as the effect's *trigger*, but it is no longer its *scope*, and the code says
+so at the site.
+
+The reconciling effect deliberately has **no cleanup**: a cleanup runs before
+the next body and cannot know what that body wants, so anything it closed would
+be closed unconditionally — which is the bug. Closing belongs in the body, where
+the diff is known. A separate mount-only effect closes everything on unmount,
+which is the one moment that is correct.
+
+**Verified against the real tower, both cameras live.** The other camera's
+`videoWidth` and `currentTime` were sampled every 120ms *through* each switch:
+
+| | |
+|---|---|
+| switch camera 1 → 2K | camera 2's minimum width throughout: **704** (never 0), clock monotonic, **exactly one** session POST — `{camera: 1, profile: "main"}` |
+| switch camera 2 → 1080p | camera 1's minimum width: **2560**, one POST for camera 2 |
+| four rapid switches on camera 1 | four POSTs, **all `camera: 1`**; camera 2 untouched at 1920 |
+
+**Control run: the test was checked against the unfixed code** and fails exactly
+where it should — camera 2's width drops to **0** and a second POST appears for
+`{camera: 2}`. 7/13 unfixed, 13/13 fixed. A test that cannot fail proves
+nothing, which is the lesson from the Stage 5 gate.
 
 ### Stage 12 result — Stream Quality is real, 20/20
 

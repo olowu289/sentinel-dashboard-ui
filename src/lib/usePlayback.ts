@@ -80,6 +80,8 @@ export interface PlaybackTarget {
 }
 
 interface Entry {
+  /** This ONE camera's identity. Compared per feed, never as part of a list. */
+  key: string;
   controller: AbortController;
   handle: PlaybackHandle | null;
   disposed: boolean;
@@ -111,38 +113,99 @@ export function usePlayback(targets: PlaybackTarget[]): Playback {
   /** Every handle currently open, for the unload path. Written by the effect. */
   const openHandles = useRef<Map<string, PlaybackHandle>>(new Map());
 
+  /**
+   * The peers that are actually open, by feed id, ACROSS effect runs.
+   *
+   * ⚠ THIS REF IS THE FIX. It used to be a `Map` created fresh inside the
+   * effect, which made the effect's cleanup the only way to close anything —
+   * and a cleanup cannot close *some* of what it owns, so every re-run tore
+   * down every camera. Held here, the effect can reconcile: compare each
+   * camera's own key, disturb the ones that changed, and leave the rest
+   * streaming.
+   */
+  const live = useRef<Map<string, Entry>>(new Map());
+
   const retry = useCallback((feedId: string) => {
     setAttempts((prev) => ({ ...prev, [feedId]: (prev[feedId] ?? 0) + 1 }));
   }, []);
 
-  /* The effect's identity. Targets are objects rebuilt on every render, so the
-     dependency has to be a string — depending on the array itself would tear
-     down and rebuild every peer on every unrelated re-render, and this app
-     re-renders once a second on its own timers. */
+  /**
+   * ONE CAMERA'S IDENTITY — what has to change for THIS peer to be rebuilt.
+   *
+   * The address it is opened at, the profile it is opened with, and how many
+   * times the operator has asked for it again. A session cannot be re-pointed
+   * once open: the camera and the profile are signed into the grant, so a
+   * change to either is a different session, not a setting.
+   */
+  const targetKey = (t: PlaybackTarget) =>
+    `${t.towerId}:${t.index}/${t.profile ?? ""}#${attempts[t.id] ?? 0}`;
+
+  /**
+   * The effect's trigger. Targets are objects rebuilt on every render, so the
+   * dependency has to be a string — depending on the array itself would re-run
+   * on every unrelated re-render, and this app re-renders once a second on its
+   * own timers.
+   *
+   * ⚠ IT IS A TRIGGER, NOT A SCOPE. This string changes when ANY camera
+   * changes, and that used to be the same thing as tearing every camera down,
+   * because the effect owned them all and its cleanup closed the lot. Switching
+   * camera 1's profile therefore dropped camera 2's peer as well — two
+   * independent sessions, one shared fate. The body below now diffs per feed
+   * and only touches what actually moved; this key just says "something did".
+   */
   const key = targets
-    .map(
-      (t) =>
-        `${t.id}@${t.towerId}:${t.index}/${t.profile ?? ""}#${attempts[t.id] ?? 0}`,
-    )
+    .map((t) => `${t.id}@${targetKey(t)}`)
     .sort()
     .join("|");
 
+  /* Close one camera and forget it. Everything that can outlive a peer is
+     stopped here — the in-flight open, the poll timers, the handle — because a
+     camera that is being replaced must not keep a tower session warm. */
+  const dispose = (id: string, entry: Entry) => {
+    entry.disposed = true;
+    entry.controller.abort();
+    entry.timers.forEach(clearTimeout);
+    void entry.handle?.close();
+    live.current.delete(id);
+    openHandles.current.delete(id);
+  };
+
   useEffect(() => {
-    if (targets.length === 0) {
-      setPhases({});
-      return;
+    const wanted = new Map(targets.map((t) => [t.id, t]));
+
+    /* ── 1. CLOSE only what actually changed ────────────────────────────
+       A camera whose key still matches is left completely alone: its peer, its
+       stream, its poll timers and its session all survive a sibling's switch.
+       This is the whole bug fix, and it is a `continue`. */
+    for (const [id, entry] of [...live.current]) {
+      const t = wanted.get(id);
+      if (t && targetKey(t) === entry.key) continue;
+      dispose(id, entry);
     }
 
-    const entries = new Map<string, Entry>();
+    /* ── 2. Forget the phases of cameras nobody is watching any more.
+       Guarded, because an unconditional `setPhases` here would re-render on
+       every run of an effect that usually has nothing to do. */
+    setPhases((prev) => {
+      const stale = Object.keys(prev).filter((id) => !wanted.has(id));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      for (const id of stale) delete next[id];
+      return next;
+    });
 
+    /* ── 3. OPEN only what is missing. */
     for (const target of targets) {
+      if (live.current.has(target.id)) continue;
+
       const entry: Entry = {
+        key: targetKey(target),
         controller: new AbortController(),
         handle: null,
         disposed: false,
         timers: [],
       };
-      entries.set(target.id, entry);
+      live.current.set(target.id, entry);
 
       const set = (phase: PlaybackPhase) => {
         if (entry.disposed) return;
@@ -264,20 +327,32 @@ export function usePlayback(targets: PlaybackTarget[]): Playback {
       })();
     }
 
-    return () => {
-      for (const [id, entry] of entries) {
-        entry.disposed = true;
-        entry.controller.abort();
-        entry.timers.forEach(clearTimeout);
-        void entry.handle?.close();
-        openHandles.current.delete(id);
-      }
-      entries.clear();
-    };
+    /* NO CLEANUP HERE, and that is deliberate rather than an omission. A
+       cleanup runs before the next body and cannot know what the next body
+       wants, so anything it closed would be closed unconditionally — which is
+       exactly how one camera's switch used to take its sibling down. Closing is
+       the body's job now, above, where the diff is known. Unmount is handled by
+       its own effect below. */
     /* `targets` is intentionally not a dependency — `key` is its stable
        projection. See the note above. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+
+  /**
+   * Unmount: close everything, once.
+   *
+   * Separate from the reconciling effect because it is the one moment when
+   * closing every peer IS correct. Under StrictMode this runs on the simulated
+   * unmount and the reconcile above then finds an empty pool and reopens — the
+   * same double-open the abort-aware `openPlayback` was already written for.
+   */
+  useEffect(() => {
+    const pool = live.current;
+    return () => {
+      for (const [id, entry] of [...pool]) dispose(id, entry);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * A viewer that navigates away without closing leaves the tower waiting on a

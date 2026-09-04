@@ -2,15 +2,18 @@ import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
+import type { PlaybackPhase } from "@/lib/usePlayback";
 import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
 import { DEAD_STATES, FeedChip } from "./FeedChip";
 import { SirenOverlay } from "./SirenOverlay";
 import {
+  AwaitingMediaFallback,
   ConnectingFallback,
   ErrorFallback,
   NotStreamingFallback,
   OfflineFallback,
+  SessionEndedFallback,
   UnknownFallback,
   lastSeenLabel,
 } from "./TileFallback";
@@ -53,6 +56,9 @@ import {
 export function MonitorTile({
   feed,
   towerId,
+  playback,
+  onScreen = false,
+  observeRef,
   fullscreen = false,
   layoutKey = "",
   onToggleFullscreen,
@@ -64,6 +70,27 @@ export function MonitorTile({
   /** Spoken in the tile's label. The fleet wall mixes sites, so a tile that
    *  names only its camera leaves "whose north gate?" unanswered. */
   towerId: string;
+  /**
+   * This tile's live session, when it has one.
+   *
+   * ⚠ THE SAME PHASE THE TOWER WALL USES, from the same `usePlayback`. There is
+   * one video path in this app and this is it — a second mechanism for the
+   * fleet screen would be two lifecycles to keep honest, and the states below
+   * would drift the way `FeedChip` was written to stop.
+   */
+  playback?: PlaybackPhase;
+  /**
+   * Whether the tile is actually on screen.
+   *
+   * ⚠ NOT "is it streaming" — `playback` answers that. The two come apart for
+   * a tile that is visible but over the wall's concurrency ceiling, and that
+   * gap is the whole reason this prop exists: an on-screen tile the wall
+   * declined to stream has to say WHY, and "not on screen" would be a visible
+   * lie about a tile the operator is looking at.
+   */
+  onScreen?: boolean;
+  /** Registers the tile's box with the wall's IntersectionObserver. */
+  observeRef?: (el: HTMLElement | null) => void;
   fullscreen?: boolean;
   /** Changes only when something actually reflows the wall. See the README's
    *  note on `layoutKey` — the latency walk re-renders every tile mid-animation
@@ -87,14 +114,20 @@ export function MonitorTile({
   const isDead = hasError || DEAD_STATES.has(feed.state);
   const reconnecting =
     feed.state === "connecting" && feed.elapsedSec !== undefined;
-  /* A real camera has no poster and this wall does not stream, so there is
+
+  const stream = playback?.kind === "playing" ? playback.stream : null;
+  const playbackFailure = playback?.kind === "failed" ? playback.error : null;
+  const awaitingMedia = playback?.kind === "connecting";
+
+  /* A real camera has no poster, so a tile the wall is not streaming has
      genuinely no picture to draw — say so rather than leaving an empty frame
      under a LIVE chip. A seeded feed has a poster and is unaffected. */
-  const noPicture = !isDead && !feed.poster;
+  const noPicture = !isDead && !stream && !feed.poster;
 
-  /* No session passed: the fleet wall does not stream, so it has no session to
-     steer with. It draws no PTZ pad either — the digital zoom in the control
-     stack is all it offers, and that needs no head. */
+  /* No session passed to the controls: this wall streams a picture but offers
+     no PTZ pad — the digital zoom in the control stack is all it has, and that
+     needs no head. Steering belongs to the tower view, where the operator can
+     see what they are moving. */
   const { controls, view, scale, flash, alarming } = useTileControls({
     feed,
     isDead,
@@ -107,6 +140,38 @@ export function MonitorTile({
   useEffect(() => {
     if (isDead) setFirstFrame(false);
   }, [isDead]);
+
+  /**
+   * Attach the live stream.
+   *
+   * ⚠ A `MediaStream` CANNOT GO ON `src`. `<video src>` takes a URL; a live
+   * peer track is handed over as `srcObject`, which is why this is an effect
+   * and a ref rather than an attribute — the same note stands over the same
+   * code in `CameraTile`, and it is the whole difference between a branch that
+   * looks like video and video.
+   *
+   * Detached on teardown so a replaced peer's tracks are not held alive by the
+   * element — which on this wall happens every time a tile scrolls away.
+   */
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (!stream) {
+      el.srcObject = null;
+      return;
+    }
+    el.srcObject = stream;
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream]);
+
+  /* A new stream is a new first frame to wait for, or the tile paints the
+     previous one's opacity state onto an element that has decoded nothing. */
+  useEffect(() => {
+    if (stream) setFirstFrame(false);
+  }, [stream]);
 
   /* Leaving the takeover hands focus back to the control that opened it; the
      activeElement guard means we only claim focus that was actually dropped. */
@@ -148,7 +213,11 @@ export function MonitorTile({
     /* A plain wrapper so the grid cell stays open while the tile is a
        fullscreen takeover — the wall must not reflow underneath it, and the
        exit has to land back in its own slot. */
-    <div className="relative min-h-0 min-w-0">
+    /* The observed box is the GRID CELL, not the tile inside it. The cell
+       keeps its size and position through a fullscreen takeover and through
+       the wall's layout animations, so visibility stays a fact about where the
+       tile lives rather than about what it is currently doing. */
+    <div ref={observeRef} className="relative min-h-0 min-w-0">
       <motion.section
         layout
         layoutDependency={layoutKey}
@@ -167,25 +236,63 @@ export function MonitorTile({
       >
         {/* The picture is the tile. Everything else floats over it. */}
         <div className="absolute inset-0 overflow-hidden">
-          {isDead || noPicture ? (
+          {isDead || playbackFailure || awaitingMedia || noPicture ? (
+            /* One branch for every reason there is no moving picture, ordered
+               most-specific first. A dead feed outranks a failed session:
+               "this camera is down" is the truer thing to say than "the
+               session could not open", and it is the one that changes what the
+               operator does next. */
             <div className="absolute inset-0 flex items-center justify-center">
-              {noPicture && !isDead ? (
-                <NotStreamingFallback onOpen={onOpenTower} />
-              ) : hasError ? (
+              {hasError ? (
                 <ErrorFallback error={feed.error!} onRetry={onRetry} />
               ) : feed.state === "unknown" ? (
                 <UnknownFallback since={lastSeenLabel(feed.lastSeenAt)} />
               ) : feed.state === "offline" ? (
                 <OfflineFallback lastSeen={lastSeenLabel(feed.lastSeenAt)} />
-              ) : (
+              ) : isDead ? (
                 <ConnectingFallback
                   name={feed.name}
                   reconnecting={reconnecting}
+                />
+              ) : playbackFailure?.failure === "session_expired" ? (
+                <SessionEndedFallback
+                  message={playbackFailure.message}
+                  onRetry={onRetry}
+                />
+              ) : playbackFailure ? (
+                <ErrorFallback
+                  error={playbackFailure.message}
+                  onRetry={onRetry}
+                />
+              ) : awaitingMedia ? (
+                <AwaitingMediaFallback name={feed.name} />
+              ) : (
+                /* Not an error. The tile is off screen, still settling, or over
+                   the wall's concurrency ceiling — three ways of not being
+                   watched, and none of them is a fault. */
+                <NotStreamingFallback
+                  reason={onScreen ? "capped" : "offscreen"}
+                  onOpen={onOpenTower}
                 />
               )}
             </div>
           ) : (
             <>
+              {stream ? (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  onLoadedData={() => setFirstFrame(true)}
+                  style={{
+                    transform: `scale(${scale}) translate(${view.x}%, ${view.y}%)`,
+                  }}
+                  className={`absolute inset-0 size-full object-cover transition-opacity duration-300 ease-out ${
+                    firstFrame ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+              ) : (
               <img
                 src={feed.poster}
                 alt=""
@@ -203,6 +310,7 @@ export function MonitorTile({
                   firstFrame ? "opacity-100" : "opacity-0"
                 }`}
               />
+              )}
               {/* Per the design: a wash that settles the bottom of the frame so
                   four bright feeds in a grid do not read as one lit surface.
                   It also buys the chip a floor to sit on. */}

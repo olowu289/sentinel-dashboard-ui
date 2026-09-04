@@ -2,6 +2,7 @@ import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { MonitorTile } from "@/components/MonitorTile";
+import type { PlaybackPhase } from "@/lib/usePlayback";
 import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
 import type { Alert, CameraFeed, Tower } from "@/lib/types";
@@ -36,6 +37,9 @@ export function DashboardView({
   onOpenTower,
   onRetryFeed,
   onToggleRecord,
+  playback,
+  onScreenTiles,
+  observeTile,
   dismissedNotices,
   onDismissNotice,
   fleetLoading = false,
@@ -65,6 +69,14 @@ export function DashboardView({
   onRetryFeed: (feedId: string) => void;
   /** The shell's, not this view's — both walls act on one set of feeds. */
   onToggleRecord: (feedId: string) => void;
+  /** Live sessions by feed id, owned by the shell — the wall renders them, it
+   *  does not hold them. */
+  playback?: Record<string, PlaybackPhase>;
+  /** Feed ids currently on screen. A tile in here that still has no stream is
+   *  over the wall's ceiling, which is an idle state and never an error. */
+  onScreenTiles?: ReadonlySet<string>;
+  /** Registers a tile's grid cell with the visibility observer. */
+  observeTile?: (id: string) => (el: HTMLElement | null) => void;
   /** Towers whose notice this operator has read. Owned by the shell so it
    *  survives this view unmounting on every drill-in — see the note there. */
   dismissedNotices?: ReadonlySet<string>;
@@ -317,6 +329,9 @@ export function DashboardView({
                     key={feed.id}
                     feed={feed}
                     towerId={feed.towerId}
+                    playback={playback?.[feed.id]}
+                    onScreen={onScreenTiles?.has(feed.id) ?? false}
+                    observeRef={observeTile?.(feed.id)}
                     fullscreen={fullscreenId === feed.id}
                     /* The takeover reflows every sibling, and so does a band
                        reorder, so the gate is shared rather than per-tile — see

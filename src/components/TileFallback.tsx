@@ -199,18 +199,41 @@ export function UnknownFallback({ since }: { since?: string }) {
  * at the site, and the chip beside it is still correctly reporting the camera
  * as live.
  */
-export function NotStreamingFallback({ onOpen }: { onOpen?: () => void }) {
+/**
+ * A camera that is live but not being streamed HERE, and why.
+ *
+ * ⚠ THE COPY USED TO SAY "the fleet wall does not hold sessions open", which
+ * was true when the wall drew stills and is now false: a tile streams when it
+ * is on screen. The two remaining reasons are different enough to need
+ * different words, and both are things an operator can actually be looking at.
+ *
+ *   `offscreen` — including the moment a tile has scrolled in and is still
+ *     settling. It says what will happen rather than reporting a fault,
+ *     because nothing is wrong.
+ *   `capped` — more cameras on screen than the wall will stream at once. This
+ *     is the one that needs an explanation and a way out, so it keeps the
+ *     button: the tower view streams the camera regardless.
+ */
+export function NotStreamingFallback({
+  reason = "capped",
+  onOpen,
+}: {
+  reason?: "offscreen" | "capped";
+  onOpen?: () => void;
+}) {
+  const offscreen = reason === "offscreen";
   return (
     <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-white/35">
       <CameraOffGlyph />
       <p className="text-[0.8125rem] font-medium text-white/70">
-        Live — not streaming here
+        {offscreen ? "Live — not on screen" : "Live — not streaming here"}
       </p>
       <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-white/35">
-        The fleet wall does not hold sessions open. Open the tower to watch this
-        camera.
+        {offscreen
+          ? "Scroll it into view and it starts streaming."
+          : "Too many cameras on screen to stream them all. Open the tower to watch this one."}
       </p>
-      {onOpen && (
+      {onOpen && !offscreen && (
         <button
           type="button"
           onClick={onOpen}

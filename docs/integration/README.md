@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 15 — Live fleet wall | ✅ **19/19** | Visible tiles stream sub; off-screen closes. |
 | 14 — Real network health | ✅ **15/15** | Real uplink grade from a real dBm; the IP row replaced by `connected_at`. |
 | 13 — Per-camera playback | ✅ **13/13** | One camera's switch no longer drops its sibling's peer. |
 | 12 — Real stream profiles | ✅ **20/20** | The Stream Quality row stops inventing options and drives the session. |
@@ -1130,6 +1131,57 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 15 result — the fleet wall streams what is visible, 19/19
+
+**The wall used to draw stills** and tell the operator to open a tower. The
+reasoning is still in `App.tsx` — a session costs a grant and a busy camera on
+an off-grid site — and the half it got wrong was the arithmetic: "the fleet
+screen" is not the fleet, it is the eight or so tiles that fit on a monitor, and
+that number does not grow with the estate. A hundred towers cost what two do.
+
+**Bounded three ways**, and the battery argument survives all three: by the
+viewport, by a hard ceiling of **`MAX_LIVE_TILES = 8`** (four sites at two
+cameras — the widest the design's two-column bands go, and a number a browser
+holds peers for without complaint), and by the **sub** profile.
+
+**Sub, always, on this wall.** Twelve tiles at 2K is a different order of uplink
+and battery than twelve at 704×576, and nobody reads detail off a tile that
+size. The operator's per-camera profile choice is deliberately NOT consulted
+here — it is a choice about how they watch ONE camera, not licence to pull 2K
+twelve times over. Verified: every fleet session asks `profile: "sub"` and every
+fleet video is 704 wide.
+
+**The churn guard is asymmetric hysteresis**, in `useVisibleTiles`:
+
+| | | |
+|---|---|---|
+| open | `VISIBLE_SETTLE_MS = 400` | a tile must still be there after the scroll stops |
+| close | `HIDDEN_SETTLE_MS = 1200` | 3× longer — a nudge off-screen and back must not cost a renegotiation |
+| threshold | `VISIBLE_RATIO = 0.25` | a sliver at the edge is not worth a tower's battery |
+
+Each timer cancels the other, so a tile that leaves and returns inside the grace
+never notices, and one that arrives and leaves inside the settle never opens.
+**12 fast visibility flips opened 0 sessions and closed 0.**
+
+**The two screens are mutually exclusive, not additive.** Drilling in hands the
+sessions over rather than opening a second set beside them — otherwise a grace
+period would leave four sessions live on a two-camera tower.
+
+⚠ **A bug my own cap test caught.** The tile prop conflated "is being streamed"
+with "is visible", so a tile that was *on screen but over the ceiling* showed
+the off-screen copy — a visible lie about a tile the operator is looking at. Now
+`onScreen` is passed separately from `playback`, and the two reasons read
+differently: *"Live — not on screen · Scroll it into view"* versus *"Live — not
+streaming here · Too many cameras on screen to stream them all"* with an Open
+tower button. Proven by temporarily setting the ceiling to 1.
+
+⚠ **Scroll-off-screen is unreachable on this fleet** and the test says so rather
+than passing vacuously: the dashboard is a fixed-height flex layout
+(`scrollHeight === clientHeight`, no overflow container), so with one tower
+nothing ever scrolls out of view. Visibility was driven by viewport size, which
+enters the IntersectionObserver by exactly the same path. My first run had
+B/C passing on a page that could not scroll — caught and rewritten.
 
 ### Stage 14 addendum — the "No signal reading" report was a stale dev server
 

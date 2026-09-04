@@ -14,6 +14,7 @@ import { listClaims, type Claim } from "@/lib/api/claim";
 import { loadPrefs, savePrefs } from "@/lib/prefs";
 import { CoordinationBanner } from "@/components/CoordinationBanner";
 import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
+import { useVisibleTiles } from "@/lib/useVisibleTiles";
 import { useMutation } from "@/lib/useMutation";
 import type { SimState } from "@/components/StateSimulator";
 import {
@@ -285,21 +286,20 @@ export function SentinelApp() {
     null,
   );
 
-  /* ── WHAT IS ACTUALLY BEING STREAMED ──────────────────────────────────
-     Only the open tower's live cameras. Two reasons, and the second is the
-     one that decided it.
+  /* The fleet wall's arrangement, as feed ids. Up here rather than in the
+     dashboard because that view unmounts on every drill-in — arranging a wall
+     is work, and handing it back reset would teach operators not to arrange it.
+     Ids rather than a reordered copy of the feeds: `feeds` is rebuilt on every
+     latency tick, so anything holding the objects would go stale immediately.
 
-     A session costs a grant on coordination and a busy camera on the tower,
-     so the set has to match what the operator is looking at rather than what
-     is on screen somewhere. And these are off-grid sites: this app already
-     carries a banner telling an operator that live viewing drains a tower's
-     battery, so opening four simultaneous streams on the *landing* screen
-     would contradict its own advice. The fleet wall stays on stills.
+     ⚠ DECLARED BEFORE THE PLAYBACK BLOCK, not beside the other view state. The
+     fleet wall's session cap is applied in wall order, so what an operator sees
+     first is what streams — which means the arrangement has to exist before the
+     targets are computed. */
+  const [wallOrder, setWallOrder] = useState<string[]>(() =>
+    FEEDS.map((f) => f.id),
+  );
 
-     Cameras the tower reports as anything but live are excluded — asking for a
-     session on a camera that has already said it is down burns a grant to be
-     refused, and the tile has a truer thing to show. Seeded feeds are excluded
-     because there is no session to open for a fixture. */
   /**
    * Which profile each camera is being watched at, by feed id.
    *
@@ -308,6 +308,9 @@ export function SentinelApp() {
    * the moment an operator glanced at the fleet. Undefined means "no choice
    * made" and opens the camera's default — which is distinct from choosing the
    * default explicitly only in that nothing is sent.
+   *
+   * ⚠ THE TOWER VIEW'S ONLY. The fleet wall never consults this: see the note
+   * on `fleetTargets` below.
    */
   const [cameraProfiles, setCameraProfiles] = useState<Record<string, string>>(
     {},
@@ -321,33 +324,113 @@ export function SentinelApp() {
     setCameraProfiles((prev) => ({ ...prev, [feedId]: profile }));
   }, []);
 
+  /* Which fleet tiles are on screen, settled rather than instantaneous.
+     The hysteresis and the reasoning for it are in `useVisibleTiles`. */
+  const { observe: observeTile, visible: visibleTiles } = useVisibleTiles();
+
+  /* ── WHAT IS ACTUALLY BEING STREAMED ──────────────────────────────────
+
+     A session costs a grant on coordination and a busy camera on the tower, so
+     the set has to match what the operator is looking at.
+
+     ⚠ THIS USED TO MEAN "ONLY THE OPEN TOWER". The fleet wall drew stills, on
+     the argument that these are off-grid sites, that this app carries its own
+     banner warning that live viewing drains a battery, and that opening four
+     streams on the landing screen would contradict its own advice.
+
+     That argument was half right and the half it got wrong was the arithmetic.
+     "The fleet screen" is not the fleet: it is the handful of tiles that fit on
+     a monitor, and that number does not grow when the estate does. A hundred
+     towers cost exactly what two do. What the old rule actually bought was not
+     a smaller number of sessions — it was ZERO, in exchange for a wall of
+     stills on the screen whose whole job is to show the operator what is
+     happening right now.
+
+     So the fleet wall streams what is visible, bounded three ways: by the
+     viewport, by MAX_LIVE_TILES below, and by the sub profile. The battery
+     argument survives in all three.
+
+     The two screens are MUTUALLY EXCLUSIVE rather than additive. Drilling in
+     hands the sessions over rather than opening a second set beside them — the
+     fleet tiles unmount, and a grace period that let both sets exist for a
+     second would be four sessions on a two-camera tower.
+
+     Cameras the tower reports as anything but live are excluded — asking for a
+     session on a camera that has already said it is down burns a grant to be
+     refused, and the tile has a truer thing to show. Seeded feeds are excluded
+     because there is no session to open for a fixture. */
+
+  /** The ceiling, whatever the viewport does.
+
+      Eight is four sites at two cameras each, which is the widest the design's
+      two-column bands go before a tile stops being worth looking at. It is also
+      a number a browser will hold peers for without complaint, and — the reason
+      it is a hard cap rather than a guideline — it stops a wall-mounted 4K
+      monitor from quietly opening sixty sessions because they all technically
+      fit. A tile over the ceiling says so rather than pretending to load. */
+  const MAX_LIVE_TILES = 8;
+
+  const towerTargets: PlaybackTarget[] = feeds
+    .filter(
+      (f) =>
+        open !== null &&
+        f.towerId === open.id &&
+        f.state === "live" &&
+        f.index !== undefined,
+    )
+    .map((f) => {
+      /* Only send a profile the camera actually advertises. A remembered id can
+         outlive the tower that offered it, and coordination refuses one it does
+         not recognise — a stale preference would become a feed that will not
+         start. Falling through to the default is the honest recovery. */
+      const chosen = cameraProfiles[f.id];
+      const known = f.profiles?.some((p) => p.id === chosen);
+      return {
+        id: f.id,
+        towerId: f.towerId,
+        index: f.index!,
+        ...(chosen && known ? { profile: chosen } : {}),
+      };
+    });
+
+  /* Wall order, not feed order, so the cap is decided by where a tile sits on
+     the screen rather than by whatever order the fleet came back in. Two
+     operators looking at the same wall drop the same tiles. */
+  const fleetTargets: PlaybackTarget[] = wallOrder
+    .map((id) => feeds.find((f) => f.id === id))
+    .filter(
+      (f): f is CameraFeed =>
+        f !== undefined &&
+        f.state === "live" &&
+        f.index !== undefined &&
+        visibleTiles.has(f.id),
+    )
+    .slice(0, MAX_LIVE_TILES)
+    .map((f) => ({
+      id: f.id,
+      towerId: f.towerId,
+      index: f.index!,
+      /* ⚠ SUB, ALWAYS, ON THIS WALL. Twelve tiles at 2K is a different order of
+         magnitude of uplink and battery than twelve at 704×576, and nobody is
+         reading detail off a tile this size — the main stream is what the tower
+         view is for. The operator's per-camera profile choice is deliberately
+         NOT consulted here: it is a choice about how they watch ONE camera,
+         not licence to pull 2K twelve times over.
+
+         Named only when the camera advertises it, because a tower running an
+         older agent advertises no profiles at all and its default already IS
+         the sub stream — naming one it never offered would be asking for a
+         stream by a name it does not know. */
+      ...(f.profiles?.some((p) => p.id === "sub") ? { profile: "sub" } : {}),
+    }));
+
   const playbackTargets: PlaybackTarget[] = seededFleet
     ? []
-    : feeds
-        .filter(
-          (f) =>
-            open !== null &&
-            f.towerId === open.id &&
-            f.state === "live" &&
-            f.index !== undefined,
-        )
-        .map((f) => {
-          /* Only send a profile the camera actually advertises. A remembered id
-             can outlive the tower that offered it — an agent downgrade, a
-             camera swapped for one with a different list — and coordination
-             refuses an id it does not recognise, so a stale preference would
-             turn into a feed that will not start. Falling through to the
-             default is the honest recovery, and the selector will show the
-             default as current because that is what is playing. */
-          const chosen = cameraProfiles[f.id];
-          const known = f.profiles?.some((p) => p.id === chosen);
-          return {
-            id: f.id,
-            towerId: f.towerId,
-            index: f.index!,
-            ...(chosen && known ? { profile: chosen } : {}),
-          };
-        });
+    : open !== null
+      ? towerTargets
+      : fleetTargets;
+
+
 
   const {
     phases: playback,
@@ -742,15 +825,6 @@ export function SentinelApp() {
   const openTower = useCallback(
     (id: string, showAlerts = false) => show({ id, showAlerts }),
     [show],
-  );
-
-  /* The fleet wall's arrangement, as feed ids. Up here rather than in the
-     dashboard because that view unmounts on every drill-in — arranging a wall
-     is work, and handing it back reset would teach operators not to arrange it.
-     Ids rather than a reordered copy of the feeds: `feeds` is rebuilt on every
-     latency tick, so anything holding the objects would go stale immediately. */
-  const [wallOrder, setWallOrder] = useState<string[]>(() =>
-    FEEDS.map((f) => f.id),
   );
 
   /**
@@ -1255,6 +1329,9 @@ export function SentinelApp() {
           onOpenTower={openTower}
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
+          playback={playback}
+          onScreenTiles={visibleTiles}
+          observeTile={observeTile}
           dismissedNotices={dismissedNotices}
           onDismissNotice={dismissNotice}
           fleetLoading={fleetLoading}

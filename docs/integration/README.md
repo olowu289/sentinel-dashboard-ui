@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 10 — The final sweep | ✅ **23/23** | Dead controls disabled-not-removed, the settings key named, `sharp` dropped. |
 | 9 — Renewal + persistence | ✅ **25/25** | Part 1 was already complete from Stage 3 — verified, not rebuilt. Part 2 net-new: per-account view prefs. |
 | 10 — Sweep | — | |
 
@@ -1125,6 +1126,54 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 10 result — the final sweep, 23/23
+
+**No control was removed.** Each dead one is still drawn, dimmed, `disabled`,
+and carries a title saying why. The global `button:disabled { cursor: not-allowed }`
+rule in `index.css` already existed, so all four say it before they are pressed.
+
+| Control | Treatment | Why not wired |
+|---|---|---|
+| **Escalate** (`AlertDetail`) | disabled + *"not available yet"* | Coordination serves **no alert routes at all** — no ticket, no rota, no recipient |
+| **Hero play** (`AlertDetail`) | ⭐ **WIRED** | It is the alert's own attachment; it now hands the same pair to the same panel its sibling clip cards do |
+| **Update Firmware** (`CameraSettingsPanel`) | disabled + *"not available yet"*, **and the green removed** | The agent reports `agent_version` and accepts nothing back |
+| **Settings** (`IconRail`) | disabled + *"not available yet"*, `unavailable` flag on the NAV entry | No account-level settings screen exists; per-tower settings are reached from the tower bar |
+
+The hero play button was the one worth wiring rather than disabling: it looked
+exactly like the timeline's clip-card play buttons and did nothing. `alert.attachment`
+is hoisted to a local so the narrowing survives into the callback — a non-null
+assertion there would be one typo away from showing an operator the wrong
+incident's footage.
+
+Two audits ran rather than trusting the list. Every `<button>` with no click
+handler: five hits, of which `TowerCard:127` was the word `<button>` **inside a
+comment** and `PtzPad:92` spreads `{...press(dir)}` — three real, all treated.
+Every optional `on*` prop never passed by a parent: **none**. And `settings` is
+the only `navigate` fallthrough.
+
+`Zoom out` shows disabled twice on the tower screen and is **correct** —
+`view.zoom <= ZOOM_MIN`, once per camera. Honest state, not a dead control.
+
+**The settings key: the TOWER's id won, and nothing changed behaviourally.**
+`App.tsx` named its parameters `feedId`; every caller passed `tower.id`, because
+`TowerView` opens one panel from the tower bar and there is no per-camera
+settings surface. So the stored key was **always** a tower id and only the name
+was wrong. Nothing had ever read the wrong record — the hazard was the next
+person to trust the name and look one up by feed, at which point a two-camera
+site silently gets defaults instead of its own configuration. Renamed to
+`towerId` throughout, with the reason at the site.
+
+It is per-tower because that is what the panel edits: zones, uplink, retention
+and power are properties of a site, not of one lens. ⚠ If settings ever become
+per-camera, the key must change **with a migration** — `lib/prefs.ts` persists
+this map verbatim, so a bare reinterpretation would hand every operator back
+defaults on their next visit.
+
+**`sharp` dropped.** devDependency, no import in `src/`, no npm script, no
+config reference — the only textual hits were the word *"sharpest"* in two
+comments. Removed from `package.json` and the lockfile (6 packages); build clean
+at the same 498 modules.
 
 ### Stage 9 result — session lifecycle + persistence, 25/25
 

@@ -347,15 +347,33 @@ export function SentinelApp() {
   const [liveViewSec, setLiveViewSec] = useState(0);
   const [liveViewDismissed, setLiveViewDismissed] = useState(false);
 
-  /* Keyed by feed id rather than carried on the feed itself. `feeds` is rebuilt
-     on every latency tick and recording tick, and a settings object copied
-     through that loop is one more thing that can be dropped by a careless
-     `map`. Undefined means untouched, which is what `DEFAULT_CAMERA_SETTINGS`
-     is for — the shell answers "what does this camera do" so no view has to. */
+  /**
+   * Camera settings, KEYED BY TOWER ID.
+   *
+   * Keyed off to the side rather than carried on the feed itself: `feeds` is
+   * rebuilt on every latency tick and recording tick, and a settings object
+   * copied through that loop is one more thing a careless `map` can drop.
+   * Undefined means untouched, which is what `DEFAULT_CAMERA_SETTINGS` is for —
+   * the shell answers "what does this camera do" so no view has to.
+   *
+   * ⚠ THE KEY IS THE TOWER'S, AND THESE PARAMETERS USED TO SAY `feedId`. Every
+   * caller passed `tower.id` — `TowerView` opens one panel from the tower bar
+   * and there is no per-camera settings surface — so the stored key was always
+   * a tower id and the name was simply wrong. Nothing read the wrong record,
+   * because nothing ever wrote a feed id; the hazard was the next person to
+   * trust the name and look one up by feed, at which point a two-camera site
+   * silently gets defaults instead of its own configuration.
+   *
+   * It is per-tower because that is what the panel edits: detection zones, the
+   * uplink, retention and power are properties of a site, not of one lens. If
+   * settings ever become per-camera, this key must change WITH a migration —
+   * `lib/prefs.ts` persists this map verbatim, so a bare reinterpretation would
+   * hand every operator back defaults on their next visit.
+   */
   const [settings, setSettings] = useState<Record<string, CameraSettings>>({});
 
   const cameraSettings = useCallback(
-    (feedId: string) => settings[feedId] ?? DEFAULT_CAMERA_SETTINGS,
+    (towerId: string) => settings[towerId] ?? DEFAULT_CAMERA_SETTINGS,
     [settings],
   );
 
@@ -419,11 +437,11 @@ export function SentinelApp() {
   );
 
   const applySettings = useCallback(
-    (feedId: string, next: Partial<CameraSettings>) => {
+    (towerId: string, next: Partial<CameraSettings>) => {
       setSettings((prev) => ({
         ...prev,
-        [feedId]: {
-          ...(prev[feedId] ?? DEFAULT_CAMERA_SETTINGS),
+        [towerId]: {
+          ...(prev[towerId] ?? DEFAULT_CAMERA_SETTINGS),
           ...next,
           changedBy: OPERATOR,
           changedAt: Date.now(),
@@ -440,9 +458,9 @@ export function SentinelApp() {
      lands, so there is nothing a tick would add. Zones go through here too —
      the drawn rectangle appearing on the frame is the confirmation. */
   const changeSettings = useCallback(
-    (feedId: string, next: Partial<CameraSettings>) =>
-      routine.run(`settings:${feedId}`, async () => {
-        applySettings(feedId, next);
+    (towerId: string, next: Partial<CameraSettings>) =>
+      routine.run(`settings:${towerId}`, async () => {
+        applySettings(towerId, next);
       }),
     [applySettings, routine],
   );
@@ -510,7 +528,11 @@ export function SentinelApp() {
         setOnAlerts(false);
         show({ id: target, showAlerts: false });
       }
-      /* `settings` is drawn by the frame and goes nowhere yet. */
+      /* `settings` deliberately has no branch: there is no account-level
+         settings screen, so the rail draws that item disabled rather than
+         letting it reach here and fall off the end silently. If one is ever
+         built, clear `unavailable` in `IconRail`'s NAV and add the branch —
+         both, or the item lights up and still goes nowhere. */
     },
     [alerts, show, towers],
   );

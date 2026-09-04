@@ -180,6 +180,12 @@ export function AlertDetail({
     ? formatClock(alert.at)
     : `${formatSiteDate(alert.at)}, ${formatClock(alert.at)}`;
 
+  /* Hoisted so the hero's play button can close over it. Narrowing on
+     `alert.attachment` does not survive into a callback, and the alternative is
+     a non-null assertion on the one line where being wrong shows an operator
+     the wrong incident's footage. */
+  const hero = alert.attachment;
+
   /* A short slide from the right edge, not a full panel width — the list is
      still conceptually behind this, so it should read as sliding over its own
      list rather than arriving from off-screen.
@@ -284,16 +290,22 @@ export function AlertDetail({
               rather than the frame's fixed 198px, so the panel can be any
               width and still show the designed proportion. */}
           <div className="relative aspect-[388/198] w-full overflow-hidden rounded-[12px] bg-panel">
-            {alert.attachment ? (
+            {hero ? (
               <>
                 <img
-                  src={alert.attachment.thumbnail}
+                  src={hero.thumbnail}
                   alt={`Frame captured for ${alert.id}`}
                   className="absolute inset-0 size-full object-cover"
                 />
+                {/* The hero had a label and no handler: it looked like the
+                    play button the timeline's clip cards below it are, and did
+                    nothing. It now hands the same pair up to the same panel —
+                    this frame IS the alert's own attachment, so the moment to
+                    open at is the alert's own timestamp. */}
                 <button
                   type="button"
-                  aria-label={`Play ${alert.attachment.title}`}
+                  aria-label={`Play ${hero.title}`}
+                  onClick={() => onPlayClip(alert.at, hero)}
                   className="absolute inset-0 flex items-center justify-center bg-black/25 transition-colors hover:bg-black/10"
                 >
                   <span className="chip-blur flex size-[44px] items-center justify-center rounded-full bg-black/55">
@@ -310,9 +322,9 @@ export function AlertDetail({
                 <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-white/85">
                   {alert.source}
                 </span>
-                {alert.attachment.durationSec !== undefined && (
+                {hero.durationSec !== undefined && (
                   <span className="chip-blur pointer-events-none absolute bottom-[8px] right-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-white/85 tabular-nums">
-                    {formatDuration(alert.attachment.durationSec)}
+                    {formatDuration(hero.durationSec)}
                   </span>
                 )}
               </>
@@ -464,9 +476,18 @@ export function AlertDetail({
             Add person
           </button>
         )}
+        {/* Escalating hands an alert to somebody outside this room, and there
+            is nowhere to hand it: coordination serves no alert routes at all,
+            so there is no ticket, no rota and no recipient. It stays on screen
+            and stays disabled — a button removed is a feature forgotten, and
+            this one has to be wired the day alerts get a backend. Pressing it
+            and having nothing happen is the worse failure on a screen whose
+            whole job is escalation. */}
         <button
           type="button"
-          className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12"
+          disabled
+          title="Escalate — not available yet"
+          className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12 disabled:bg-panel/60 disabled:text-white/30 disabled:hover:bg-panel/60"
         >
           Escalate
         </button>

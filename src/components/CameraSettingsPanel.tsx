@@ -868,9 +868,16 @@ function RowReading({
         </span>
         {icon && <img src={icon} alt="" width={16} height={16} className="block shrink-0" />}
         {action && (
+          /* Disabled, and the green goes with it. A firmware push is the one
+             control on this panel that reaches the hardware, and there is no
+             route to reach it with — the agent reports `agent_version` and
+             accepts nothing back. Live green on a control that cannot act is
+             the colour rule inverted: it would read as a healthy signal. */
           <button
             type="button"
-            className="shrink-0 text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-terra transition-colors hover:text-white"
+            disabled
+            title={`${action} — not available yet`}
+            className="shrink-0 text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-terra transition-colors hover:text-white disabled:text-white/30 disabled:hover:text-white/30"
           >
             {action}
           </button>

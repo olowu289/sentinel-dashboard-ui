@@ -79,7 +79,7 @@ export function TowerView({
   onRaiseAlert: (towerId: string) => Alert;
   /** Rail destinations, routed by the shell. */
   onNavigate: (id: string) => void;
-  /** One camera's settings, defaulted by the shell so this view never has to
+  /** This TOWER's settings, defaulted by the shell so this view never has to
    *  decide what an unset camera does. */
   cameraSettings: (towerId: string) => CameraSettings;
   onChangeSettings: (towerId: string, next: Partial<CameraSettings>) => void;

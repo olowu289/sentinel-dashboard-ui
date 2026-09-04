@@ -1,7 +1,20 @@
 import { useSession } from "@/components/AuthProvider";
 import { MaskIcon } from "./Icon";
 
-const NAV = [
+/**
+ * `unavailable` marks a destination that exists in the design and has no screen
+ * behind it. It is drawn, dimmed and not pressable, rather than dropped: a rail
+ * item removed is a feature nobody remembers to build, and this rail has
+ * already been through the other failure — see the routing note in `App.tsx`,
+ * where two screens shipped a nav bar that did not navigate. A silent dead
+ * click is that same bug wearing a working screen's clothes.
+ */
+const NAV: {
+  id: string;
+  label: string;
+  icon: string;
+  unavailable?: boolean;
+}[] = [
   { id: "add", label: "New", icon: "/icons/nav-add.svg" },
   { id: "dashboard", label: "Dashboard", icon: "/icons/nav-dashboard.svg" },
   { id: "towers", label: "Towers", icon: "/icons/nav-towers.svg" },
@@ -11,7 +24,16 @@ const NAV = [
      two readings of one icon are as far apart as this product gets. */
   { id: "poi", label: "People of interest", icon: "/icons/nav-team.svg" },
   { id: "alerts", label: "Alerts", icon: "/icons/nav-alerts.svg" },
-  { id: "settings", label: "Settings", icon: "/icons/nav-settings.svg" },
+  /* No settings screen exists — the shell's router has no branch for it and
+     the frame never drew one. Per-tower settings DO exist and are reached from
+     the tower bar; what is missing is the account-level screen this glyph
+     implies. */
+  {
+    id: "settings",
+    label: "Settings",
+    icon: "/icons/nav-settings.svg",
+    unavailable: true,
+  },
 ];
 
 export function IconRail({
@@ -52,14 +74,23 @@ export function IconRail({
           disturbing the spacing. */}
       <ul className="absolute left-1/2 top-[233px] flex -translate-x-1/2 flex-col items-center gap-[24px]">
         {NAV.map((item) => {
-          const isActive = active === item.id;
+          const isActive = active === item.id && !item.unavailable;
           return (
             <li key={item.id} className="flex h-[24px] items-center">
               <button
                 type="button"
-                aria-label={item.label}
+                aria-label={
+                  item.unavailable
+                    ? `${item.label} — not available yet`
+                    : item.label
+                }
                 aria-current={isActive ? "page" : undefined}
-                title={item.label}
+                disabled={item.unavailable}
+                title={
+                  item.unavailable
+                    ? `${item.label} — not available yet`
+                    : item.label
+                }
                 onClick={() => onSelect?.(item.id)}
                 /* The alerts entry is a bell, and a bell swings — the same
                    one the tower bar and the fleet header use. Nothing else in
@@ -67,9 +98,11 @@ export function IconRail({
                 className={`flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
                   item.id === "alerts" ? "group/bell" : ""
                 } ${
-                  isActive
-                    ? "text-white"
-                    : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
+                  item.unavailable
+                    ? "text-[#cccccc]/20"
+                    : isActive
+                      ? "text-white"
+                      : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
                 }`}
               >
                 <MaskIcon

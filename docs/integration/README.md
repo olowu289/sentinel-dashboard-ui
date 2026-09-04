@@ -1084,7 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
-| 14 — Connected since | ✅ **12/12** | The IP row is replaced by a real `connected_at`. Uplink grade BLOCKED — see below. |
+| 14 — Real network health | ✅ **15/15** | Real uplink grade from a real dBm; the IP row replaced by `connected_at`. |
 | 13 — Per-camera playback | ✅ **13/13** | One camera's switch no longer drops its sibling's peer. |
 | 12 — Real stream profiles | ✅ **20/20** | The Stream Quality row stops inventing options and drives the session. |
 | 11 — Real rename | ✅ **18/18** | The first setting on the panel to become real. |
@@ -1167,7 +1167,52 @@ the video tiles are untouched across a tick.
 it. Added (see `sentry-sdk`), preserving absence as absence rather than coercing
 it to null: "offline" and "connected at an unknown time" are different claims.
 
-#### BLOCKED: the uplink grade
+#### The uplink grade — now real, across three layers
+
+Unblocked by building all three: coordination projects it, the SDK types it,
+the dashboard grades it.
+
+**Coordination projects `health.uplink` and NOTHING ELSE from the health block.**
+Door, cover, impact, thermal, disk and feeds are operational detail for the
+platform, not viewer data, and §A.6's posture is a whitelist. Proven against a
+full internal health block — every one of those is absent from the projection,
+and so is **`iface`**, which sits *inside* the uplink block and is the easy one
+to miss: an interface name describes how the tower is plumbed and is exactly the
+routing internal `test_no_ip_or_routing_internal_is_exposed` already forbids.
+
+**The grade is computed in the dashboard, and only ever from a number.**
+`uplinkReading` in `map.ts` is the single place; the tower reports the fact and
+refuses to grade it, coordination passes it through and refuses to grade it, and
+this file decides. Same split as `as_of` → staleness.
+
+| dBm | Grade |
+|---|---|
+| better than −60 | **Great** |
+| −60 … −75 | **Fair** |
+| worse than −75 | **Poor** |
+
+Exercised against the real module, every branch:
+
+```
+-45 -> great   -59 -> great   -60 -> fair   -68 -> fair
+-75 -> fair    -76 -> poor    -91 -> poor
+ethernet -> wired        associated:false -> unassociated
+named-only -> unmeasured        absent -> unmeasured
+
+graded: 7 (all carry a dbm)   non-graded: 4 (none carry a grade)
+```
+
+That last line is the structural guarantee: **there is no arrangement of missing
+data that produces a grade**, because every non-numeric path returns a variant
+with no `grade` field at all.
+
+**The dBm is shown beside the grade** — `Great · -57 dBm`, live from the tower —
+for the same reason a stream profile shows its resolution: a label with the
+measurement behind it can be checked; one without it has to be believed.
+
+The three non-signal states get **no colour**. They are not degradations, and
+painting "Wired" amber would report a fault on hardware that is working. The
+demo grade is gone from `demoCabinet` entirely.
 
 **Coordination does not project the health block to a viewer at all.**
 `project_tower` returns `device_id`, `label`, `link`, `as_of`, `cameras`,

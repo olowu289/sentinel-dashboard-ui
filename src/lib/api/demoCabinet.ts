@@ -78,7 +78,6 @@ export function withDemoCabinetReadings(tower: Tower): Tower {
     solar: tower.solar ?? (r > 0.75 ? "idle" : "charging"),
     batteryPct: tower.batteryPct ?? battery,
     tempC: tower.tempC ?? temp,
-    link: tower.link ?? (tower.online ? (r > 0.8 ? "warn" : "good") : "bad"),
     location: tower.location ?? "Lokogoma, Abuja GMT +1",
     model: tower.model ?? "Terra Sentry XL",
     backupConnection: tower.backupConnection ?? "Satellite",

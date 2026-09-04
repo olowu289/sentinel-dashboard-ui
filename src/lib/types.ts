@@ -76,6 +76,19 @@ export interface TowerHealthReading {
   /** SoC temperature — the processor's, **not** the cabinet's. */
   thermal?: { socC: number | null; state?: string };
   disk?: { freePct: number };
+  /**
+   * The uplink, as MEASURED — never as graded.
+   *
+   * `signalDbm` is a raw RSSI, always negative. Grading it is the dashboard's
+   * job and happens in one place (`uplinkReading`), because a grade computed
+   * upstream would freeze one opinion of "acceptable" into every tower.
+   *
+   * The absences are separate claims: `type: "ethernet"` is wired and has no
+   * RSSI to have, `associated: false` is a radio joined to nothing, and the
+   * whole object missing means nothing was measured. None of the three may be
+   * rendered as a grade.
+   */
+  uplink?: { signalDbm?: number; type?: string; associated?: boolean };
 }
 
 /**

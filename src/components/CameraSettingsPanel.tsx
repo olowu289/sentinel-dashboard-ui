@@ -10,6 +10,7 @@ import { MaskIcon } from "./Icon";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
+import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { useNow } from "@/lib/useNow";
 import { MutationError, MutationSpinner, errorRing } from "./MutationFeedback";
 import type { MutationPhase } from "@/lib/useMutation";
@@ -589,47 +590,17 @@ export function CameraSettingsPanel({
           <Group title="Network">
             {/* No chevron on the frame, and rightly — an uplink is a reading,
                 not a setting. It keeps its colour, which makes it the only
-                value on this panel that is not white. */}
-            <RowReading
-              label="Uplink"
-              /* Quality when the tower graded itself, presence when it did
-                 not. Coordination reports whether the WSS link is up, which is
-                 a different fact from how good it is — and mapping "up" to
-                 "Great" would invent a grade the tower never gave. */
-              value={
-                tower.link === "good"
-                  ? "Great"
-                  : tower.link === "warn"
-                    ? "Fair"
-                    : tower.link === "bad"
-                      ? "Poor"
-                      : tower.online
-                        ? "Connected"
-                        : "Not connected"
-              }
-              tone={
-                tower.link === "bad" || (!tower.link && !tower.online)
-                  ? "text-critical"
-                  : tower.link === "warn"
-                    ? "text-warn"
-                    : "text-terra"
-              }
-              /* The exported set is two-tier — there is no `wifi-bad.svg` —
-                  so a poor uplink took the amber glyph and the row said red in
-                  words beside amber in the picture, on the one reading in this
-                  panel whose colour carries the meaning. Better no glyph than
-                  one reporting a tier above the truth: the value itself is
-                  present, explicit and in the right colour, and the icon was
-                  only ever reinforcing it. Give it the third export and it
-                  belongs back here. */
-              icon={
-                tower.link === "good"
-                  ? "/icons/wifi-good.svg"
-                  : tower.link === "warn"
-                    ? "/icons/wifi-warn.svg"
-                    : undefined
-              }
-            />
+                value on this panel that is not white.
+
+                ⚠ THIS USED TO BE A DEMO GRADE. `tower.link` is coordination's
+                view of the WSS socket — up or down — and the seed layer turned
+                that into "Great"/"Fair"/"Poor", which is a grade the tower
+                never gave, on the one row in this panel whose colour carries
+                meaning. It now grades a REAL dBm or says honestly that it
+                cannot. There is no arrangement of missing data that produces a
+                grade: `uplinkReading` returns a non-grade for every path that
+                is not a number. */}
+            <UplinkRow reading={uplinkReading(tower.health?.uplink)} />
             {/* WAS "IP Address", and that was a demo literal — 192.168.1.230
                 on every tower in the fleet. This reports something the tower
                 actually tells us. It is also the more useful reading: an
@@ -1001,6 +972,58 @@ function RowReading({
       </span>
     </div>
   );
+}
+
+/**
+ * The uplink, graded only when there is a number behind the grade.
+ *
+ * Colour is the app's reserved set and it is spent here deliberately: this is a
+ * READING of a site, which is what green/amber/red are for. The three
+ * non-signal states get no colour at all — they are not degradations, and
+ * painting "Wired" amber would report a fault on hardware that is working.
+ *
+ * The dBm rides beside the grade for the same reason a stream profile shows its
+ * resolution: a label with the measurement behind it can be checked, and one
+ * without it has to be believed.
+ */
+function UplinkRow({ reading }: { reading: UplinkReading }) {
+  if (reading.kind === "signal") {
+    const word =
+      reading.grade === "great" ? "Great" : reading.grade === "fair" ? "Fair" : "Poor";
+    return (
+      <RowReading
+        label="Uplink"
+        value={`${word} · ${reading.dbm} dBm`}
+        tone={
+          reading.grade === "poor"
+            ? "text-critical"
+            : reading.grade === "fair"
+              ? "text-warn"
+              : "text-terra"
+        }
+        /* The exported set is two-tier — there is no `wifi-bad.svg` — so a poor
+           uplink took the amber glyph and the row said red in words beside
+           amber in the picture. Better no glyph than one reporting a tier above
+           the truth. Give it the third export and it belongs back here. */
+        icon={
+          reading.grade === "great"
+            ? "/icons/wifi-good.svg"
+            : reading.grade === "fair"
+              ? "/icons/wifi-warn.svg"
+              : undefined
+        }
+      />
+    );
+  }
+
+  /* Everything below is an honest absence of a signal, not a bad one. */
+  if (reading.kind === "wired") {
+    return <RowReading label="Uplink" value="Wired" />;
+  }
+  if (reading.kind === "unassociated") {
+    return <RowReading label="Uplink" value="Radio not connected" tone="text-warn" />;
+  }
+  return <RowReading label="Uplink" value="No signal reading" />;
 }
 
 /**

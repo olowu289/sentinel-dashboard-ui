@@ -39,6 +39,58 @@ import type {
  */
 export const STALE_AFTER_MS = 90_000;
 
+/**
+ * Where the grade boundaries sit, in dBm.
+ *
+ * ⚠ THE INTERPRETATION LIVES HERE, and that is the whole architecture of this
+ * reading. The tower measures an RSSI and says nothing about whether it is
+ * good; coordination passes the number through untouched. Both refuse to grade
+ * for the same reason: a verdict decided upstream would freeze one opinion of
+ * "acceptable" into every tower in the fleet and need a firmware change to
+ * revise. It is the same split as `as_of` — the server reports WHEN, this file
+ * decides what counts as stale.
+ *
+ * RSSI is negative and closer to zero is stronger, so these read backwards
+ * until you hold that in mind: -55 is better than -80.
+ */
+export const UPLINK_GREAT_DBM = -60;
+export const UPLINK_FAIR_DBM = -75;
+
+/** What the Uplink row should say, and never a grade without a dBm behind it. */
+export type UplinkReading =
+  /** A real measurement. `dbm` is what was measured; `grade` is our reading. */
+  | { kind: "signal"; grade: "great" | "fair" | "poor"; dbm: number }
+  /** Wired. No RSSI exists, and inventing a poor grade would libel good kit. */
+  | { kind: "wired" }
+  /** A radio that is up and joined to nothing. Not wired, and not a signal. */
+  | { kind: "unassociated" }
+  /** Nothing was measured. Distinct from the tower being unreachable. */
+  | { kind: "unmeasured" };
+
+/**
+ * Grade the uplink, or honestly decline to.
+ *
+ * Every path that is not a real dBm returns a NON-GRADE. That is the rule this
+ * function exists to enforce in one place: the row it feeds can draw Great,
+ * Fair or Poor only when it was handed a number, so there is no arrangement of
+ * missing data that produces a grade.
+ */
+export function uplinkReading(
+  uplink: TowerHealthReading["uplink"] | undefined,
+): UplinkReading {
+  if (!uplink) return { kind: "unmeasured" };
+  const dbm = uplink.signalDbm;
+  if (typeof dbm === "number" && Number.isFinite(dbm)) {
+    /* Closer to zero is stronger. */
+    const grade =
+      dbm > UPLINK_GREAT_DBM ? "great" : dbm >= UPLINK_FAIR_DBM ? "fair" : "poor";
+    return { kind: "signal", grade, dbm };
+  }
+  if (uplink.type === "ethernet") return { kind: "wired" };
+  if (uplink.associated === false) return { kind: "unassociated" };
+  return { kind: "unmeasured" };
+}
+
 /** Why a feed is not live, in words a fallback can print. */
 export type FeedStateReason =
   /** The tower reported this camera down. */
@@ -133,6 +185,20 @@ function toHealth(raw: TowerDetail["health"] | undefined): TowerHealthReading | 
     };
   }
   if (raw.disk) out.disk = { freePct: raw.disk.free_pct };
+  /* Each member carried only when present. A wired uplink has no `signalDbm`
+     and must not gain one here — the whole point of the three shapes is that
+     they stay distinguishable all the way to the row that draws them. */
+  if (raw.uplink) {
+    out.uplink = {
+      ...(typeof raw.uplink.signal_dbm === "number"
+        ? { signalDbm: raw.uplink.signal_dbm }
+        : {}),
+      ...(raw.uplink.type ? { type: raw.uplink.type } : {}),
+      ...(typeof raw.uplink.associated === "boolean"
+        ? { associated: raw.uplink.associated }
+        : {}),
+    };
+  }
   return out;
 }
 

@@ -201,6 +201,25 @@ five decimal places, wrapped in `rotate(180deg) scaleY(-1)`. Compare the `d`
 attributes before committing a file — one asset turned is one asset to keep in
 step, and the design does this deliberately.
 
+**A running dev server does not notice the SDK being rebuilt.** This cost a
+whole debugging session, and it fails *silently* — no error, no warning, just
+yesterday's parser quietly dropping a field today's server sends. The symptom
+was an Uplink row reading "No signal reading" while the Network tab plainly
+showed `signal_dbm` in the response.
+
+`@kallon/sentry-sdk` is `file:../sentry-sdk`, so npm resolves it to a symlink
+whose real path is *outside* the project root — and Vite's watcher only walks
+the root. `optimizeDeps.exclude` is not the problem and is doing its job; the
+module simply stays cached for the life of the process. Four servers were up
+that day, and the two started before the SDK rebuild were wrong while the two
+started after were right, on identical source.
+
+`vite.config.ts` now adds the SDK's `dist/` to the watcher and full-reloads on
+change, so this specific trap is closed. The wider lesson stands: **if the
+browser disagrees with the wire, check the dev server's start time against the
+SDK's `dist/` mtime before touching any code.** And keep one dev server, not
+four — `netstat -ano | grep :51` when in doubt.
+
 **Vite HMR does not always pick up `data.ts` edits.** Module-level seed data is
 captured at import. If the UI shows stale copy after a data change, hard-reload
 before believing it.

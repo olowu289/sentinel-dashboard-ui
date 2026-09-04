@@ -1131,6 +1131,40 @@ Also established:
 
 **Verdict: joining architecture (a′) is proven.**
 
+### Stage 14 addendum — the "No signal reading" report was a stale dev server
+
+Reported as a parse bug: the wire carried `uplink.signal_dbm` and the row said
+"No signal reading". The hypothesis was that the SDK typed `uplink` without
+parsing it, so a whitelist parser stripped it at the boundary.
+
+**It did not.** `parseTowerList` keeps it — fed the real body it returns
+`{"uplink":{"signal_dbm":-58}}` — and the row renders correctly. Four dev
+servers were running and they disagreed on identical source:
+
+| port | started | Uplink row |
+|---|---|---|
+| 5173 | 16:37 | ❌ No signal reading |
+| 5190 | 17:27 | ❌ No signal reading |
+| 5191 | 18:49 | ✅ Great · −56 dBm |
+| 5174 | 19:11 | ✅ Great · −56 dBm |
+
+The SDK's `dist/` was rebuilt at **18:43:59**. Every server started before it was
+wrong; every one started after was right. The boundary is exact.
+
+**Cause:** the SDK is `file:../sentry-sdk`, a symlink whose real path is outside
+Vite's root, and the watcher only walks the root. Nothing tells a running server
+the file changed, so the transformed module stays cached for the life of the
+process — silently, with no error.
+
+**Fix:** `vite.config.ts` gained a small `watch-linked-sdk` plugin that adds the
+SDK's `dist/` to the watcher and triggers a full reload on change (full reload
+rather than HMR: this is the boundary all the app's data passes through, and
+patching it in place would leave half the tree holding values parsed by the old
+copy). Verified by touching `dist/` and watching the server log it. Also written
+up in `CLAUDE.md`, because the next person will hit it from the other direction.
+
+No product code changed — the grading path was correct as committed in `a8d3305`.
+
 ### Stage 14 result — "Connected since" is real, 12/12 (uplink grade blocked)
 
 **The IP row is gone, replaced by something the tower actually reports.** It

@@ -300,6 +300,27 @@ export function SentinelApp() {
      session on a camera that has already said it is down burns a grant to be
      refused, and the tile has a truer thing to show. Seeded feeds are excluded
      because there is no session to open for a fixture. */
+  /**
+   * Which profile each camera is being watched at, by feed id.
+   *
+   * Lives here for the same reason the wall arrangement does: `TowerView`
+   * unmounts on every drill-out, and a choice owned by it would be forgotten
+   * the moment an operator glanced at the fleet. Undefined means "no choice
+   * made" and opens the camera's default — which is distinct from choosing the
+   * default explicitly only in that nothing is sent.
+   */
+  const [cameraProfiles, setCameraProfiles] = useState<Record<string, string>>(
+    {},
+  );
+
+  const chooseProfile = useCallback((feedId: string, profile: string) => {
+    /* No mutation wrapper. This writes nothing to a server — it changes which
+       stream THIS browser pulls, and the confirmation is the feed reopening,
+       which `usePlayback` already reports through its own honest phases. A
+       spinner here would be a second, competing account of the same wait. */
+    setCameraProfiles((prev) => ({ ...prev, [feedId]: profile }));
+  }, []);
+
   const playbackTargets: PlaybackTarget[] = seededFleet
     ? []
     : feeds
@@ -310,7 +331,23 @@ export function SentinelApp() {
             f.state === "live" &&
             f.index !== undefined,
         )
-        .map((f) => ({ id: f.id, towerId: f.towerId, index: f.index! }));
+        .map((f) => {
+          /* Only send a profile the camera actually advertises. A remembered id
+             can outlive the tower that offered it — an agent downgrade, a
+             camera swapped for one with a different list — and coordination
+             refuses an id it does not recognise, so a stale preference would
+             turn into a feed that will not start. Falling through to the
+             default is the honest recovery, and the selector will show the
+             default as current because that is what is playing. */
+          const chosen = cameraProfiles[f.id];
+          const known = f.profiles?.some((p) => p.id === chosen);
+          return {
+            id: f.id,
+            towerId: f.towerId,
+            index: f.index!,
+            ...(chosen && known ? { profile: chosen } : {}),
+          };
+        });
 
   const {
     phases: playback,
@@ -743,6 +780,9 @@ export function SentinelApp() {
     if (Object.keys(stored.cameraSettings).length > 0) {
       setSettings(stored.cameraSettings);
     }
+    if (Object.keys(stored.cameraProfiles).length > 0) {
+      setCameraProfiles(stored.cameraProfiles);
+    }
   }, [accountId]);
 
   /* Write back whenever a preference moves. Cheap, and it means a browser that
@@ -753,11 +793,12 @@ export function SentinelApp() {
       wallOrder,
       dismissedNotices: [...dismissedNotices],
       cameraSettings: settings,
+      cameraProfiles,
     });
     /* Deliberately no mirrored `prefs` state. It would be a second copy of
        what the three sources already say, and the first time it drifted the
        stale one would be what got written to disk. */
-  }, [accountId, wallOrder, dismissedNotices, settings]);
+  }, [accountId, wallOrder, dismissedNotices, settings, cameraProfiles]);
 
   const dismissNotice = useCallback((towerId: string) => {
     setDismissedNotices((prev) => new Set(prev).add(towerId));
@@ -1262,6 +1303,8 @@ export function SentinelApp() {
           onToggleSettings={() => setSettingsOpen((o) => !o)}
           onCloseSettings={() => setSettingsOpen(false)}
           onChangeSettings={changeSettings}
+          cameraProfiles={cameraProfiles}
+          onChooseProfile={chooseProfile}
           settingsMutation={routine}
           recordMutation={routine}
           rejectMutation={deliberate}

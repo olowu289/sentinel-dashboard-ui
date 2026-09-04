@@ -250,7 +250,6 @@ export interface CameraSettings {
   /** What goes out over the uplink. Separate from what is written to the
    *  tower's own buffer — the link is the constraint on one and the storage is
    *  the constraint on the other, so they are not one setting. */
-  quality: "1080p30" | "1080p15" | "720p30";
   recordingQuality: "4k" | "1080p" | "720p";
   /** The master switch in the panel's header card. Off means the tower keeps
    *  streaming but raises nothing. */
@@ -281,13 +280,35 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
   nightVision: "auto",
   recordingQuality: "4k",
   monitoring: true,
-  quality: "1080p15",
   micOn: true,
   speakerVolume: 70,
   recording: "detection",
   retentionDays: 30,
   powerMode: "balanced",
 };
+
+/**
+ * One stream a camera can be watched at.
+ *
+ * The app's own shape rather than the SDK's, like every other type in here —
+ * but deliberately the same three fields, because there is nothing to add. A
+ * profile carries NO PATH: the tower maps an id to its own MediaMTX path and
+ * the protocol keeps that off the wire, so a viewer names a profile and never
+ * receives somewhere to POST.
+ */
+export interface StreamProfile {
+  id: string;
+  /** What a session gets when none is named. */
+  default: boolean;
+  /**
+   * ⚠ ABSENT RATHER THAN GUESSED. The tower DECLARES these from config and
+   * never probes them, so a profile nobody configured a resolution for reports
+   * none — and the selector must then show the profile's id rather than invent
+   * a number. A label that says "1080p" over a 2560×1440 stream is the exact
+   * dishonesty this whole selector was built to remove.
+   */
+  resolution?: { width: number; height: number };
+}
 
 export interface CameraFeed {
   /** Stable key. For a real camera this is `${towerId}:${index}`. */
@@ -330,6 +351,15 @@ export interface CameraFeed {
   ptz?: boolean;
   /** Optical class, straight from the projection. */
   lens?: "ptz" | "fixed";
+  /**
+   * The stream profiles this camera can be opened at, default first.
+   *
+   * ⚠ ABSENT MEANS THE TOWER SAID NOTHING — not that there is one profile. An
+   * older agent advertises no list while still serving its default stream
+   * perfectly well, so absence offers no choice and opens sessions without
+   * naming one. It is never an error, and never grounds to invent a list.
+   */
+  profiles?: StreamProfile[];
   /**
    * When this camera's `state` was last confirmed, from the tower's `as_of`.
    * `null` means it has never reported.

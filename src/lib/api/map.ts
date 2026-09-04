@@ -166,6 +166,19 @@ export function toFeed(
     lens: cam.lens,
     // Capability, not permission. See the note on `CameraFeed.ptz`.
     ptz: cam.ptz_capable === true,
+    /* Straight through, default first as the tower ordered them. Omitted
+       entirely when the tower advertised none, so "no list" stays
+       distinguishable from "a list with one entry" — the first offers no
+       choice, the second says this camera really does have exactly one. */
+    ...(cam.profiles && cam.profiles.length > 0
+      ? { profiles: cam.profiles.map((p) => ({
+          id: p.id,
+          default: p.default,
+          ...(p.resolution
+            ? { resolution: { width: p.resolution.width, height: p.resolution.height } }
+            : {}),
+        })) }
+      : {}),
     poster: "",
     lastSeenAt: asOf,
     /* No `latencyMs`. Coordination reports none, and `FeedChip` omits the

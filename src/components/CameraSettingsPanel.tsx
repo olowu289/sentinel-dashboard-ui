@@ -16,6 +16,7 @@ import {
   type ActivityZone,
   type CameraFeed,
   type CameraSettings,
+  type StreamProfile,
   type Tower,
 } from "@/lib/types";
 
@@ -113,24 +114,60 @@ const RECORDING_QUALITY: {
   { value: "720p", label: "HD (720P)", note: "For a tower that fills up." },
 ];
 
-const QUALITY: { value: CameraSettings["quality"]; label: string; note: string }[] =
-  [
-    {
-      value: "1080p30",
-      label: "Full HD (1080P) · 30 fps",
-      note: "Sharpest, and the heaviest on the uplink.",
-    },
-    {
-      value: "1080p15",
-      label: "Full HD (1080P)",
-      note: "The default. 15 fps.",
-    },
-    {
-      value: "720p30",
-      label: "HD (720P) · 30 fps",
-      note: "Smoother motion on a poor link, less detail.",
-    },
-  ];
+/* ─────────────────────────────────────────────────────────────────────
+   STREAM QUALITY IS THE ONE ROW ON THIS PANEL THAT IS REAL.
+
+   It used to be three invented options — "1080P · 30 fps" and friends —
+   written against a store nothing read, on a camera that turned out to be
+   serving 2560×1440. The label was not merely inert, it was WRONG.
+
+   What replaces it is derived from what the tower actually advertises, so a
+   camera with different streams shows its own, and one that advertises none
+   shows none. Nothing here is a constant, because nothing here is this app's
+   to decide.
+   ───────────────────────────────────────────────────────────────────── */
+
+/**
+ * A familiar name for a resolution, or nothing.
+ *
+ * Only ever an ADDITION to the true numbers, never a replacement: "2K" is a
+ * convenience for people who think in tiers, and 2560×1440 is the fact. A tier
+ * on its own is how "1080p" ended up printed over a 2K stream.
+ */
+function tierFor(width: number, height: number): string | null {
+  const w = Math.max(width, height);
+  if (w >= 3840) return "4K";
+  if (w >= 2560) return "2K";
+  if (w >= 1920) return "Full HD";
+  if (w >= 1280) return "HD";
+  return "SD";
+}
+
+/**
+ * What a profile is called on screen.
+ *
+ * With a resolution: `2K · 2560×1440` — the tier for recognition, the numbers
+ * for truth. Without one: the profile's own id, unadorned. The tower declares
+ * resolutions from config rather than probing them, so an unconfigured profile
+ * genuinely has none, and the honest answer is to name the stream rather than
+ * to print a number nobody measured.
+ */
+function profileLabel(p: StreamProfile): string {
+  if (!p.resolution) return p.id;
+  const { width, height } = p.resolution;
+  const tier = tierFor(width, height);
+  return `${tier ? `${tier} · ` : ""}${width}×${height}`;
+}
+
+/** The second line, and only when there is something true to put on it. */
+function profileNote(p: StreamProfile, isDefault: boolean): string | undefined {
+  if (!p.resolution) {
+    return `Stream "${p.id}". The tower reports no resolution for it.`;
+  }
+  return isDefault
+    ? "The camera's default. Lightest on the uplink and the battery."
+    : "More detail, and more of the uplink and the battery to carry it.";
+}
 
 const RECORDING: {
   value: CameraSettings["recording"];
@@ -186,6 +223,8 @@ export function CameraSettingsPanel({
   renamePhase = { kind: "idle" },
   onRetryRename,
   onDismissRename,
+  cameraProfiles,
+  onChooseProfile,
   settingsPhase = { kind: "idle" },
   onRetrySettings,
   onDismissSettings,
@@ -196,6 +235,18 @@ export function CameraSettingsPanel({
   feeds: CameraFeed[];
   settings: CameraSettings;
   onChange: (next: Partial<CameraSettings>) => void;
+  /**
+   * Which profile each camera is being watched at, by feed id, and how to
+   * change it. Owned by the shell because the choice re-opens a session and
+   * this panel is not what holds the peer.
+   *
+   * ⚠ NOT PART OF `settings`. Every other row here writes to a store nothing
+   * reads; this one selects which stream the browser pulls and takes effect
+   * immediately. Keeping it out of `CameraSettings` is the difference being
+   * made visible in the types.
+   */
+  cameraProfiles?: Record<string, string>;
+  onChooseProfile?: (feedId: string, profile: string) => void;
   /** Commit a new id for this tower. */
   onRename: (next: string) => void;
   /** What the rename is doing. Keyed by tower id, owned by the shell. */
@@ -219,6 +270,28 @@ export function CameraSettingsPanel({
   const [open, setOpen] = useState<string | null>(null);
   const [editingZones, setEditingZones] = useState(false);
 
+  /* What the collapsed row says. One camera speaks for itself; two agreeing
+     speak as one; two disagreeing say so rather than picking a winner to
+     print. "Not reported" is the honest answer for a tower advertising no
+     profiles at all, and it is the same words every other absent reading on
+     this panel uses. */
+  const streamSummary = (() => {
+    const labels = feeds.map((f) => {
+      const list = f.profiles ?? [];
+      if (list.length === 0) return null;
+      const current =
+        list.find((p) => p.id === cameraProfiles?.[f.id]) ??
+        list.find((p) => p.default) ??
+        list[0];
+      return profileLabel(current);
+    });
+    const known = labels.filter((l): l is string => l !== null);
+    if (known.length === 0) return "";
+    return known.every((l) => l === known[0])
+      ? known[0]
+      : `${known.length} cameras`;
+  })();
+
   const zoneCount = feeds.reduce(
     (n, f) => n + (settings.zones[f.id]?.length ?? 0),
     0,
@@ -229,7 +302,6 @@ export function CameraSettingsPanel({
   const detect = DETECT.find((d) => d.value === settings.detect);
   const sensitivity = SENSITIVITY.find((s) => s.value === settings.sensitivity);
   const night = NIGHT.find((n) => n.value === settings.nightVision);
-  const quality = QUALITY.find((q) => q.value === settings.quality);
   const recording = RECORDING.find((r) => r.value === settings.recording);
   const power = POWER.find((p) => p.value === settings.powerMode);
   const recordingQuality = RECORDING_QUALITY.find(
@@ -459,18 +531,28 @@ export function CameraSettingsPanel({
                 onPick={(v) => onChange({ nightVision: v })}
               />
             </Row>
+            {/* Per camera, not per tower — the two cameras on one site have
+                different hardware and different lists, and this tower's are
+                2560×1440 and 1920×1080. Activity Zones is the only other row
+                that has to say which camera it means, and for the same
+                reason. */}
             <Row
               label="Stream Quality"
-              value={quality?.label ?? ""}
+              value={streamSummary}
               expanded={open === "quality"}
               onToggle={() => toggle("quality")}
             >
-              <Choices
-                name="stream quality"
-                options={QUALITY}
-                value={settings.quality}
-                onPick={(v) => onChange({ quality: v })}
-              />
+              <div className="flex flex-col gap-[10px]">
+                {feeds.map((f) => (
+                  <StreamChoice
+                    key={f.id}
+                    feed={f}
+                    multiple={feeds.length > 1}
+                    chosen={cameraProfiles?.[f.id]}
+                    onPick={(id) => onChooseProfile?.(f.id, id)}
+                  />
+                ))}
+              </div>
             </Row>
             <Row
               label="Recording Settings"
@@ -963,6 +1045,90 @@ function RowSlider({
         aria-label={label}
         className="w-full accent-white"
       />
+    </div>
+  );
+}
+
+/**
+ * One camera's profiles.
+ *
+ * Three states, and only one of them is a choice:
+ *
+ *  - **no list** — the tower advertised none. Says so, and offers nothing. An
+ *    older agent still serves its default stream perfectly well, so this is
+ *    not an error and must not read as one.
+ *  - **one profile** — shown, and shown as unavailable to change. Drawing a
+ *    single radio button would be a choice-shaped thing that cannot be chosen.
+ *  - **several** — the real selector.
+ *
+ * The camera's name appears only when there is more than one camera; on a
+ * single-camera tower it would be a heading over the only thing on screen.
+ */
+function StreamChoice({
+  feed,
+  multiple,
+  chosen,
+  onPick,
+}: {
+  feed: CameraFeed;
+  multiple: boolean;
+  chosen?: string;
+  onPick: (profileId: string) => void;
+}) {
+  const list = feed.profiles ?? [];
+  /* What is PLAYING, which is not always what was picked: a remembered id the
+     tower no longer advertises falls through to the default, and this has to
+     mark the stream the operator is actually watching. */
+  const current =
+    list.find((p) => p.id === chosen) ??
+    list.find((p) => p.default) ??
+    list[0];
+
+  return (
+    <div className="flex flex-col gap-[4px]">
+      {multiple && (
+        <span className="px-[10px] font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.1px] text-dim">
+          {feed.name}
+        </span>
+      )}
+      {list.length === 0 ? (
+        <p className="px-[10px] py-[6px] text-[0.75rem] leading-[16px] text-muted">
+          This camera reports no stream profiles. It is served at its default.
+        </p>
+      ) : list.length === 1 ? (
+        <p className="px-[10px] py-[6px] text-[0.75rem] leading-[16px] text-muted">
+          One stream only — {profileLabel(list[0])}.
+        </p>
+      ) : (
+        <div role="radiogroup" aria-label={`${feed.name} stream quality`} className="flex flex-col">
+          {list.map((p) => {
+            const picked = p.id === current?.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={picked}
+                onClick={() => onPick(p.id)}
+                className={`flex flex-col gap-[2px] rounded-[6px] px-[10px] py-[8px] text-left transition-colors ${
+                  picked ? "bg-panel" : "hover:bg-panel/60"
+                }`}
+              >
+                <span className="flex items-center gap-[8px] text-[0.875rem] text-white">
+                  <span
+                    aria-hidden
+                    className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-white" : "bg-white/20"}`}
+                  />
+                  {profileLabel(p)}
+                </span>
+                <span className="pl-[16px] text-[0.75rem] leading-[16px] text-muted">
+                  {profileNote(p, p.default)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

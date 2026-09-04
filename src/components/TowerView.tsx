@@ -40,6 +40,8 @@ export function TowerView({
   onNavigate,
   cameraSettings,
   onChangeSettings,
+  cameraProfiles,
+  onChooseProfile,
   onRenameTower,
   settingsOpen,
   onToggleSettings,
@@ -83,6 +85,10 @@ export function TowerView({
    *  decide what an unset camera does. */
   cameraSettings: (towerId: string) => CameraSettings;
   onChangeSettings: (towerId: string, next: Partial<CameraSettings>) => void;
+  /** Which stream each camera is watched at, and how to change it. Per FEED,
+   *  unlike everything else on the settings panel — see the note there. */
+  cameraProfiles?: Record<string, string>;
+  onChooseProfile?: (feedId: string, profile: string) => void;
   /** Rename the tower. Sweeps every reference — see App. */
   onRenameTower: (from: string, to: string) => void;
   /** Owned by the shell — see the note there on renaming. */
@@ -317,6 +323,8 @@ export function TowerView({
           tower={tower}
           feeds={feeds}
           settings={cameraSettings(tower.id)}
+          cameraProfiles={cameraProfiles}
+          onChooseProfile={onChooseProfile}
           onRename={(next) => onRenameTower(tower.id, next)}
           renamePhase={renameMutation?.phase(tower.id)}
           onDismissRename={() => renameMutation?.reset(tower.id)}

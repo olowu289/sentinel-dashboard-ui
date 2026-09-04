@@ -187,21 +187,33 @@ function waitForIceGathering(pc: RTCPeerConnection, signal: AbortSignal): Promis
  * far is closed here rather than handed back for somebody else to remember.
  */
 export async function openPlayback(
-  feed: { towerId: string; index: number },
+  feed: { towerId: string; index: number; profile?: string },
   handlers: PlaybackHandlers,
   signal: AbortSignal,
 ): Promise<PlaybackHandle> {
   const client = getClient();
 
-  /* ── 1. The session. EXACTLY {device_id, camera} — §4.2.1 is a security
-        boundary, and permissions, role and lifetime are derived by coordination
-        from the authenticated account, never asked for here. `index` is the
-        bare protocol address; no enclosure, no tile id, no feed id. */
+  /* ── 1. The session. {device_id, camera} and at most a profile NAME — §4.2.1
+        is a security boundary, and permissions, role and lifetime are derived
+        by coordination from the authenticated account, never asked for here.
+        `index` is the bare protocol address; no enclosure, no tile id, no feed
+        id.
+
+        A profile is the one thing that widened, and it widened by a name rather
+        than a location: the tower maps an id to its own path, coordination
+        refuses an id it does not recognise, and `path`/`whep_path` never reach
+        a viewer at all. Asking for "main" is not the same kind of act as being
+        handed somewhere to POST, which is why it is allowed through here. */
   let session: ViewerSession;
   try {
     session = await client.createSession({
       device_id: feed.towerId,
       camera: feed.index,
+      /* Named only when the viewer chose one. Absence means "this camera's
+         default", which is what every call did before profiles existed — so a
+         tower that advertises no profiles is opened exactly as it always was
+         rather than being sent a guess. */
+      ...(feed.profile !== undefined ? { profile: feed.profile } : {}),
       signal,
     });
   } catch (err) {

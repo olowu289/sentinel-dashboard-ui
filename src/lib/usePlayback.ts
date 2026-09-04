@@ -65,6 +65,18 @@ export interface PlaybackTarget {
   towerId: string;
   /** The protocol address. The other half. */
   index: number;
+  /**
+   * Which stream to open, when the viewer has chosen one.
+   *
+   * ⚠ IT IS PART OF THE TARGET'S IDENTITY, not a setting applied to a running
+   * session. There is no such thing as changing the profile of an open
+   * session: it is signed into the grant, so a different profile is a
+   * different session. Putting it in the effect key below means choosing one
+   * tears the old peer down and opens a new one through exactly the path a
+   * retry already uses — no second mechanism, and the honest `connecting`
+   * state comes for free rather than being simulated.
+   */
+  profile?: string;
 }
 
 interface Entry {
@@ -108,7 +120,10 @@ export function usePlayback(targets: PlaybackTarget[]): Playback {
      down and rebuild every peer on every unrelated re-render, and this app
      re-renders once a second on its own timers. */
   const key = targets
-    .map((t) => `${t.id}@${t.towerId}:${t.index}#${attempts[t.id] ?? 0}`)
+    .map(
+      (t) =>
+        `${t.id}@${t.towerId}:${t.index}/${t.profile ?? ""}#${attempts[t.id] ?? 0}`,
+    )
     .sort()
     .join("|");
 
@@ -139,7 +154,13 @@ export function usePlayback(targets: PlaybackTarget[]): Playback {
       void (async () => {
         try {
           const opened = await openPlayback(
-            { towerId: target.towerId, index: target.index },
+            {
+              towerId: target.towerId,
+              index: target.index,
+              ...(target.profile !== undefined
+                ? { profile: target.profile }
+                : {}),
+            },
             {
               onStream: (stream) => set({ kind: "playing", stream }),
               /* ICE gave up, possibly long after negotiation succeeded. Drop

@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 12 — Real stream profiles | ✅ **20/20** | The Stream Quality row stops inventing options and drives the session. |
 | 11 — Real rename | ✅ **18/18** | The first setting on the panel to become real. |
 | 10 — The final sweep | ✅ **23/23** | Dead controls disabled-not-removed, the settings key named, `sharp` dropped. |
 | 9 — Renewal + persistence | ✅ **25/25** | Part 1 was already complete from Stage 3 — verified, not rebuilt. Part 2 net-new: per-account view prefs. |
@@ -1127,6 +1128,70 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 12 result — Stream Quality is real, 20/20
+
+The second field on the settings panel to stop pretending, and the first that
+was actively **wrong** rather than merely inert: it offered "Full HD (1080P) ·
+30 fps" on a camera serving **2560×1440**.
+
+**Real options, per camera.** The list comes from the projection's per-camera
+`profiles`, so camera 1 shows `sub` and `2K · 2560×1440` while camera 2 shows
+`sub` and `Full HD · 1920×1080` — different hardware, different lists. Stream
+Quality joins Activity Zones as the only rows on a tower-wide panel that have to
+say which camera they mean.
+
+**Switching re-opens the session, and that is not a workaround.** A profile is
+signed into the grant, so there is no such thing as changing the profile of an
+open session — a different profile IS a different session. Putting `profile` in
+`usePlayback`'s effect key means choosing one tears the old peer down and opens
+a new one through exactly the path a retry already uses: no second mechanism,
+and the honest `connecting` state comes for free rather than being simulated.
+
+**Proven end to end:** picking 2K took the video element from **704 → 2560**
+wide. The label was true.
+
+| | |
+|---|---|
+| honest switching | `connecting` observed, sampled rather than slept past — not a frozen frame of the old quality |
+| failed switch | session POST severed → *"Stream unavailable"* + retry; **no dead tile**, and retry recovers |
+| persistence | `cameraProfiles` in `sentinel.prefs.v1:<account_id>`, keyed **per feed** — reload re-opens at `main` |
+
+**The label rule, and the case that tested it.** The tower declares no
+resolution for `sub` — it *serves* 704 wide but never says so, because
+resolutions are declared from config and never probed. So the option is labelled
+`sub`, with the note *"The tower reports no resolution for it."* Reading 704 off
+the `<video>` element was available and was refused: that measures what arrived
+rather than what was advertised, and it cannot label the option the operator is
+**not** currently watching. The tier is only ever an addition to the numbers —
+`2K · 2560×1440`, never `2K` alone — because a tier standing in for a number is
+exactly how "1080p" ended up printed over a 2K stream.
+
+**How the fake setting was reconciled: deleted, not repurposed.**
+`CameraSettings.quality` is gone from the type, the defaults and the store. It
+was tower-keyed while a profile choice is per-camera, so repurposing the key
+would have silently given one camera's choice to the other. The row now writes
+nothing to `settings` at all.
+
+**Persistence: a view preference, deliberately.** Choosing a profile does not
+configure the tower — it does not change what the camera records or what anyone
+else sees; it selects which of the streams the tower is *already serving* this
+browser pulls. Two operators can watch the same camera at different profiles and
+neither is more correct. So it sits beside the wall arrangement, not in
+`cameraSettings`. If it were ever pushed to the tower it would stop being a
+preference and would have to move.
+
+A remembered id the camera no longer advertises is **dropped**, not sent:
+coordination refuses an id it does not recognise, so a stale preference would
+become a feed that will not start. Falling through to the default is the honest
+recovery.
+
+⚠ **Three blockers had to clear first**, and two were the staleness trap again:
+coordination and the tower agent were both running pre-14:49 code, so no
+profiles were advertised at all — the running coordination accepted
+`profile: "NOT-A-PROFILE"` and returned `201`, where current code returns `422`.
+The third was not staleness: **the SDK had no profile support written**, so it
+was added here (see `sentry-sdk`, 39/39).
 
 ### Stage 11 result — the tower rename is real, 18/18
 

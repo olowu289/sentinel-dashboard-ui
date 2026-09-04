@@ -74,12 +74,32 @@ export interface ViewPrefs {
    * that point a local copy would disagree with a tower.
    */
   cameraSettings: Record<string, CameraSettings>;
+  /**
+   * Which stream profile this viewer watches each camera at, by feed id.
+   *
+   * ⚠ A VIEW PREFERENCE, AND THAT IS THE WHOLE ARGUMENT FOR IT BEING HERE.
+   * Choosing a profile does not configure the tower — it does not change what
+   * the camera records, what it encodes, or what anyone else sees. It selects
+   * which of the streams the tower is ALREADY serving this browser pulls. Two
+   * operators can legitimately watch the same camera at different profiles at
+   * the same time, and neither is more correct.
+   *
+   * So it belongs beside the wall arrangement rather than in `cameraSettings`:
+   * a statement about how one person looks at the fleet. If it were ever pushed
+   * to the tower it would stop being a preference and would have to move.
+   *
+   * Keyed by FEED id, not tower id — the two cameras on one tower have
+   * different hardware and different profile lists, and one of them being
+   * watched in 2K says nothing about the other.
+   */
+  cameraProfiles: Record<string, string>;
 }
 
 export const EMPTY_PREFS: ViewPrefs = {
   wallOrder: [],
   dismissedNotices: [],
   cameraSettings: {},
+  cameraProfiles: {},
 };
 
 function keyFor(accountId: string): string {
@@ -130,6 +150,18 @@ export function loadPrefs(accountId: string | null | undefined): ViewPrefs {
       cameraSettings:
         parsed.cameraSettings && typeof parsed.cameraSettings === "object"
           ? (parsed.cameraSettings as Record<string, CameraSettings>)
+          : {},
+      /* Values are checked, not just the container: a profile id read back from
+         storage is about to be sent to coordination, which refuses one it does
+         not recognise. A junk entry here would turn a stale preference into a
+         feed that will not start. */
+      cameraProfiles:
+        parsed.cameraProfiles && typeof parsed.cameraProfiles === "object"
+          ? Object.fromEntries(
+              Object.entries(
+                parsed.cameraProfiles as Record<string, unknown>,
+              ).filter(([, v]) => typeof v === "string" && v.length > 0),
+            ) as Record<string, string>
           : {},
     };
   } catch {

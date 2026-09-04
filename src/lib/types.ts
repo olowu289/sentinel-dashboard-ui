@@ -147,7 +147,11 @@ export interface Tower {
   location?: string;
   /** Hardware model, for the About group. Not in the projection. */
   model?: string;
-  ipAddress?: string;
+  /* NO `ipAddress`. The row that printed one was replaced by "Connected since",
+     which reports a real `connected_at` instead of a demo literal. An address is
+     also the kind of routing detail §A.6 keeps off the wire, so this is a field
+     the projection is unlikely ever to carry — it was invented, it is gone, and
+     it should not come back as a convenience. */
   /** What it falls back to when the primary uplink drops. Not in the projection. */
   backupConnection?: string;
   /** Chassis serial, printed on the cabinet label beside the QR. Not in the
@@ -155,6 +159,19 @@ export interface Tower {
   serial?: string;
   /** Running firmware. `agent_version` is the nearest real field. */
   firmware?: string;
+  /**
+   * When the CURRENT link came up, from coordination's `connected_at`.
+   *
+   * ⚠ PER CONNECTION, not cumulative. Coordination builds its link object fresh
+   * on each connect, so a tower that drops and reconnects gets a new value —
+   * and a short one is itself the reading, because it says the site is
+   * flapping. A cumulative uptime would average exactly that away.
+   *
+   * `undefined` while the tower is offline: there is no current link to have
+   * started, and carrying the last one forward would report a link that is
+   * down. Absence is the answer, not a missing value.
+   */
+  connectedAt?: number;
   /** On-tower recording, in GB. Not in the projection; `health.disk.freePct` is
    *  a percentage of an unknown total and is not the same reading. */
   storageUsedGb?: number;

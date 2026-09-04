@@ -9,6 +9,8 @@ import { solarState } from "@/lib/data";
 import { MaskIcon } from "./Icon";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
+import { formatEventTime, formatUptime } from "@/lib/time";
+import { useNow } from "@/lib/useNow";
 import { MutationError, MutationSpinner, errorRing } from "./MutationFeedback";
 import type { MutationPhase } from "@/lib/useMutation";
 import {
@@ -628,7 +630,13 @@ export function CameraSettingsPanel({
                     : undefined
               }
             />
-            <RowReading label="IP Address" value={tower.ipAddress ?? ""} />
+            {/* WAS "IP Address", and that was a demo literal — 192.168.1.230
+                on every tower in the fleet. This reports something the tower
+                actually tells us. It is also the more useful reading: an
+                address is a constant an operator rarely needs, while how long
+                the link has held is the difference between a healthy site and
+                one that is flapping. */}
+            <ConnectedSince at={tower.connectedAt} />
             <RowReading
               label="Backup Connection"
               value={tower.backupConnection ?? ""}
@@ -992,6 +1000,44 @@ function RowReading({
         )}
       </span>
     </div>
+  );
+}
+
+/**
+ * When the current link came up, and how long it has held.
+ *
+ * ⚠ WALL CLOCK FIRST, DURATION SECOND — and that ordering is the app's time
+ * rule rather than a layout preference. `formatRelative` ("3 days ago") is
+ * reserved for two transient banners whose whole job is *this just happened*,
+ * and neither of those re-ticks. Operators hand incidents over by radio across
+ * shifts; a row that only said "3 days ago" would give the next shift nothing
+ * to quote. So the value is the instant, in site time, and the uptime rides
+ * beside it.
+ *
+ * Its own component so the tick stays here. `useNow` is deliberately not called
+ * in `TowerView` — a re-render pushed through the tile tree twice a minute is
+ * how this app makes a takeover snap instead of animate, which is written up at
+ * the hook. Only this row re-renders.
+ */
+function ConnectedSince({ at }: { at?: number }) {
+  /* 30s, the hook's default. The finest thing this can show is a minute, so a
+     faster tick would be renders nobody can read. */
+  const now = useNow();
+
+  if (at === undefined) {
+    /* Absence is the reading, and it says WHICH absence. `RowReading`'s generic
+       fallback is "Not reported", which here would be the wrong claim: the
+       tower did not fail to report a connection time, it has no connection.
+       Showing the last known uptime would be worse still — a link that is down,
+       reported as having held for days. */
+    return <RowReading label="Connected since" value="Not connected" tone="text-critical" />;
+  }
+
+  return (
+    <RowReading
+      label="Connected since"
+      value={`${formatEventTime(at, now)} · up ${formatUptime(now - at)}`}
+    />
   );
 }
 

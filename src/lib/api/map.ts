@@ -213,6 +213,13 @@ export function toTower(raw: TowerInfo | TowerDetail, now?: number): {
        model, IP, backup connection, serial — is ABSENT FROM THE CONTRACT and
        therefore absent here. See the note on `Tower`. */
     ...(raw.agent_version ? { firmware: raw.agent_version } : {}),
+    /* Real, and one of the very few things on the settings panel's Network
+       section that is. Omitted rather than nulled when the tower is offline —
+       `Tower.connectedAt` documents why absence is the honest answer. */
+    ...(() => {
+      const at = raw.connected_at ? Date.parse(raw.connected_at) : NaN;
+      return Number.isFinite(at) ? { connectedAt: at } : {};
+    })(),
   };
 
   return { tower, feeds };

@@ -81,7 +81,6 @@ export function withDemoCabinetReadings(tower: Tower): Tower {
     link: tower.link ?? (tower.online ? (r > 0.8 ? "warn" : "good") : "bad"),
     location: tower.location ?? "Lokogoma, Abuja GMT +1",
     model: tower.model ?? "Terra Sentry XL",
-    ipAddress: tower.ipAddress ?? "192.168.1.230",
     backupConnection: tower.backupConnection ?? "Satellite",
     serial: tower.serial ?? `SN-${tower.id.replace(/\D/g, "").slice(-4) || "0000"}-D`,
     storageUsedGb: tower.storageUsedGb ?? usedGb,

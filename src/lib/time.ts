@@ -207,6 +207,36 @@ export function formatEventTime(at: number, now: number = siteNow()) {
  *
  * Do not reach for this in AlertRow or AlertDetail; those keep wall-clock.
  */
+/**
+ * How long a link has been up, as a DURATION — "3d 4h", "2h 14m", "6m".
+ *
+ * ⚠ NOT `formatRelative`, and the difference is the point. A relative age
+ * ("3 days ago") replaces the instant and is the thing this file forbids
+ * everywhere but two transient banners. A duration is a SECOND value shown
+ * beside the wall-clock instant, not instead of it: the row says when the link
+ * came up and how long it has held, and the operator can still radio the time
+ * to the next shift.
+ *
+ * Coarsens as it grows because the precision stops meaning anything: seconds
+ * matter for a link that just came up and are noise on one that has held for a
+ * week. Under a minute reads "just now" rather than counting seconds, since a
+ * tower that connected four seconds ago is better described than measured.
+ */
+export function formatUptime(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    const rem = mins % 60;
+    return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+  }
+  const days = Math.floor(hours / 24);
+  const rem = hours % 24;
+  return rem === 0 ? `${days}d` : `${days}d ${rem}h`;
+}
+
 export function formatRelative(at: number, now: number = Date.now()) {
   const mins = Math.floor((now - at) / 60000);
   if (mins < 1) return "just now";

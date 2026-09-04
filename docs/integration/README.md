@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 14 — Connected since | ✅ **12/12** | The IP row is replaced by a real `connected_at`. Uplink grade BLOCKED — see below. |
 | 13 — Per-camera playback | ✅ **13/13** | One camera's switch no longer drops its sibling's peer. |
 | 12 — Real stream profiles | ✅ **20/20** | The Stream Quality row stops inventing options and drives the session. |
 | 11 — Real rename | ✅ **18/18** | The first setting on the panel to become real. |
@@ -1129,6 +1130,66 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 14 result — "Connected since" is real, 12/12 (uplink grade blocked)
+
+**The IP row is gone, replaced by something the tower actually reports.** It
+printed `192.168.1.230` on every tower in the fleet — a demo literal. It now
+reads e.g. `06:16:53 PM WAT · up 2m`, from coordination's `connected_at`,
+checked against what the server actually served rather than against itself.
+
+`ipAddress` is deleted from `Tower`, from the seed and from the demo cabinet —
+grep confirms no IPv4 is rendered anywhere. It is also the kind of routing
+detail §A.6 keeps off the wire, so the projection is unlikely ever to carry one.
+
+**Wall clock first, duration second, and that ordering is the app's time rule
+rather than a layout preference.** The brief suggested "connected 3 days ago",
+but `formatRelative` is reserved for two transient banners whose whole job is
+*this just happened*, and neither re-ticks. Operators hand incidents over by
+radio across shifts; a row that only said "3 days ago" gives the next shift
+nothing to quote. So the instant leads, in site time and labelled, and a new
+`formatUptime` rides beside it — a duration is a *second* value, not a
+replacement for the instant.
+
+`connected_at` is **per connection**, not cumulative: coordination builds its
+link object fresh on each connect, so a short value is itself the reading — it
+says the site is flapping, which a cumulative uptime would average away. Absent
+while offline, and the row says **"Not connected"** rather than
+`RowReading`'s generic "Not reported" — the tower did not fail to report a
+connection time, it has no connection.
+
+The tick is `useNow` in its own `ConnectedSince` component. The hook's own note
+warns against calling it in `TowerView`, where a re-render twice a minute pushes
+through the tile tree and makes a takeover snap instead of animate. Verified:
+the video tiles are untouched across a tick.
+
+⚠ **The SDK had no `connected_at`** — coordination served it, nothing could read
+it. Added (see `sentry-sdk`), preserving absence as absence rather than coercing
+it to null: "offline" and "connected at an unknown time" are different claims.
+
+#### BLOCKED: the uplink grade
+
+**Coordination does not project the health block to a viewer at all.**
+`project_tower` returns `device_id`, `label`, `link`, `as_of`, `cameras`,
+`sensors` and now `connected_at` — and nothing else. Confirmed live: the tower
+detail response has no `health` key, and `grep` finds no `uplink` or
+`signal_dbm` anywhere in `coordination/`.
+
+The tower agent's half is complete and its reasoning already matches the brief:
+
+> **THE FACT, NOT THE VERDICT.** This reports `signal_dbm` and nothing else — no
+> Great/Fair/Poor. The tower measures; the dashboard decides what counts as
+> good. — `UplinkProbe`, `kallon_watchdog.py`
+
+`inventory.py` forwards `health["uplink"]`, ethernet reports `type: ethernet`
+with no `signal_dbm`, and a failed read reports nothing. Coordination *absorbs*
+that block (`_absorb_health`) and uses it internally to derive camera status —
+but never projects it outward.
+
+So three layers are needed, not one: coordination must project `health`, the
+SDK's `TowerHealth` needs an `uplink` member, and only then can the dashboard
+grade it. Until then the Uplink row still shows its **demo** grade, which now
+sits against this stage's own honesty rule and is recorded as open.
 
 ### Stage 13 result — playback is per camera, 13/13
 

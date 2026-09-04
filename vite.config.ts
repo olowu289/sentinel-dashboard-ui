@@ -67,10 +67,27 @@ export default defineConfig({
   },
   optimizeDeps: { exclude: ["@kallon/sentry-sdk"] },
   server: {
-    /* 5173 by default, but overridable — another project on this machine also
-       answers to "sentinel" and claims 5173, and a hardcoded port turns that
-       collision into a dev server that silently serves someone else's app. */
+    /* ONE PORT, AND AN ERROR IF IT IS TAKEN.
+       
+       This used to bump to the next free port when 5173 was busy, on the
+       reasoning that another local project also answers to "sentinel". The
+       collision it was written to avoid turned out to be rarer than the one it
+       caused: four Terra dev servers accumulated in a single session, on 5173,
+       5174, 5190 and 5191, and TWO OF THEM WERE SERVING A STALE SDK BUILD. A
+       browser pointed at the wrong one showed a field as missing that the
+       server was plainly sending, and the bug looked like it was in the parser.
+       
+       Silently starting a second server is the failure. `strictPort` turns it
+       into a refusal you have to read: if 5173 is busy, kill what is on it
+       rather than stacking another beside it. `PORT=... npm run dev` still
+       wins for the rare case of genuinely wanting a second one — and it is
+       strict too, because being handed a port you did not ask for is the same
+       bug at a different number.
+       
+       The neighbouring project (Bayana / ai-tracking) sits on 5199, so 5173 is
+       ours. See the note in CLAUDE.md. */
     port: Number(process.env.PORT) || 5173,
+    strictPort: true,
     fs: { allow: [".", SDK_PATH] },
   },
 });

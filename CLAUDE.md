@@ -22,9 +22,24 @@ npm run build      # typecheck + vite build
 
 There is no test runner and no linter. `npm run build` is the gate.
 
-Port 5173 is claimed by an unrelated project on at least one machine, so
-`vite.config.ts` reads `process.env.PORT` and `.claude/launch.json` sets
-`autoPort`. If the preview looks like a different app, check the port.
+**The dev server runs on 5173 and only 5173.** `strictPort` is on, so if that
+port is busy Vite REFUSES TO START rather than quietly taking the next one.
+When you see `Port 5173 is already in use`, kill what is on it — do not start a
+second server beside it.
+
+That is the whole point, and it is not tidiness. This config used to bump to a
+free port, and in one session four Terra dev servers accumulated on 5173, 5174,
+5190 and 5191. Two were serving a stale SDK build, so a browser pointed at the
+wrong one showed a field as missing that the server was plainly sending — and
+the bug looked like it was in the parser. A refusal you have to read is cheaper
+than a duplicate you never notice.
+
+`PORT=5180 npm run dev` still wins when you genuinely want a second one, and it
+is strict too: being handed a port you did not ask for is the same bug at a
+different number.
+
+The neighbouring project (Bayana / ai-tracking) sits on **5199**, so 5173 is
+ours. If the preview looks like a different app, check the port anyway.
 
 ## Non-negotiables
 

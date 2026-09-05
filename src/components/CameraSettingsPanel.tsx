@@ -12,8 +12,15 @@ import { ENTER, FADE } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { useNow } from "@/lib/useNow";
-import { MutationError, MutationSpinner, errorRing } from "./MutationFeedback";
+import {
+  MutationError,
+  MutationIcon,
+  MutationSpinner,
+  MutationStatus,
+  errorRing,
+} from "./MutationFeedback";
 import type { MutationPhase } from "@/lib/useMutation";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 import {
   MAX_ZONES,
   type ActivityZone,
@@ -228,6 +235,11 @@ export function CameraSettingsPanel({
   onDismissRename,
   cameraProfiles,
   onChooseProfile,
+  onSetHome,
+  homePhase,
+  onRetryHome,
+  onDismissHome,
+  sessionFor,
   settingsPhase = { kind: "idle" },
   onRetrySettings,
   onDismissSettings,
@@ -250,6 +262,30 @@ export function CameraSettingsPanel({
    */
   cameraProfiles?: Record<string, string>;
   onChooseProfile?: (feedId: string, profile: string) => void;
+  /**
+   * Save a camera's current pan/tilt as its home.
+   *
+   * Per camera and per feed id, because each camera has its own home and the
+   * two on a site point at different things.
+   *
+   * Owned by the shell like the other real writes: it goes to the tower over
+   * the same authorized PTZ path a move does, and this panel is not what holds
+   * the session.
+   */
+  onSetHome?: (feedId: string) => void;
+  /** What each camera's set-home is doing. Keyed by feed id. */
+  homePhase?: (feedId: string) => MutationPhase;
+  onRetryHome?: (feedId: string) => void;
+  onDismissHome?: (feedId: string) => void;
+  /**
+   * The live session for a camera, if there is one.
+   *
+   * Read to decide whether set-home can be offered at all: PTZ is
+   * session-scoped, so without one there is no address to send the command to
+   * and the button would only be able to fail. Saying that up front beats a
+   * spinner that resolves into "NO SESSION".
+   */
+  sessionFor?: (feedId: string) => ViewerSession | null;
   /** Commit a new id for this tower. */
   onRename: (next: string) => void;
   /** What the rename is doing. Keyed by tower id, owned by the shell. */
@@ -294,6 +330,18 @@ export function CameraSettingsPanel({
       ? known[0]
       : `${known.length} cameras`;
   })();
+
+  /* A COUNT, NOT A POSITION. This panel cannot say where home currently
+     points without asking the tower, and inventing a description would be
+     worse than saying nothing - so it reports the one thing it does know: how
+     many of this site's cameras can hold a home at all. */
+  const movable = feeds.filter((f) => f.ptz).length;
+  const homeSummary =
+    movable === 0
+      ? "No movable camera"
+      : movable === 1
+        ? "1 movable camera"
+        : `${movable} movable cameras`;
 
   const zoneCount = feeds.reduce(
     (n, f) => n + (settings.zones[f.id]?.length ?? 0),
@@ -553,6 +601,35 @@ export function CameraSettingsPanel({
                     multiple={feeds.length > 1}
                     chosen={cameraProfiles?.[f.id]}
                     onPick={(id) => onChooseProfile?.(f.id, id)}
+                  />
+                ))}
+              </div>
+            </Row>
+            {/* HOME IS WHERE THE CAMERA POINTS WHEN NOBODY IS DRIVING IT, and
+                until now there was no way to say where that is: the daemon
+                took it from a file only root could write, and the script it
+                pointed at for doing so does not exist. This is that missing
+                half, and it is deliberately in settings rather than on the pad
+                — the pad's home button RECALLS home many times a shift, and
+                setting it is a once-a-deployment act that should not sit one
+                mis-tap away from the button that uses it. */}
+            <Row
+              label="Home Position"
+              value={homeSummary}
+              expanded={open === "home"}
+              onToggle={() => toggle("home")}
+            >
+              <div className="flex flex-col gap-[10px]">
+                {feeds.map((f) => (
+                  <SetHomeRow
+                    key={f.id}
+                    feed={f}
+                    multiple={feeds.length > 1}
+                    hasSession={Boolean(sessionFor?.(f.id))}
+                    phase={homePhase?.(f.id) ?? { kind: "idle" }}
+                    onSet={() => onSetHome?.(f.id)}
+                    onRetry={() => onRetryHome?.(f.id)}
+                    onDismiss={() => onDismissHome?.(f.id)}
                   />
                 ))}
               </div>
@@ -896,6 +973,85 @@ function Row({
 }
 
 /** A row that goes somewhere instead of opening. */
+/**
+ * One camera's "set current position as home".
+ *
+ * ⚠ IT SAYS WHAT IT WILL SAVE, BEFORE IT SAVES IT. The camera is somewhere the
+ * operator has just pointed it, and the whole action is "remember THIS" — so
+ * the button names the act rather than the setting, and the note underneath
+ * says the part that is not obvious and would otherwise be a surprise: the
+ * zoom is not kept.
+ *
+ * ⚠ IT REFUSES OUT LOUD RATHER THAN GOING GREY. A fixed camera has no position
+ * to save and a camera with no live session has nowhere to send the command,
+ * and both are disabled — but each says which, because "why can I not press
+ * this" is a question an operator should never have to carry to a supervisor.
+ * The zoom buttons already work this way.
+ *
+ * The confirmation is a check that RETRACTS, and it is not decoration here: a
+ * saved home changes nothing on screen, so without it the only evidence the
+ * write landed would be pressing the pad's home button and watching.
+ */
+function SetHomeRow({
+  feed,
+  multiple,
+  hasSession,
+  phase,
+  onSet,
+  onRetry,
+  onDismiss,
+}: {
+  feed: CameraFeed;
+  multiple: boolean;
+  hasSession: boolean;
+  phase: MutationPhase;
+  onSet: () => void;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  const fixed = !feed.ptz;
+  const blocked = fixed || !hasSession;
+  const pending = phase.kind === "pending";
+
+  const why = fixed
+    ? "This camera is fixed — it has no position to save."
+    : !hasSession
+      ? "Open the live view on this camera first — home is saved through the same authorized session a move uses."
+      : null;
+
+  return (
+    <div className="flex flex-col gap-[6px]">
+      {multiple && (
+        <span className="text-[11px] uppercase tracking-[0.08em] text-muted">
+          {feed.name ?? feed.id}
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={blocked || pending}
+        aria-busy={pending || undefined}
+        onClick={onSet}
+        className={`flex items-center justify-between gap-[8px] rounded-[8px] px-[10px] py-[8px] text-left transition-colors ${
+          blocked
+            ? "cursor-not-allowed bg-card/40 text-muted"
+            : "bg-card hover:bg-card-hover"
+        } ${errorRing(phase)}`}
+      >
+        <span className="text-[13px]">Set current position as home</span>
+        <MutationIcon phase={phase} idle={<Chevron />} />
+      </button>
+      {/* The zoom rule, said once, where the decision is made. An operator who
+          framed a shot at 12x and pressed this would otherwise reasonably
+          expect to come back at 12x. */}
+      <span className="text-[11px] leading-[15px] text-muted">
+        {why ?? "Saves where this camera is pointing now. Home always returns at the widest zoom, not the current one."}
+      </span>
+      <MutationStatus phase={phase} label="Saving home position" />
+      <MutationError phase={phase} onRetry={onRetry} onDismiss={onDismiss} />
+    </div>
+  );
+}
+
 function RowLink({
   label,
   value,

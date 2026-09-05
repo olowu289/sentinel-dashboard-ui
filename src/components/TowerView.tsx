@@ -43,6 +43,8 @@ export function TowerView({
   cameraProfiles,
   onChooseProfile,
   onRenameTower,
+  onSetHome,
+  homeMutation,
   settingsOpen,
   onToggleSettings,
   onCloseSettings,
@@ -91,6 +93,11 @@ export function TowerView({
   onChooseProfile?: (feedId: string, profile: string) => void;
   /** Rename the tower. Sweeps every reference — see App. */
   onRenameTower: (from: string, to: string) => void;
+  /** Save a camera's current pan/tilt as its home. Owned by the shell. */
+  onSetHome?: (feedId: string) => void;
+  /** Keyed `home:<feedId>`. Deliberate — a saved home changes nothing on
+   *  screen, so the success check is the only evidence it landed. */
+  homeMutation?: Mutation;
   /** Owned by the shell — see the note there on renaming. */
   settingsOpen: boolean;
   onToggleSettings: () => void;
@@ -326,6 +333,14 @@ export function TowerView({
           settings={cameraSettings(tower.id)}
           cameraProfiles={cameraProfiles}
           onChooseProfile={onChooseProfile}
+          /* Set-home needs the same live session a move does - PTZ is
+             session-scoped - so the panel reads it from the same place the
+             pad does rather than holding one of its own. */
+          sessionFor={sessionFor}
+          onSetHome={onSetHome}
+          homePhase={(feedId) => homeMutation?.phase(`home:${feedId}`) ?? { kind: "idle" }}
+          onRetryHome={(feedId) => void homeMutation?.retry(`home:${feedId}`)}
+          onDismissHome={(feedId) => homeMutation?.reset(`home:${feedId}`)}
           onRename={(next) => onRenameTower(tower.id, next)}
           renamePhase={renameMutation?.phase(tower.id)}
           onDismissRename={() => renameMutation?.reset(tower.id)}

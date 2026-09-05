@@ -147,6 +147,43 @@ export async function stopOrHome(
 }
 
 /**
+ * Save the camera's CURRENT pan/tilt as its home.
+ *
+ * The tower reads the position itself, so nothing about where the camera is
+ * pointing travels from here — there is no value a caller could get wrong, and
+ * no way to aim a camera indirectly through a settings write.
+ *
+ * ⚠ THE ZOOM IS NOT SENT AND IS NOT THE CURRENT ONE. Home is always stored at
+ * the widest view the lens has. An operator framing a shot at 12× and pressing
+ * this means "point here", not "and come back at 12×", and the tower is the
+ * only place that decides it.
+ *
+ * ⚠ IT CAN REFUSE, AND THE REFUSAL IS INFORMATION. A camera whose home comes
+ * from a calibration bundle reads it from there whatever this writes, so the
+ * tower answers `HOME_NOT_SETTABLE` rather than reporting a success that
+ * changed nothing. That message is shown as-is — it tells the operator why,
+ * and it is not a fault.
+ *
+ * Session-scoped like every other PTZ command: the session IS the
+ * authorization, so this needs the live view open on that camera.
+ */
+export async function setHome(
+  feed: { index?: number; ptz?: boolean; state: string },
+  session: SessionRef | null | undefined,
+): Promise<PtzResult> {
+  requireCapability(feed);
+  const ref = requireSession(session);
+  if (feed.index === undefined) throw new PtzUnavailableError("NO CAMERA ADDRESS");
+
+  try {
+    return await getClient().ptzSetHome(ref, feed.index);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/**
  * Turn a PTZ failure into a short line the tile can print, or `null` for
  * "say nothing".
  *
@@ -169,6 +206,12 @@ export function describePtzFailure(err: unknown): string | null {
        does not cover steering, so it gets its own words rather than a generic
        refusal. */
     if (code === "grant_permission" || code === "not_authorized") return "PTZ NOT PERMITTED";
+    /* A refusal with a reason, not a fault. The tower is telling the operator
+       that this camera's home is surveyed rather than set by hand — repeating
+       its own words beats translating them into a failure. */
+    if (code === "HOME_NOT_SETTABLE" || code === "home_not_settable") {
+      return "HOME IS SET BY CALIBRATION ON THIS CAMERA";
+    }
     if (code === "ptz_unavailable") return "PTZ UNAVAILABLE ON TOWER";
     if (code === "tower_offline") return "TOWER OFFLINE";
     if (code === "tower_timeout") return "TOWER DID NOT ANSWER";

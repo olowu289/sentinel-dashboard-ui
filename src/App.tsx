@@ -9,6 +9,7 @@ import { TowerView } from "@/components/TowerView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
 import { listFleet, renameTower as renameTowerOnServer } from "@/lib/api/fleet";
+import { setHome } from "@/lib/api/ptz";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
 import { loadPrefs, savePrefs } from "@/lib/prefs";
@@ -556,6 +557,31 @@ export function SentinelApp() {
    * out of the server's own projection rather than the string that was typed.
    * If the write fails, `towers` is untouched and the panel shows why.
    */
+  /**
+   * Save a camera's current pan/tilt as its home.
+   *
+   * ⚠ NOTHING IS WRITTEN HERE ON SUCCESS, AND THERE IS NOTHING TO WRITE. The
+   * home lives on the tower; this shell holds no copy of it, so there is no
+   * local state to keep in step and no chance of the revert bug the note above
+   * describes. What the operator gets back is the check, which is the whole
+   * reason this uses `deliberate` rather than `routine`: a saved home changes
+   * nothing on screen, so a silent success would be indistinguishable from
+   * nothing having happened.
+   *
+   * The refusal path matters as much as the success one. A camera whose home
+   * comes from a calibration bundle answers HOME_NOT_SETTABLE, and that lands
+   * in the error phase with the tower's own words rather than as a fault.
+   */
+  const setCameraHome = useCallback(
+    (feedId: string) =>
+      deliberate.run(`home:${feedId}`, async () => {
+        const feed = feeds.find((f) => f.id === feedId);
+        if (!feed) throw new Error("that camera is no longer on this site");
+        await setHome(feed, sessionFor(feedId));
+      }),
+    [deliberate, feeds, sessionFor],
+  );
+
   const changeTowerName = useCallback(
     (towerId: string, to: string) =>
       renameMutation.run(towerId, async () => {
@@ -1376,6 +1402,8 @@ export function SentinelApp() {
           onNavigate={navigate}
           cameraSettings={cameraSettings}
           onRenameTower={changeTowerName}
+          onSetHome={setCameraHome}
+          homeMutation={deliberate}
           renameMutation={renameMutation}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((o) => !o)}

@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 17 — Optical zoom | ✅ **13/13** | Digital crop removed; the buttons move the lens. |
 | 16 — Real snapshots | ✅ **18/18** | Capture writes a named JPEG. Zoom investigated — optical is unreachable. |
 | 15 — Live fleet wall | ✅ **19/19** | Visible tiles stream sub; off-screen closes. |
 | 14 — Real network health | ✅ **15/15** | Real uplink grade from a real dBm; the IP row replaced by `connected_at`. |
@@ -1132,6 +1133,68 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 17 — the zoom buttons move the lens, 13/13
+
+The investigation in Stage 16 found two zooms: a CSS crop on the buttons and a
+real optical axis nobody had wired. The crop is gone and the buttons now drive
+the axis.
+
+**Digital zoom removed.** `zoomBy`, `ZOOM_STEP/MIN/MAX`, `View.zoom` and the
+`N.N×` readout are all deleted — grep for them returns nothing. A real camera's
+frame now renders at `matrix(1, 0, 0, 1, 0, 0)`: the true frame, uncropped.
+
+That last part was a second bug hiding in the first. `BASE_SCALE = 1.15` meant
+even "1×" was a 15% crop of what the camera sent. The overscan exists so a
+LOCAL pan has somewhere to travel, and a camera with a real head does not
+local-pan — so on a real camera it bought nothing and cost 15% of the frame
+permanently. `scale` is now `realPtz ? 1 : BASE_SCALE`; a fixed camera keeps the
+overscan because there the nudge is the only pan it has.
+
+**The buttons are HELD, not clicked**, through `TileControl.hold` — the shape
+talk-down already proved, with pointer capture, cancel/leave paths and keyboard
+equivalents. Press sends `JOG_AXES.in`/`.out` through `beginHold`; release sends
+an unconditional stop. No new mechanism, and **no timer in the zoom path** —
+`ptz.ts` contains no `setTimeout`/`setInterval` at all, because the keepalive is
+the SDK's and hand-rolling one is a safety bug.
+
+**Proven on the real tower**, by asking the camera where its optics are rather
+than by watching pixels:
+
+```
+zoom 0.044 -> 0.188      (hold zoom in)
+zoom 0.188 -> 0.180      (hold zoom out)
+status: zoom_ratio 1.1, focal_mm 5.63
+sent: {action:"move", params:{mode:"jog", zoom:0.5}} then {action:"stop"}
+```
+
+6 moves, 15 stops across the run — more stops than moves, which is the
+"always send a stop" discipline holding. Rapid taps produced no error banner:
+SUPERSEDED stays a non-event.
+
+**The fixed-camera fallback was a real bug and is fixed.** `jogStart("in")` on a
+camera with no head fell through to `localNudge("home")` — a zoom button that
+RECENTRED the picture. The controls are now gated on `realPtz`, and proven by
+temporarily forcing `ptz: false`:
+
+```
+{"label":"Zoom in — this camera cannot zoom","disabled":true,"cursor":"not-allowed"}
+PTZ commands sent by pressing it: []      any 'home' recentre?: false
+```
+
+The label says why rather than going quietly grey — "why is this greyed out" is
+a question an operator should not have to carry to a supervisor.
+
+**No zoom readout replaces the old one.** The projection carries a camera's
+index, lens class, status and resolution and says nothing about where the optics
+currently sit, so a number here would be invented. The picture getting closer is
+the feedback, the same way the picture moving is the feedback for a pan.
+
+⚠ **The fleet wall now gets `sessionFor` too**, so its zoom buttons genuinely
+work rather than being permanently disabled. That is a judgement call worth
+flagging: it gives the fleet screen a control that reaches the lens. It draws no
+PTZ pad still — pointing a head from a 380px tile in a grid of four is a
+different proposition from zooming the one you are looking at.
 
 ### Stage 16 — the snapshot writes a file, 18/18 (and the zoom, investigated)
 

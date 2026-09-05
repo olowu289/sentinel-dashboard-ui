@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
-import { useTileControls, ZOOM_MIN } from "@/lib/useTileControls";
+import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
 import { DEAD_STATES, FeedChip, formatElapsed } from "./FeedChip";
 import { PtzPad } from "./PtzPad";
@@ -583,18 +583,13 @@ export function CameraTile({
         </motion.div>
       )}
 
-      {/* Zoom level only exists once you have left 1× — a permanent "1.0×" is
-          noise on a wall of tiles. */}
-      {!isDead && view.zoom > ZOOM_MIN && (
-        <motion.div
-          {...chrome}
-          className="chip-blur absolute bottom-[18px] right-[9px] rounded-[4px] bg-black/50 px-[8px] py-[4px]"
-        >
-          <p className="font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-white tabular-nums">
-            {view.zoom.toFixed(1)}×
-          </p>
-        </motion.div>
-      )}
+      {/* NO ZOOM READOUT. It reported the local crop factor, and the crop is
+          gone. The lens's actual zoom level is not something the projection
+          carries — §A.2 gives a camera an index, a lens class, a status and a
+          resolution, and nothing about where the optics currently sit — so
+          printing a number here would mean inventing one. The picture getting
+          closer is the feedback, the same way the picture moving is the
+          feedback for a pan. */}
 
       {/* Pointing a real camera head is not something to trigger in passing, so
           the pad only exists while the operator is actually on this tile. */}

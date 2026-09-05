@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import type { CameraFeed } from "@/lib/types";
 import type { PlaybackPhase } from "@/lib/usePlayback";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
 import { DEAD_STATES, FeedChip } from "./FeedChip";
@@ -58,6 +59,7 @@ export function MonitorTile({
   towerId,
   towerName,
   playback,
+  session,
   onScreen = false,
   observeRef,
   fullscreen = false,
@@ -82,6 +84,9 @@ export function MonitorTile({
    * would drift the way `FeedChip` was written to stop.
    */
   playback?: PlaybackPhase;
+  /** The live session, read at press time — the zoom buttons need it, because
+   *  a PTZ command has no address outside a session. */
+  session?: ViewerSession | null;
   /**
    * Whether the tile is actually on screen.
    *
@@ -127,10 +132,11 @@ export function MonitorTile({
      under a LIVE chip. A seeded feed has a poster and is unaffected. */
   const noPicture = !isDead && !stream && !feed.poster;
 
-  /* No session passed to the controls: this wall streams a picture but offers
-     no PTZ pad — the digital zoom in the control stack is all it has, and that
-     needs no head. Steering belongs to the tower view, where the operator can
-     see what they are moving. */
+  /* The session IS the authorization for anything that reaches the lens, so it
+     has to be passed for the zoom buttons to work at all. This wall still draws
+     no PTZ pad — pointing a head at a 380px tile in a grid of four is a
+     different proposition from zooming the one you are looking at, and framing
+     belongs in the tower view where the operator can see what they are moving. */
   /* Declared before the controls hook because the snapshot reads through it.
      The element it points at mounts and unmounts with playback, which is why
      the hook takes the REF and never the element. */
@@ -144,6 +150,7 @@ export function MonitorTile({
     videoRef,
     streaming: Boolean(stream),
     towerName,
+    session,
     onToggleFullscreen,
     onToggleRecord,
   });

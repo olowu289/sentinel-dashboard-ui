@@ -19,19 +19,27 @@ import type { ViewerSession } from "@kallon/sentry-sdk";
 /* The feed renders slightly over-scaled at rest so the PTZ head has somewhere
    to travel before any letterboxing shows. Without it, panning a 1x image just
    drags black in from the edge. */
+/**
+ * Overscan, so a FIXED camera has somewhere to pan to.
+ *
+ * ⚠ ONLY FOR A CAMERA WITH NO HEAD. A tile driving a real head renders at
+ * exactly 1 — the true frame, uncropped — because every movement it offers is
+ * the lens actually moving and there is nothing to fake. Without this, a local
+ * pan on a fixed camera just drags black in from the edge.
+ */
 export const BASE_SCALE = 1.15;
 export const PAN_STEP = 2.5;
-export const ZOOM_STEP = 0.35;
-export const ZOOM_MIN = 1;
-export const ZOOM_MAX = 3;
 
+/**
+ * Where a FIXED camera's picture is nudged to. POSITION ONLY — there is no
+ * local zoom any more; the zoom controls move the lens. See the note on them.
+ */
 export interface View {
   x: number;
   y: number;
-  zoom: number;
 }
 
-export const HOME: View = { x: 0, y: 0, zoom: 1 };
+export const HOME: View = { x: 0, y: 0 };
 
 /** Furthest the media can travel before its own edge enters the frame. */
 export function maxPan(scale: number) {
@@ -125,7 +133,23 @@ export function useTileControls({
   const key = (action: string) => `${action}:${feed.id}`;
 
   const isRecording = feed.state === "recording";
-  const scale = BASE_SCALE * view.zoom;
+  /** Whether this tile drives a real head. Hoisted, because the transform
+   *  below now depends on it. */
+  const realPtz = Boolean(feed.ptz && session && feed.index !== undefined);
+
+  /**
+   * ⚠ A REAL CAMERA IS DRAWN AT 1 — NO CROP, NO SCALE.
+   *
+   * Every frame used to render at `BASE_SCALE` times a digital zoom factor, so
+   * even at "1×" the picture was a 15% crop of what the camera sent. That
+   * overscan exists to give the LOCAL pan somewhere to travel, and a camera
+   * with a real head does not local-pan — it moves the lens. So on a real
+   * camera the crop bought nothing and cost 15% of the frame permanently.
+   *
+   * A fixed camera keeps it, because there the local nudge is the only pan
+   * there is.
+   */
+  const scale = realPtz ? 1 : BASE_SCALE;
   const limit = maxPan(scale);
 
   // A dead feed cannot be sounding an alarm at the site.
@@ -183,13 +207,20 @@ export function useTileControls({
    *  THE TWO ZOOMS, AND WHY ONLY ONE OF THEM IS A CSS TRANSFORM
    * ══════════════════════════════════════════════════════════════════
    *
-   * DIGITAL — the zoom buttons in the control stack. They crop the frame that
-   * has already arrived, which is a legitimate thing to do to a picture and
-   * costs the tower nothing. That stays exactly as it was: a transform on the
-   * media element, clamped so the frame's own edge never shows.
+   * THERE IS ONLY ONE ZOOM NOW, AND IT MOVES THE LENS.
    *
-   * OPTICAL / MECHANICAL — the PTZ pad. It moves the actual head, and it is
-   * already gated on `feed.ptz`, which the projection sets from `ptz_capable`.
+   * The control stack's zoom buttons used to be a CSS crop of the frame that
+   * had already arrived — legitimate, free, and not what anybody meant by
+   * "zoom" on a camera that has a real one. Magnifying 704×576 pixels makes a
+   * blurrier picture of the same view; the lens makes a sharper picture of a
+   * closer one. They are different operations and only one is worth a button.
+   *
+   * So the buttons now drive `JOG_AXES.in` / `.out` through the same held-jog
+   * path the pad's pan and tilt use, and the local crop is gone entirely.
+   *
+   * WHAT REMAINS LOCAL is the nudge for a camera with NO head, which is the
+   * only pan such a tile can offer. It is gated on `feed.ptz`, which the
+   * projection sets from `ptz_capable`.
    *
    * ⚠ FOR A REAL HEAD, THE LOCAL TRANSFORM IS NOT APPLIED. This is the bug
    * behind "it only moves a little": the pad used to nudge the on-screen image
@@ -204,7 +235,7 @@ export function useTileControls({
     (dir: "up" | "down" | "left" | "right" | "home") => {
       setView((v) => {
         if (dir === "home") return HOME;
-        const bound = maxPan(BASE_SCALE * v.zoom);
+        const bound = maxPan(BASE_SCALE);
         const dx = dir === "left" ? PAN_STEP : dir === "right" ? -PAN_STEP : 0;
         const dy = dir === "up" ? PAN_STEP : dir === "down" ? -PAN_STEP : 0;
         return {
@@ -216,9 +247,6 @@ export function useTileControls({
     },
     [],
   );
-
-  /** Whether this pad drives a real head or the old local nudge. */
-  const realPtz = Boolean(feed.ptz && session && feed.index !== undefined);
 
   /* The open hold, and when it started. A ref because a pointerup can arrive
      before React has re-rendered from the pointerdown, and a hold tracked in
@@ -306,20 +334,6 @@ export function useTileControls({
       }
     })();
   }, [feed, localNudge, realPtz, session]);
-
-  const zoomBy = useCallback((delta: number) => {
-    setView((v) => {
-      const zoom = clamp(v.zoom + delta, ZOOM_MIN, ZOOM_MAX);
-      // Zooming out shrinks the travel envelope, so pull the pan back inside it
-      // rather than leaving the frame parked past its own edge.
-      const bound = maxPan(BASE_SCALE * zoom);
-      return {
-        zoom,
-        x: clamp(v.x, -bound, bound),
-        y: clamp(v.y, -bound, bound),
-      };
-    });
-  }, []);
 
   /**
    * Capture the current frame and hand it to the operator as a file.
@@ -451,17 +465,35 @@ export function useTileControls({
     },
     {
       id: "zoom-in",
-      label: "Zoom in",
+      /* Says what it cannot do rather than going quietly grey. A fixed camera
+         has no lens to move, and "why is this greyed out" is a question an
+         operator should not have to carry to a supervisor. */
+      label: feed.ptz ? "Zoom in" : "Zoom in — this camera cannot zoom",
       icon: "/icons/ctl-zoom-in.svg",
-      disabled: isDead || view.zoom >= ZOOM_MAX,
-      onSelect: () => zoomBy(ZOOM_STEP),
+      /* ⚠ GATED ON A REAL HEAD, NOT ON `isDead` ALONE. Without a head there is
+         nothing to send: the old code fell through to `localNudge("home")`,
+         which RECENTRED the picture — a zoom button that re-frames instead of
+         zooming is worse than one that refuses. */
+      disabled: isDead || !realPtz,
+      /* Held, exactly like the pad's pan and tilt and for the same reason: a
+         lens moves for as long as it is told to, so the command has to end
+         when the hand does. `ControlStack` already owns the pointer capture,
+         the cancel and leave paths and the keyboard equivalents — this reuses
+         the shape talk-down proved rather than inventing a second one. */
+      hold: {
+        onStart: () => jogStart("in"),
+        onEnd: jogEnd,
+      },
     },
     {
       id: "zoom-out",
-      label: "Zoom out",
+      label: feed.ptz ? "Zoom out" : "Zoom out — this camera cannot zoom",
       icon: "/icons/ctl-zoom-out.svg",
-      disabled: isDead || view.zoom <= ZOOM_MIN,
-      onSelect: () => zoomBy(-ZOOM_STEP),
+      disabled: isDead || !realPtz,
+      hold: {
+        onStart: () => jogStart("out"),
+        onEnd: jogEnd,
+      },
     },
     {
       id: "overlays",

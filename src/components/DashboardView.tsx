@@ -3,6 +3,7 @@ import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { MonitorTile } from "@/components/MonitorTile";
 import type { PlaybackPhase } from "@/lib/usePlayback";
+import type { ViewerSession } from "@kallon/sentry-sdk";
 import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
 import type { Alert, CameraFeed, Tower } from "@/lib/types";
@@ -40,6 +41,7 @@ export function DashboardView({
   playback,
   onScreenTiles,
   observeTile,
+  sessionFor,
   dismissedNotices,
   onDismissNotice,
   fleetLoading = false,
@@ -77,6 +79,8 @@ export function DashboardView({
   onScreenTiles?: ReadonlySet<string>;
   /** Registers a tile's grid cell with the visibility observer. */
   observeTile?: (id: string) => (el: HTMLElement | null) => void;
+  /** The live session for a camera, for the zoom controls. */
+  sessionFor?: (feedId: string) => ViewerSession | null;
   /** Towers whose notice this operator has read. Owned by the shell so it
    *  survives this view unmounting on every drill-in — see the note there. */
   dismissedNotices?: ReadonlySet<string>;
@@ -331,6 +335,7 @@ export function DashboardView({
                     towerId={feed.towerId}
                     towerName={towerName(feed.towerId)}
                     playback={playback?.[feed.id]}
+                    session={sessionFor?.(feed.id) ?? null}
                     onScreen={onScreenTiles?.has(feed.id) ?? false}
                     observeRef={observeTile?.(feed.id)}
                     fullscreen={fullscreenId === feed.id}

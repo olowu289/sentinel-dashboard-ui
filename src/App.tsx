@@ -1330,6 +1330,7 @@ export function SentinelApp() {
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}
           playback={playback}
+          sessionFor={sessionFor}
           onScreenTiles={visibleTiles}
           observeTile={observeTile}
           dismissedNotices={dismissedNotices}

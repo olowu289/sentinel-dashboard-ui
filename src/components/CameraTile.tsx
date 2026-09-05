@@ -130,6 +130,10 @@ export function CameraTile({
        from one would carry a timestamp it did not earn. */
     streaming: Boolean(stream),
     towerName,
+    /* The tower view is the one place a magnification readout earns its round
+       trips: one camera, watched closely, by somebody deciding how far in to
+       go. `MonitorTile` deliberately does not pass this — see the prop. */
+    zoomReadout: true,
     onToggleFullscreen,
     onToggleRecord,
   });

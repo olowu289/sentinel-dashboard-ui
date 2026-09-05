@@ -29,6 +29,26 @@ export interface TileControl {
    * ends it too, because focus can leave without a key ever coming back up.
    */
   hold?: { onStart: () => void; onEnd: () => void };
+  /**
+   * A short measured value drawn beside the chip — today the zoom readout's
+   * real magnification, `2.4×`.
+   *
+   * ⚠ MEASURED, OR ABSENT. `null` draws nothing, and that is the whole
+   * contract: the zoom readout renders a figure the CAMERA reported and has no
+   * fallback, because a magnification inferred from button presses drifts from
+   * the glass and an operator cannot tell the two apart. Anything put here
+   * later inherits that rule — this is not a label slot.
+   *
+   * It sits OUTSIDE the 32px chip (absolutely, so it costs the toolbar no
+   * layout) because the chip has room for one mark and that mark is the glyph.
+   *
+   * ⚠ IT HANGS TO THE LEFT, AND THAT IS NOT A STYLE CHOICE. The stack is
+   * pinned 9px from the tile's RIGHT edge and the tile clips its own overflow,
+   * so a badge placed to the right of the chip renders outside the tile and is
+   * invisible - which is exactly how it shipped first and how it was found. The
+   * space the readout can occupy is the picture, which is to its left.
+   */
+  badge?: string | null;
   /** Survives the hover reveal — the tile's one permanent affordance. */
   persistent?: boolean;
   /**
@@ -205,6 +225,19 @@ export function ControlStack({
                 aria-hidden
                 className="pulse-dot pointer-events-none absolute inset-0 rounded-[5.818px] ring-2 ring-critical/70"
               />
+            )}
+            {/* Rides the button's own reveal and opacity, so it appears with
+                the controls and dims with them rather than floating over a
+                bare frame. `aria-hidden` deliberately: this changes several
+                times a second while a lens moves, and a screen reader
+                announcing every step would bury the control it belongs to. */}
+            {c.badge && (
+              <span
+                aria-hidden
+                className="chip-blur pointer-events-none absolute right-full mr-[6px] whitespace-nowrap rounded-[4px] bg-black/55 px-[5px] py-[1px] font-mono text-[10px] leading-[14px] tracking-tight text-white tabular-nums"
+              >
+                {c.badge}
+              </span>
             )}
             <span className="relative flex items-center justify-center">
               {/* Busy replaces the glyph rather than sitting beside it: a

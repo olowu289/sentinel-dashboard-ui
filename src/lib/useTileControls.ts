@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatZoom, useZoomReadout } from "@/lib/useZoomReadout";
 import { captureFrame, downloadBlob, snapshotFilename } from "@/lib/snapshot";
 import type { TileControl } from "@/components/ControlStack";
 import type { CameraFeed } from "@/lib/types";
@@ -72,6 +73,7 @@ export function useTileControls({
   videoRef,
   streaming = false,
   towerName,
+  zoomReadout = false,
   onToggleFullscreen,
   onToggleRecord,
 }: {
@@ -103,6 +105,16 @@ export function useTileControls({
   streaming?: boolean;
   /** The site's name, for the snapshot's filename. Falls back to the id. */
   towerName?: string;
+  /**
+   * Whether to read the camera's real magnification while it is being zoomed.
+   *
+   * OPT-IN, and the fleet wall does not take it. Each reading is a round trip
+   * to a real camera over an off-grid uplink, and a wall of tiles animating a
+   * number nobody is reading is the same arithmetic the live-tile ceiling
+   * exists to refuse. The tower view is where somebody is actually watching
+   * one camera closely enough for the figure to mean anything.
+   */
+  zoomReadout?: boolean;
   onToggleFullscreen?: () => void;
   onToggleRecord?: () => void;
 }) {
@@ -255,6 +267,26 @@ export function useTileControls({
   const pressedAt = useRef(0);
   const [ptzError, setPtzError] = useState<string | null>(null);
 
+  /* Whether the lens is being zoomed RIGHT NOW, which is the only time the
+     magnification is worth asking the camera for. Separate from `holdRef`
+     because a pan is also a hold and a pan does not change the zoom. */
+  const [zooming, setZooming] = useState(false);
+
+  /* Which of the two buttons the readout sits beside. It follows the last
+     zoom rather than the current one so the figure does not jump sides — or
+     vanish — the instant the hand comes off, while the tail is still
+     resolving where the lens actually stopped. */
+  const [zoomSide, setZoomSide] = useState<"zoom-in" | "zoom-out">("zoom-in");
+
+  /* The camera's real magnification, or null. Never derived, never guessed —
+     see `useZoomReadout`. Null renders as nothing at all. */
+  const zoomRatio = useZoomReadout({
+    enabled: zoomReadout && realPtz,
+    session,
+    camera: feed.index,
+    active: zooming,
+  });
+
   const jogStart = useCallback(
     (dir: JogDirection) => {
       setPtzError(null);
@@ -263,6 +295,10 @@ export function useTileControls({
         return;
       }
       pressedAt.current = Date.now();
+      if (dir === "in" || dir === "out") {
+        setZoomSide(dir === "in" ? "zoom-in" : "zoom-out");
+        setZooming(true);
+      }
       void (async () => {
         try {
           const held = await beginHold(feed, session, {
@@ -297,6 +333,9 @@ export function useTileControls({
    * queue a stop behind a move that has not been dispatched yet.
    */
   const jogEnd = useCallback(() => {
+    /* Before the `realPtz` guard: the readout's tail must end even on a tile
+       that cannot move a lens, or a stray press would leave it polling. */
+    setZooming(false);
     if (!realPtz) return;
     const heldFor = Date.now() - pressedAt.current;
     pressedAt.current = 0;
@@ -469,6 +508,9 @@ export function useTileControls({
          has no lens to move, and "why is this greyed out" is a question an
          operator should not have to carry to a supervisor. */
       label: feed.ptz ? "Zoom in" : "Zoom in — this camera cannot zoom",
+      /* The camera's REAL magnification, or nothing. Never a count of presses
+         and never derived from the normalized axis — see `useZoomReadout`. */
+      badge: zoomSide === "zoom-in" ? formatZoom(zoomRatio) : null,
       icon: "/icons/ctl-zoom-in.svg",
       /* ⚠ GATED ON A REAL HEAD, NOT ON `isDead` ALONE. Without a head there is
          nothing to send: the old code fell through to `localNudge("home")`,
@@ -488,6 +530,7 @@ export function useTileControls({
     {
       id: "zoom-out",
       label: feed.ptz ? "Zoom out" : "Zoom out — this camera cannot zoom",
+      badge: zoomSide === "zoom-out" ? formatZoom(zoomRatio) : null,
       icon: "/icons/ctl-zoom-out.svg",
       disabled: isDead || !realPtz,
       hold: {
@@ -513,6 +556,8 @@ export function useTileControls({
     jogEnd,
     goHome,
     realPtz,
+    /** The camera's measured magnification, or null when nothing measured it. */
+    zoomRatio,
     ptzError,
     dismissPtzError: () => setPtzError(null),
     flash,

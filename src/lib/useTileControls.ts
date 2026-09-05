@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { captureFrame, downloadBlob, snapshotFilename } from "@/lib/snapshot";
 import type { TileControl } from "@/components/ControlStack";
 import type { CameraFeed } from "@/lib/types";
 import type { MutationPhase } from "@/lib/useMutation";
@@ -60,6 +61,9 @@ export function useTileControls({
   fsBtnRef,
   recordPhase,
   session,
+  videoRef,
+  streaming = false,
+  towerName,
   onToggleFullscreen,
   onToggleRecord,
 }: {
@@ -79,6 +83,18 @@ export function useTileControls({
    * digital nudge, which is all a seeded feed ever had.
    */
   session?: ViewerSession | null;
+  /**
+   * The element holding the frame, for the snapshot.
+   *
+   * A ref rather than the element, because the tile mounts and unmounts its
+   * `<video>` as playback comes and goes and a captured value would go stale
+   * the first time a stream reconnected.
+   */
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
+  /** Whether there is a live frame at all. Gates the snapshot control. */
+  streaming?: boolean;
+  /** The site's name, for the snapshot's filename. Falls back to the id. */
+  towerName?: string;
   onToggleFullscreen?: () => void;
   onToggleRecord?: () => void;
 }) {
@@ -305,15 +321,53 @@ export function useTileControls({
     });
   }, []);
 
-  const captureStill = useCallback(
-    () =>
-      command.run(key("snap"), async () => {
-        setFlash(true);
-        setTimeout(() => setFlash(false), 180);
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [command, feed.id],
-  );
+  /**
+   * Capture the current frame and hand it to the operator as a file.
+   *
+   * ⚠ THE FLASH NOW MEANS SOMETHING. It used to be the whole feature: the
+   * screen blanked, nothing was written anywhere, and an operator had every
+   * reason to believe a still had been saved. The flash is kept because a
+   * capture with no feedback gets taken twice — but it fires AFTER the encode
+   * succeeds, so it confirms a file rather than announcing an intention.
+   *
+   * A failure surfaces through the same keyed mutation every other control
+   * uses. There is no path here that flashes and produces nothing.
+   */
+  const captureStill = useCallback(async () => {
+    /* ⚠ DELIBERATELY NOT THROUGH `command.run`.
+    
+       That helper coalesces a second call into a first that is still in flight,
+       which is exactly right for a server write — it is the latch that stopped
+       three sign-in POSTs — and exactly wrong here. Each press is a DIFFERENT
+       MOMENT the operator chose to keep; two stills a fraction apart are two
+       pieces of evidence, not a double submit. A snapshot also sends nothing to
+       a server, so there is no request to de-duplicate in the first place.
+       
+       Nor is there a `busy` state: encoding a frame takes tens of
+       milliseconds, and a spinner nobody can see is noise on a control that
+       has to feel instant. */
+    try {
+      const blob = await captureFrame(videoRef?.current);
+      downloadBlob(
+        blob,
+        snapshotFilename({
+          towerName: towerName ?? feed.towerId,
+          cameraName: feed.name,
+        }),
+      );
+      /* AFTER the file exists, never before. The flash is this control's whole
+         claim that a still was taken, and it used to fire on its own with
+         nothing written anywhere. */
+      setFlash(true);
+      setTimeout(() => setFlash(false), 180);
+    } catch {
+      /* The disabled state already prevents the only expected failure — no
+         frame to capture. Anything reaching here is the browser refusing to
+         encode, and the honest response is for the flash NOT to fire: no
+         confirmation is the signal, because a flash with no file is the exact
+         lie this change was made to remove. */
+    }
+  }, [feed.name, feed.towerId, towerName, videoRef]);
 
   const controls: TileControl[] = [
     {
@@ -387,8 +441,12 @@ export function useTileControls({
       id: "screenshot",
       label: "Capture still",
       icon: "/icons/ctl-screenshot.svg",
-      disabled: isDead,
-      busy: command.phase(key("snap")).kind === "pending",
+      /* ⚠ NOT JUST `isDead`. A tile can be perfectly alive and still have no
+         frame — off screen on the fleet wall, over the concurrency ceiling,
+         mid-negotiation, or showing a poster. Capturing then would write a
+         black rectangle with an authoritative filename on it, which is the one
+         outcome worse than the button being unavailable. */
+      disabled: isDead || !streaming,
       onSelect: captureStill,
     },
     {

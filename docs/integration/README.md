@@ -1084,6 +1084,7 @@ do (`No footage — feed was down`, `Not scored`, `Not acknowledged`).
 | 6b — Mutation breadth | ✅ 13 wrapped, 2 optimistic by design, 0 fire-and-forget | Failure path proven by a one-shot injected throw, reverted. |
 | 7 — Actuators + PTZ | ✅ **15/15 — the camera physically moves** | PTZ real via jog. Record/siren/talk stay shells: no backend exists for any of them. |
 | 8 — Enrollment | ✅ **21/21** | Real claim, server-side pending that survives a reload. Serial removed. QR screens kept but cannot fake-add. |
+| 16 — Real snapshots | ✅ **18/18** | Capture writes a named JPEG. Zoom investigated — optical is unreachable. |
 | 15 — Live fleet wall | ✅ **19/19** | Visible tiles stream sub; off-screen closes. |
 | 14 — Real network health | ✅ **15/15** | Real uplink grade from a real dBm; the IP row replaced by `connected_at`. |
 | 13 — Per-camera playback | ✅ **13/13** | One camera's switch no longer drops its sibling's peer. |
@@ -1131,6 +1132,79 @@ Also established:
   wrong one costs an afternoon.
 
 **Verdict: joining architecture (a′) is proven.**
+
+### Stage 16 — the snapshot writes a file, 18/18 (and the zoom, investigated)
+
+#### The two zooms
+
+| | What it is | Reachable? |
+|---|---|---|
+| **Control stack** — Zoom in / Zoom out | **DIGITAL.** `zoomBy(±0.35)` → `setView` → a CSS `transform: scale()` on the media element, clamped 1×–3× so the frame's own edge never shows. It crops the frame that already arrived. Costs the tower nothing, needs no session, works on a seeded feed. | yes |
+| **PTZ pad** — up / down / left / right | **OPTICAL.** `jogStart(dir)` → `beginHold` → a real held `sendPtz` to the head (Stage 7). | yes |
+| **Optical ZOOM** — `JOG_AXES.in` / `.out` | Real zoom axes, plumbed all the way through the SDK. | **NO — nothing calls it** |
+
+⚠ **Optical zoom is implemented and unreachable.** `JOG_AXES` defines
+`in: {zoom: 0.5}` and `out: {zoom: -0.5}`, `jogStart` accepts them and the SDK
+carries them — but `PtzPad` renders only its four pan/tilt `BUTTONS` plus
+Recentre, and **nothing anywhere calls `jogStart("in")` or `jogStart("out")`**.
+Zero call sites across `src/`.
+
+One more detail before deciding: for a camera with no real head,
+`jogStart("in"/"out")` falls through to `localNudge("home")` — it *recentres*
+rather than zooming. If those directions are ever wired to a control, that
+fallback needs revisiting too.
+
+Reported, not changed — the digital-vs-optical decision for the hover buttons is
+the owner's.
+
+#### The snapshot
+
+It flashed the screen and wrote nothing. The flash was good feedback and that
+was the problem: an operator had every reason to believe a still had been saved.
+
+**Capture:** the frame is drawn from the `<video>` to a canvas and encoded as
+**JPEG at q=0.92** — roughly an order of magnitude smaller than PNG on a
+photographic frame, and lossless buys nothing on a stream that arrived
+H.264-compressed. Pure frontend; the frame was already in the element.
+
+**Filename:** `OIL_DEPO_TOWER_1_CAMERA_1_2026-09-05_14-58-18.jpg`
+
+- **Site time** (`siteFileStamp`, WAT) — a still captured in Nigeria and opened
+  in London must say when it was taken *there*, and unlike a screen this stamp
+  travels with the file.
+- **Sortable**: date before time, zero-padded, 24-hour. Hyphens because a colon
+  is illegal in a Windows filename.
+- **Sanitized, not prettified**: `OIL DEPO TOWER 1` becomes `OIL_DEPO_TOWER_1`,
+  not `OilDepoTower1`. A snapshot is evidence, and the string in the filename
+  should be the string on the fleet card so the two match by eye or by grep.
+  Re-casing is a small lie that only surfaces when somebody is hunting months
+  later. Windows' rules are applied on every platform because they are the
+  strictest.
+- **Collisions**: seconds are the readable granularity, and a second capture
+  inside one second gets `_2`. Verified live — `14-58-18.jpg` and
+  `14-58-18_2.jpg` both landed. Browser `(1)` suffixes are not relied on:
+  browser-specific, and they sort badly.
+
+**Not streaming → the control is DISABLED**, and `captureFrame` re-checks
+`videoWidth` regardless. Verified: with tiles off screen the control is disabled
+and clicking writes nothing. A black rectangle carrying an authoritative
+filename is worse than no file.
+
+**Quality follows the stream**, honestly: a fleet-wall sub capture is 704×576
+(~150KB), a tower-view main capture is 2560×1440 (~1.1MB). The file holds
+exactly what was being watched, at the quality it was watched at. The digital
+zoom is deliberately *not* baked in — it is a way of looking at the frame, not a
+property of it.
+
+⚠ **The snapshot was taken OUT of `useMutation`.** Routed through `command.run`,
+the in-flight latch coalesced a second press into the first — correct for a
+server write (it is the guard that stopped three sign-in POSTs) and wrong here,
+where each press is a different moment the operator chose to keep. The test
+caught it: two clicks, one file.
+
+The flash is kept but now fires **after** the encode succeeds, so it confirms a
+file rather than announcing an intention. On failure it does not fire at all —
+no confirmation is the signal.
 
 ### Stage 15 result — the fleet wall streams what is visible, 19/19
 

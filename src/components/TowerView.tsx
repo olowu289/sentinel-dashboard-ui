@@ -279,6 +279,7 @@ export function TowerView({
               key={feed.id}
               feed={feed}
               towerId={tower.id}
+              towerName={tower.site}
               focused={focusedFeed === feed.id}
               fullscreen={fullscreenId === feed.id}
               /* Shared across every tile on purpose. The takeover changes

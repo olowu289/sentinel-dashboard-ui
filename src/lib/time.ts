@@ -222,6 +222,37 @@ export function formatEventTime(at: number, now: number = siteNow()) {
  * week. Under a minute reads "just now" rather than counting seconds, since a
  * tower that connected four seconds ago is better described than measured.
  */
+/**
+ * `2026-09-04_19-42-13` — a timestamp for a FILENAME, in site time.
+ *
+ * Sortable by design: a directory of these orders chronologically with no
+ * sorting, which a `19-42-13_2026-09-04` never would. Hyphens rather than
+ * colons because a colon is illegal in a Windows filename and silently
+ * mangled by some tools on the others.
+ *
+ * 24-hour, so a still taken at 07:42 and one at 19:42 cannot land on the same
+ * name — the one place in this app where am/pm would be an actual collision
+ * rather than a readability preference.
+ *
+ * Site time, like every other stamp here: a frame captured at a Nigerian site
+ * and opened in London has to say when it was taken THERE, and unlike a screen
+ * this one travels with the file.
+ */
+export function siteFileStamp(at: number = Date.now()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: SITE_TZ,
+  }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}_${get("hour")}-${get("minute")}-${get("second")}`;
+}
+
 export function formatUptime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
   const mins = Math.floor(ms / 60000);

@@ -329,6 +329,7 @@ export function DashboardView({
                     key={feed.id}
                     feed={feed}
                     towerId={feed.towerId}
+                    towerName={towerName(feed.towerId)}
                     playback={playback?.[feed.id]}
                     onScreen={onScreenTiles?.has(feed.id) ?? false}
                     observeRef={observeTile?.(feed.id)}

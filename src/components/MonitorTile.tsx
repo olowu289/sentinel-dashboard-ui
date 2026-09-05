@@ -56,6 +56,7 @@ import {
 export function MonitorTile({
   feed,
   towerId,
+  towerName,
   playback,
   onScreen = false,
   observeRef,
@@ -70,6 +71,8 @@ export function MonitorTile({
   /** Spoken in the tile's label. The fleet wall mixes sites, so a tile that
    *  names only its camera leaves "whose north gate?" unanswered. */
   towerId: string;
+  /** The site's human name, for a captured still's filename. */
+  towerName?: string;
   /**
    * This tile's live session, when it has one.
    *
@@ -128,11 +131,19 @@ export function MonitorTile({
      no PTZ pad — the digital zoom in the control stack is all it has, and that
      needs no head. Steering belongs to the tower view, where the operator can
      see what they are moving. */
+  /* Declared before the controls hook because the snapshot reads through it.
+     The element it points at mounts and unmounts with playback, which is why
+     the hook takes the REF and never the element. */
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   const { controls, view, scale, flash, alarming } = useTileControls({
     feed,
     isDead,
     fullscreen,
     fsBtnRef: expandRef,
+    videoRef,
+    streaming: Boolean(stream),
+    towerName,
     onToggleFullscreen,
     onToggleRecord,
   });
@@ -153,7 +164,6 @@ export function MonitorTile({
    * Detached on teardown so a replaced peer's tracks are not held alive by the
    * element — which on this wall happens every time a tile scrolls away.
    */
-  const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;

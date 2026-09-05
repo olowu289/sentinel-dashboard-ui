@@ -24,6 +24,7 @@ import type { ViewerSession } from "@kallon/sentry-sdk";
 export function CameraTile({
   feed,
   towerId,
+  towerName,
   focused = false,
   fullscreen = false,
   layoutKey = "",
@@ -39,6 +40,8 @@ export function CameraTile({
 }: {
   feed: CameraFeed;
   towerId?: string;
+  /** The site's human name, for a captured still's filename. */
+  towerName?: string;
   focused?: boolean;
   fullscreen?: boolean;
   /**
@@ -121,6 +124,12 @@ export function CameraTile({
     fsBtnRef,
     recordPhase,
     session,
+    videoRef,
+    /* A frame exists only while a peer is delivering one. A poster is a
+       picture but it is not this camera's current frame, and a still captured
+       from one would carry a timestamp it did not earn. */
+    streaming: Boolean(stream),
+    towerName,
     onToggleFullscreen,
     onToggleRecord,
   });

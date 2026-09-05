@@ -17,6 +17,14 @@ import { defineConfig, type Plugin } from "vite";
 const SDK_PATH = fileURLToPath(new URL("../sentry-sdk", import.meta.url));
 
 /**
+ * How long to wait for a rebuild to stop writing before reloading.
+ *
+ * Long enough that three tsc passes land as one reload, short enough to feel
+ * immediate.
+ */
+const REBUILD_SETTLE_MS = 500;
+
+/**
  * Reload when the SDK is rebuilt.
  *
  * ⚠ THIS COST A DEBUGGING SESSION AND WOULD HAVE COST MORE. The SDK gained a
@@ -46,14 +54,43 @@ function watchLinkedSdk(): Plugin {
     apply: "serve",
     configureServer(server) {
       server.watcher.add(dist);
-      server.watcher.on("change", (file) => {
+
+      let pending: ReturnType<typeof setTimeout> | null = null;
+
+      const rebuilt = (file: string) => {
         if (!file.startsWith(dist)) return;
-        server.config.logger.info(
-          "[watch-linked-sdk] @kallon/sentry-sdk rebuilt — reloading",
-          { timestamp: true },
-        );
-        server.ws.send({ type: "full-reload", path: "*" });
-      });
+
+        /* Re-arm on every event. `npm run build` deletes the whole directory
+           before writing it, and a watcher whose target has been removed can
+           stop following the path it was given — so the recreated tree would
+           arrive unwatched and the NEXT rebuild would be silent again. */
+        server.watcher.add(dist);
+
+        /* One reload per build, not one per file. A build writes the ESM, CJS
+           and type trees, which is dozens of events in a burst; firing on each
+           would reload the browser mid-write and could hand it a half-written
+           dist. The trailing wait lets the build settle first. */
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => {
+          pending = null;
+          server.config.logger.info(
+            "[watch-linked-sdk] @kallon/sentry-sdk rebuilt — reloading",
+            { timestamp: true },
+          );
+          server.ws.send({ type: "full-reload", path: "*" });
+        }, REBUILD_SETTLE_MS);
+      };
+
+      /* ⚠ ALL THREE EVENTS, AND `change` IS THE ONE THAT MATTERS LEAST.
+         Listening only for `change` is what this plugin did first, and it meant
+         the plugin never fired on the operation it exists for: `npm run build`
+         runs `clean` first (`rm -rf dist`), so a real rebuild emits `unlink`
+         for every old file and `add` for every new one and NOT A SINGLE
+         `change`. It caught a hand-edited dist — which nobody does — and missed
+         every actual build, which is the only way that directory ever moves. */
+      for (const event of ["change", "add", "unlink"] as const) {
+        server.watcher.on(event, rebuilt);
+      }
     },
   };
 }

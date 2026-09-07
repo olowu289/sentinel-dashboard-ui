@@ -69,7 +69,11 @@ export interface ReviewState {
   /** Epoch ms the current slice starts at, for turning video time into wall time. */
   sliceStartAt: number | null;
   loading: boolean;
-  seek: (toEpochMs: number) => void;
+  /** `immediate` skips the drag settle — pass it for a discrete click. */
+  seek: (toEpochMs: number, immediate?: boolean) => void;
+  /** Quietly fetch the slice after the current one, so playback does not
+   *  stall at the boundary. One ahead only. */
+  prefetchNext: () => void;
   /**
    * Move the playhead WITHOUT fetching.
    *
@@ -170,20 +174,35 @@ export function useReviewPlayer(
     };
   }, [deviceId, camera, revokeAll]);
 
-  /* ── fetching the slice under the playhead ───────────────────────────── */
-  const load = useCallback(async (startMs: number) => {
+  /* ── fetching the slice under the playhead ─────────────────────────────
+     `background` is a PRE-FETCH: fetch it, cache it, and do NOT move the
+     picture. The operator is still watching the previous slice and must not
+     have it swapped out from under them a few seconds early. */
+  const load = useCallback(async (startMs: number, background = false) => {
     const session = sessionRef.current;
     if (!session) return;
     const cached = cache.current.get(startMs);
     if (cached) {
-      setSliceUrl(cached);
-      setSliceStartAt(startMs);
-      setPhase({ kind: "ready" });
+      if (!background) {
+        setSliceUrl(cached);
+        setSliceStartAt(startMs);
+        setPhase({ kind: "ready" });
+      }
       return;
     }
-    if (inFlight.current) return;          // the newest want is remembered below
+    if (inFlight.current) {
+      /* ⚠ A PRE-FETCH NEVER QUEUES BEHIND ITSELF, AND NEVER OUTRANKS A PERSON.
+         `wanted` is the operator's most recent request and is honoured when
+         the current fetch lands; a speculative one must not overwrite it, or
+         a scrub during playback would be discarded in favour of a slice
+         nobody asked to see. */
+      if (!background) wanted.current = startMs;
+      return;
+    }
     inFlight.current = true;
-    setLoading(true);
+    // A pre-fetch is invisible: raising the spinner for it would flash
+    // "loading" over footage that is playing perfectly well.
+    if (!background) setLoading(true);
     const gen = generation.current;
     try {
       const url = await fetchSliceUrl(session, new Date(startMs).toISOString(), SLICE_SEC);
@@ -200,11 +219,20 @@ export function useReviewPlayer(
         if (dead) URL.revokeObjectURL(dead);
         cache.current.delete(oldest);
       }
-      setSliceUrl(url);
-      setSliceStartAt(startMs);
-      setPhase({ kind: "ready" });
+      if (!background) {
+        setSliceUrl(url);
+        setSliceStartAt(startMs);
+        setPhase({ kind: "ready" });
+      }
     } catch (err) {
       if (gen !== generation.current) return;
+      if (background) {
+        /* A pre-fetch that fails is not the operator's problem: they are still
+           watching the current slice, and the boundary will simply fetch again
+           and report properly then. Turning a speculative miss into an error
+           banner over playing footage would be a lie about what is on screen. */
+        return;
+      }
       /* A gap is an ANSWER. The tower is telling us nothing covers that
          moment — it was down, or the disk lost it — and showing a fault for it
          would teach an operator to distrust a working screen. */
@@ -214,7 +242,7 @@ export function useReviewPlayer(
       setSliceUrl(null);
     } finally {
       inFlight.current = false;
-      setLoading(false);
+      if (!background) setLoading(false);
       // Whatever the operator asked for most recently wins.
       const next = wanted.current;
       wanted.current = null;
@@ -222,13 +250,29 @@ export function useReviewPlayer(
     }
   }, []);
 
-  const seek = useCallback((toEpochMs: number) => {
+  /**
+   * Move the playhead and fetch.
+   *
+   * ⚠ A CLICK AND A DRAG ARE DIFFERENT REQUESTS AND THE DELAY IS ONLY RIGHT
+   * FOR ONE OF THEM. The settle exists so dragging across an hour costs one
+   * slice instead of two hundred — correct for a drag, and pure lag on a
+   * click, where the operator has already told us exactly where they want to
+   * be. `immediate` is what a discrete click passes, and it skips the wait
+   * entirely rather than shortening it.
+   */
+  const seek = useCallback((toEpochMs: number, immediate = false) => {
     setPositionAt(toEpochMs);
     // Slices are aligned to a grid so scrubbing within one reuses it rather
     // than fetching a near-identical window one second over.
     const aligned = Math.floor(toEpochMs / (SLICE_SEC * 1000)) * SLICE_SEC * 1000;
-    wanted.current = aligned;
     if (settle.current) clearTimeout(settle.current);
+    settle.current = null;
+    if (immediate) {
+      wanted.current = null;
+      void load(aligned);
+      return;
+    }
+    wanted.current = aligned;
     settle.current = setTimeout(() => {
       const want = wanted.current;
       wanted.current = null;
@@ -236,13 +280,35 @@ export function useReviewPlayer(
     }, SETTLE_MS);
   }, [load]);
 
+  /**
+   * Fetch the slice AFTER the one playing, without disturbing it.
+   *
+   * The boundary between slices is the only place this screen can stall: the
+   * current file ends, and the next one has not been asked for yet, so the
+   * picture stops while a multi-megabyte relay runs. Starting that fetch a few
+   * seconds early turns the stall into a hand-off.
+   *
+   * ONE AHEAD, NEVER MORE. The relay is capped at two per tower and shares a
+   * link with the site's PTZ keepalives; speculatively pulling a minute of
+   * video because somebody left a tab open is precisely the traffic the cap
+   * exists to prevent. It is also silent — see `background` in `load`.
+   */
+  const prefetchNext = useCallback(() => {
+    if (sliceStartAt === null) return;
+    const next = sliceStartAt + SLICE_SEC * 1000;
+    if (cache.current.has(next)) return;
+    void load(next, true);
+  }, [load, sliceStartAt]);
+
   const seekQuiet = useCallback((toEpochMs: number) => {
     setPositionAt(toEpochMs);
   }, []);
 
   const advance = useCallback(() => {
     if (sliceStartAt === null) return;
-    seek(sliceStartAt + SLICE_SEC * 1000);
+    // Immediate: reaching the end of a slice is not a drag, and waiting out a
+    // settle here would put the stall back that pre-fetching removed.
+    seek(sliceStartAt + SLICE_SEC * 1000, true);
   }, [sliceStartAt, seek]);
 
   const retry = useCallback(() => {
@@ -271,6 +337,6 @@ export function useReviewPlayer(
 
   return {
     phase, spans, bounds, positionAt, sliceUrl, sliceStartAt, loading,
-    seek, seekQuiet, advance, retry,
+    seek, seekQuiet, prefetchNext, advance, retry,
   };
 }

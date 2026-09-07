@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import type { CameraFeed, Tower } from "@/lib/types";
-import { covered, useReviewPlayer } from "@/lib/useReviewPlayer";
+import { SLICE_SEC, covered, useReviewPlayer } from "@/lib/useReviewPlayer";
+import { PlaybackTimeline } from "@/components/PlaybackTimeline";
+import { SITE_TZ_LABEL, formatSiteStamp } from "@/lib/time";
 
 /**
  * Recent recorded footage from a tower's own disk.
@@ -38,6 +40,11 @@ import { covered, useReviewPlayer } from "@/lib/useReviewPlayer";
  *   the clock      is the footage's own recorded time. An offset into a slice
  *                  is not something anybody can put in a handover.
  */
+/** How far before a slice ends to start fetching the next one. Long enough to
+ *  cover a relay of a few megabytes, short enough that a viewer who scrubs away
+ *  has usually already done so. */
+const PREFETCH_LEAD_SEC = 6;
+
 export function PlaybackView({
   towers,
   feeds,
@@ -60,11 +67,12 @@ export function PlaybackView({
   const review = useReviewPlayer(towerId, chosen ?? null);
   const { phase, spans, bounds, positionAt, sliceUrl, sliceStartAt } = review;
 
-  const clock = positionAt !== null
-    ? new Date(positionAt).toLocaleString(undefined, {
-        dateStyle: "medium", timeStyle: "medium",
-      })
-    : "—";
+  /* SITE time, labelled — not the viewer's machine. lib/time.ts states the
+     rule and the reason: operators hand incidents off by radio across shifts
+     and regions, so a time that silently follows whoever is looking is worse
+     than no time at all. This screen's whole output is "when did this happen",
+     which makes it the last place to get that wrong. */
+  const stamp = positionAt !== null ? formatSiteStamp(positionAt) : null;
 
   return (
     <div className="flex h-full min-h-0 w-full">
@@ -133,9 +141,16 @@ export function PlaybackView({
                 /* WALL CLOCK, not clip offset. The slice knows when it starts,
                    so the playhead is that plus the element's own time — which
                    is what makes the readout quotable. */
-                if (sliceStartAt !== null) {
-                  review.seekQuiet(sliceStartAt + e.currentTarget.currentTime * 1000);
-                }
+                if (sliceStartAt === null) return;
+                const v = e.currentTarget;
+                review.seekQuiet(sliceStartAt + v.currentTime * 1000);
+                /* Fetch the NEXT slice before this one runs out. The boundary
+                   is the only place this screen can stall — the file ends and
+                   the next has not been asked for — and a few seconds of lead
+                   turns that stall into a hand-off. One ahead only; the hook
+                   drops it if it is already cached or a fetch is running. */
+                const left = (v.duration || SLICE_SEC) - v.currentTime;
+                if (left <= PREFETCH_LEAD_SEC) review.prefetchNext();
               }}
               /* Playing off the end of a 20s slice fetches the next one rather
                  than stopping — the operator asked to watch, not to watch one
@@ -154,36 +169,35 @@ export function PlaybackView({
         {bounds && positionAt !== null && (
           <div className="flex flex-col gap-[6px]">
             <div className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px] tabular-nums">{clock}</span>
+              <span className="font-mono text-[13px] tabular-nums">
+                {stamp ? `${stamp.date} ${stamp.time}` : "—"}
+                <span className="ml-[6px] text-[11px] text-muted">{SITE_TZ_LABEL}</span>
+              </span>
               {review.loading && (
                 <span className="text-[11px] text-muted">loading…</span>
               )}
             </div>
-            <input
-              type="range"
-              aria-label="Scrub recorded footage"
-              min={bounds.from}
-              max={bounds.to}
-              step={1000}
-              value={positionAt}
-              onChange={(e) => review.seek(Number(e.target.value))}
-              className="w-full"
+
+            <PlaybackTimeline
+              from={bounds.from}
+              to={bounds.to}
+              at={positionAt}
+              spans={spans}
+              onSeek={review.seek}
             />
+
             <div className="flex justify-between text-[11px] text-muted">
               {/* THE ARCHIVED BOUNDARY. The left edge is where this tower's
                   memory ends — said plainly, because an operator who scrubs
                   into nothing deserves to know it was never there rather than
                   to wonder whether the screen is broken. */}
-              <span>
-                {new Date(bounds.from).toLocaleString()} · older is archived
-              </span>
-              <span>{new Date(bounds.to).toLocaleString()}</span>
+              <span>older is archived</span>
+              {!covered(spans, positionAt) && (
+                <span className="text-warning">
+                  No footage at this moment — the tower was not recording then.
+                </span>
+              )}
             </div>
-            {!covered(spans, positionAt) && (
-              <span className="text-[11px] text-warning">
-                No footage at this moment — the tower was not recording then.
-              </span>
-            )}
           </div>
         )}
       </div>

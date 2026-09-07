@@ -79,6 +79,7 @@ export function PlaybackTimeline({
   at,
   spans,
   onSeek,
+  clip,
 }: {
   from: number;
   to: number;
@@ -86,6 +87,8 @@ export function PlaybackTimeline({
   spans: RecordingSpan[];
   /** `immediate` is true for a click or the end of a drag. */
   onSeek: (epochMs: number, immediate: boolean) => void;
+  /** The clip selection, when clip mode is on. Drawn over the bar. */
+  clip?: { from: number; to: number } | null;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -202,6 +205,19 @@ export function PlaybackTimeline({
             style={{ left: `${pct(t.at)}%` }}
           />
         ))}
+
+        {/* the clip selection, under the playhead so the playhead stays
+            readable while scrubbing inside a marked range */}
+        {clip && clip.to > clip.from && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 rounded-[3px] border border-white/60 bg-white/25"
+            style={{
+              left: `${pct(Math.max(from, clip.from))}%`,
+              width: `${Math.max(0.6, ((Math.min(to, clip.to) - Math.max(from, clip.from)) / span) * 100)}%`,
+            }}
+          />
+        )}
 
         {/* the playhead */}
         <div

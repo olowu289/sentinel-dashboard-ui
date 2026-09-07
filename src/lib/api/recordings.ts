@@ -109,6 +109,31 @@ export async function fetchSliceUrl(
 }
 
 /**
+ * Fetch one continuous range as a file the operator keeps.
+ *
+ * ⚠ THE RETURNED CLIP MAY BE SHORTER THAN ASKED FOR, and that is the honest
+ * case rather than a fault. MediaMTX truncates at a recording discontinuity
+ * instead of welding two sides of a gap together, so a range crossing a period
+ * when the tower was down comes back covering only the real footage. The
+ * caller compares what arrived against what it asked for and says so — a file
+ * that hid a gap would be evidence of something that never happened
+ * continuously.
+ */
+export async function fetchClipBlob(
+  session: ViewerSession,
+  start: string,
+  durationSec: number,
+): Promise<Blob> {
+  try {
+    const bytes = await getClient().fetchClip(session, start, durationSec);
+    return new Blob([bytes], { type: "video/mp4" });
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/**
  * Turn a recording failure into a line an operator can act on, or `null`.
  *
  * ⚠ `no_recording` IS NOT A FAULT. It is the tower answering that nothing

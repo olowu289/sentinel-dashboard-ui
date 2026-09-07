@@ -69,6 +69,14 @@ export interface ReviewState {
   /** Epoch ms the current slice starts at, for turning video time into wall time. */
   sliceStartAt: number | null;
   loading: boolean;
+  /**
+   * The review session, for actions that need it — the clip download.
+   *
+   * Exposed rather than duplicated: opening a SECOND session for a clip would
+   * mean a second grant for a camera this screen has already been granted, and
+   * the two could disagree about which camera the operator is looking at.
+   */
+  session: ViewerSession | null;
   /** `immediate` skips the drag settle — pass it for a discrete click. */
   seek: (toEpochMs: number, immediate?: boolean) => void;
   /** Quietly fetch the slice after the current one, so playback does not
@@ -337,6 +345,7 @@ export function useReviewPlayer(
 
   return {
     phase, spans, bounds, positionAt, sliceUrl, sliceStartAt, loading,
+    session: sessionRef.current,
     seek, seekQuiet, prefetchNext, advance, retry,
   };
 }

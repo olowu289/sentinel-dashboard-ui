@@ -119,6 +119,50 @@ export async function fetchSliceUrl(
  * that hid a gap would be evidence of something that never happened
  * continuously.
  */
+/**
+ * What an operator is told when a clip cannot be made.
+ *
+ * ⚠ THE ENDPOINT NEVER REACHES A SCREEN. The SDK's transport errors read
+ * `GET /v1/viewer/sessions/ses_.../clip failed: …`, which is exactly right in a
+ * console and exactly wrong on a monitoring wall: an internal path is not
+ * something an operator can act on, cannot be repeated over a radio, and
+ * teaches them that this app talks in a language they do not speak. It is
+ * translated HERE, at the boundary, rather than masked in the view — the same
+ * place `fleet.ts` turns a 404 into `TowerUnavailableError`, and for the same
+ * reason: a view that has to remember to sanitise is a view that will forget.
+ *
+ * Each line names a cause and, where there is one, what to do about it.
+ */
+function describeClipFailure(err: unknown): string {
+  const status = (err as { status?: unknown } | null)?.status;
+  const code = (err as { code?: unknown } | null)?.code;
+
+  if (status === 404 || code === "not_found") {
+    return "That moment is no longer on the tower's disk.";
+  }
+  if (status === 401 || status === 403) {
+    return "This review session ended. Reopen the camera to try again.";
+  }
+  if (status === 413 || code === "clip_too_long") {
+    return "That range is longer than the tower will send in one clip.";
+  }
+  if (status === 0 || code === "network_error") {
+    return "Couldn't reach the tower to prepare the clip.";
+  }
+  if (typeof status === "number" && status >= 500) {
+    return "The tower couldn't prepare that clip. It may be busy recording.";
+  }
+  /* Deliberately not `err.message`: that is where the path lives. An unknown
+     failure says so plainly rather than leaking the one thing it must not. */
+  return "Couldn't prepare the clip.";
+}
+
+/**
+ * Fetch a clip, or fail in words an operator can use.
+ *
+ * The thrown error carries ONLY the sentence above — the caller renders it
+ * straight into `MutationError` and there is nothing left to sanitise.
+ */
 export async function fetchClipBlob(
   session: ViewerSession,
   start: string,
@@ -129,7 +173,7 @@ export async function fetchClipBlob(
     return new Blob([bytes], { type: "video/mp4" });
   } catch (err) {
     endSessionIfUnauthorized(err);
-    throw err;
+    throw new RecordingUnavailableError(describeClipFailure(err));
   }
 }
 

@@ -9,7 +9,7 @@ import { SITE_TZ_LABEL, formatSiteStamp } from "@/lib/time";
 import { clipFilename, downloadBlob } from "@/lib/snapshot";
 import { fetchClipBlob } from "@/lib/api/recordings";
 import { useMutation } from "@/lib/useMutation";
-import { MutationError, MutationIcon } from "@/components/MutationFeedback";
+import { MutationError, MutationIcon, errorRing } from "@/components/MutationFeedback";
 
 /**
  * Recent recorded footage from a tower's own disk.
@@ -165,8 +165,10 @@ export function PlaybackView({
           >
             <MaskIcon src="/icons/chevron-right.svg" size={16} />
           </button>
-          <h1 className="text-[18px] font-medium">Playback</h1>
-          <span className="text-[12px] text-muted">
+          <h1 className="font-display text-[1.125rem] leading-[24px] tracking-[0.18px] uppercase">
+            Playback
+          </h1>
+          <span className="text-[0.8125rem] leading-[20px] text-muted">
             Recent footage held on the tower
           </span>
         </header>
@@ -177,7 +179,7 @@ export function PlaybackView({
             aria-label="Site"
             value={towerId ?? ""}
             onChange={(e) => { setTowerId(e.target.value); setCamera(null); }}
-            className="rounded-[8px] bg-card px-[10px] py-[6px] text-[13px]"
+            className="h-[34px] rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-card-hover"
           >
             {towers.map((t) => (
               <option key={t.id} value={t.id}>{t.site || t.id}</option>
@@ -185,7 +187,7 @@ export function PlaybackView({
           </select>
 
           {cameras.length === 0 ? (
-            <span className="text-[12px] text-muted">
+            <span className="text-[0.8125rem] leading-[20px] text-muted">
               This site has no cameras to review.
             </span>
           ) : (
@@ -194,8 +196,14 @@ export function PlaybackView({
                 key={f.id}
                 type="button"
                 onClick={() => setCamera(f.index ?? null)}
-                className={`rounded-[8px] px-[10px] py-[6px] text-[13px] transition-colors ${
-                  chosen === f.index ? "bg-white/20" : "bg-card hover:bg-card-hover"
+                /* The zone editor's camera picker, verbatim: white-on-black is
+                   this app's "chosen", and a tinted white was a second
+                   vocabulary for the same idea. Colour stays reserved. */
+                aria-pressed={chosen === f.index}
+                className={`h-[34px] truncate rounded-[8px] px-[12px] text-[0.8125rem] font-medium transition-colors ${
+                  chosen === f.index
+                    ? "bg-white text-black"
+                    : "bg-card text-white hover:bg-card-hover"
                 }`}
               >
                 {f.name ?? f.id}
@@ -246,12 +254,20 @@ export function PlaybackView({
         {bounds && positionAt !== null && (
           <div className="flex flex-col gap-[6px]">
             <div className="flex items-baseline justify-between">
-              <span className="font-mono text-[13px] tabular-nums">
+              {/* Quantico, like every other clock in this app — `SiteClock` and
+                  the feed chips already set that expectation, and a second
+                  monospace face on the one screen whose output IS a time would
+                  read as a different app's widget. */}
+              <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] tabular-nums text-white">
                 {stamp ? `${stamp.date} ${stamp.time}` : "—"}
-                <span className="ml-[6px] text-[11px] text-muted">{SITE_TZ_LABEL}</span>
+                <span className="ml-[6px] text-[0.75rem] text-muted">
+                  {SITE_TZ_LABEL}
+                </span>
               </span>
               {review.loading && (
-                <span className="text-[11px] text-muted">loading…</span>
+                <span className="text-[0.75rem] leading-[16px] text-muted">
+                  Loading…
+                </span>
               )}
             </div>
 
@@ -270,18 +286,32 @@ export function PlaybackView({
               }}
             />
 
-            {/* ── clip ─────────────────────────────────────────────── */}
-            <div className="flex flex-wrap items-center gap-[8px]">
+            {/* ── clip ─────────────────────── */}
+            {/* ONE PANEL, not four loose controls. The settings rows and the
+                alert detail's footer already establish the shape: a surface
+                holds a statement of what is true on the left and the acts you
+                can perform on the right. This was a toggle, a bare sentence, a
+                button and an underlined text link floating on the page — four
+                weights, no surface, and an underline this app uses nowhere
+                else. */}
+            <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[8px] rounded-[8px] bg-panel px-[12px] py-[10px]">
               <button
                 type="button"
+                aria-pressed={clipping}
                 onClick={() => {
                   setClipping((on) => !on);
                   setClipFrom(null);
                   setClipTo(null);
                   clipJob.reset(`clip:${towerId}:${chosen}`);
                 }}
-                className={`rounded-[8px] px-[10px] py-[6px] text-[13px] transition-colors ${
-                  clipping ? "bg-white/20" : "bg-card hover:bg-card-hover"
+                /* Engaged reads white-on-black, the same as the camera picker
+                   above it and the zone editor's. An engaged control here is a
+                   MODE, and this app already has one way of saying that — a
+                   tinted white was a second vocabulary for the same idea. */
+                className={`h-[32px] shrink-0 rounded-[8px] px-[12px] text-[0.8125rem] font-medium transition-colors ${
+                  clipping
+                    ? "bg-white text-black"
+                    : "bg-card text-white hover:bg-card-hover"
                 }`}
               >
                 {clipping ? "Clipping" : "Clip"}
@@ -289,32 +319,61 @@ export function PlaybackView({
 
               {clipping && (
                 <>
-                  <span className="text-[12px] text-muted">
-                    {clipFrom === null
-                      ? "Click the timeline to mark the start."
-                      : clipTo === null
-                        ? "Now mark the end."
-                        : `${formatClipLength(clipSec)} selected`}
-                  </span>
-                  {range && (
-                    <button
-                      type="button"
-                      disabled={!clipSec || clipPhase.kind === "pending"}
-                      onClick={downloadClip}
-                      className="flex items-center gap-[6px] rounded-[8px] bg-card px-[10px] py-[6px] text-[13px] hover:bg-card-hover disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <MutationIcon phase={clipPhase} idle={<span>Download clip</span>} />
-                      {clipPhase.kind === "pending" && <span>Preparing…</span>}
-                    </button>
+                  {/* The readout keeps the app's absence grammar: it says what
+                      to do next while nothing is selected, and the LENGTH in
+                      the display face once something is — a number an operator
+                      reads back over a radio, set like every other number in
+                      this app rather than as body copy. */}
+                  {range ? (
+                    <span className="flex min-w-0 items-baseline gap-[6px]">
+                      <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] tabular-nums text-white">
+                        {formatClipLength(clipSec)}
+                      </span>
+                      <span className="text-[0.75rem] leading-[16px] text-muted">
+                        selected
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="min-w-0 flex-1 text-[0.8125rem] leading-[20px] text-muted">
+                      {clipFrom === null
+                        ? "Click the timeline to mark the start."
+                        : "Now mark the end."}
+                    </span>
                   )}
+
                   {range && (
-                    <button
-                      type="button"
-                      onClick={() => { setClipFrom(null); setClipTo(null); }}
-                      className="text-[12px] text-muted underline"
-                    >
-                      clear
-                    </button>
+                    <div className="ml-auto flex shrink-0 items-center gap-[8px]">
+                      {/* Secondary then primary, left to right, exactly as the
+                          alert detail's footer orders them. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClipFrom(null);
+                          setClipTo(null);
+                        }}
+                        className="h-[32px] rounded-[8px] bg-card px-[12px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-white/12"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!clipSec || clipPhase.kind === "pending"}
+                        aria-busy={clipPhase.kind === "pending" || undefined}
+                        onClick={downloadClip}
+                        className={`flex h-[32px] items-center justify-center gap-[8px] rounded-[8px] bg-white px-[14px] text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90 disabled:opacity-60 ${errorRing(clipPhase)}`}
+                      >
+                        {/* The app's own pending grammar — the same spinner the
+                            acknowledge and resolve buttons use, beside a label
+                            that STAYS. The old button swapped its label out for
+                            the icon and printed "Preparing…" beside it, so the
+                            control lost its name at the moment somebody was
+                            waiting on it. */}
+                        <MutationIcon phase={clipPhase} idle={null} />
+                        {clipPhase.kind === "pending"
+                          ? "Preparing…"
+                          : "Download clip"}
+                      </button>
+                    </div>
                   )}
                 </>
               )}
@@ -324,9 +383,9 @@ export function PlaybackView({
               /* Clamped rather than refused: the operator's intent is clear and
                  losing both marks because the second one was slightly too far
                  would be worse than taking what they can have and saying so. */
-              <span className="text-[11px] text-warning">
-                Clips are capped at {CLIP_MAX_SEC / 60} minutes — this will
-                download the first {formatClipLength(CLIP_MAX_SEC)}.
+              <span className="text-[0.75rem] leading-[16px] text-warn">
+                Clips are capped at {CLIP_MAX_SEC / 60} minutes — this downloads
+                the first {formatClipLength(CLIP_MAX_SEC)}.
               </span>
             )}
 
@@ -335,26 +394,29 @@ export function PlaybackView({
                  of welding across it, so this clip will END at the gap rather
                  than skipping it. Said before the download, because finding out
                  afterwards means re-doing it. */
-              <span className="text-[11px] text-warning">
+              <span className="text-[0.75rem] leading-[16px] text-warn">
                 This range crosses a period the tower was not recording — the
-                clip will stop at the gap rather than skip over it.
+                clip stops at the gap rather than skipping over it.
               </span>
             )}
 
+            {/* The app's error idiom, unchanged. What changed is the MESSAGE
+                reaching it: a sentence instead of an endpoint. See
+                `describeClipFailure` in lib/api/recordings.ts. */}
             <MutationError
               phase={clipPhase}
               onRetry={downloadClip}
               onDismiss={() => clipJob.reset(`clip:${towerId}:${chosen}`)}
             />
 
-            <div className="flex justify-between text-[11px] text-muted">
+            <div className="flex flex-wrap justify-between gap-x-[12px] text-[0.75rem] leading-[16px] text-muted">
               {/* THE ARCHIVED BOUNDARY. The left edge is where this tower's
                   memory ends — said plainly, because an operator who scrubs
                   into nothing deserves to know it was never there rather than
                   to wonder whether the screen is broken. */}
               <span>older is archived</span>
               {!covered(spans, positionAt) && (
-                <span className="text-warning">
+                <span className="text-warn">
                   No footage at this moment — the tower was not recording then.
                 </span>
               )}
@@ -395,17 +457,27 @@ function Message({
   onRetry: () => void;
 }) {
   if (!hasCameras) {
-    return <p className="text-[13px] text-muted">Pick a site with cameras.</p>;
+    return <p className="text-[0.8125rem] leading-[20px] text-muted">Pick a site with cameras.</p>;
   }
   if (phase.kind === "opening") {
-    return <p className="text-[13px] text-muted">Asking the tower what it holds…</p>;
+    return (
+      <p className="text-[0.8125rem] leading-[20px] text-muted">Asking the tower what it holds…</p>
+    );
   }
   if (phase.kind === "error") {
     return (
+      /* The same shape `MutationError` uses — critical ink, and a retry
+         outlined in critical rather than sitting on a neutral card. Two error
+         presentations on one screen is two things for an operator to learn. */
       <div className="flex flex-col items-center gap-[10px]">
-        <p className="text-[13px] text-critical">{phase.message}</p>
-        <button type="button" onClick={onRetry}
-                className="rounded-[8px] bg-card px-[12px] py-[6px] text-[13px] hover:bg-card-hover">
+        <p className="font-display text-[0.8125rem] leading-[20px] tracking-[0.13px] text-critical">
+          {phase.message}
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-[6px] border border-critical/40 px-[10px] py-[3px] text-[0.75rem] font-medium text-critical transition-colors hover:border-critical hover:bg-critical/10"
+        >
           Try again
         </button>
       </div>
@@ -413,7 +485,7 @@ function Message({
   }
   if (phase.kind === "no_footage") {
     return (
-      <p className="text-[13px] text-muted">
+      <p className="text-[0.8125rem] leading-[20px] text-muted">
         No footage covers this moment. Scrub to a time the tower was recording.
       </p>
     );
@@ -423,10 +495,8 @@ function Message({
        camera has nothing on disk. Recording may be off, or the disk may be
        new. Either way there is nothing to scrub. */
     return (
-      <p className="text-[13px] text-muted">
-        No recordings on this camera yet.
-      </p>
+      <p className="text-[0.8125rem] leading-[20px] text-muted">No recordings on this camera yet.</p>
     );
   }
-  return <p className="text-[13px] text-muted">Loading footage…</p>;
+  return <p className="text-[0.8125rem] leading-[20px] text-muted">Loading footage…</p>;
 }

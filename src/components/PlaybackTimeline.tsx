@@ -233,7 +233,10 @@ export function PlaybackTimeline({
           <span
             key={t.at}
             aria-hidden
-            className="absolute -translate-x-1/2 whitespace-nowrap font-mono text-[10px] tabular-nums text-muted"
+            /* Quantico and the app's smallest step, like every other tick and
+               chip label. A generic monospace at a size the scale does not have
+               was the tell that this ruler came from somewhere else. */
+            className="absolute -translate-x-1/2 whitespace-nowrap font-display text-[0.6875rem] leading-[14px] tabular-nums text-muted"
             style={{ left: `${pct(t.at)}%` }}
           >
             {t.major ? dayLabel.format(t.at) : t.label}

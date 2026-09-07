@@ -2,6 +2,7 @@ import { AnimatePresence, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
+import { PlaybackView } from "@/components/PlaybackView";
 import { useSession } from "@/components/AuthProvider";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
@@ -658,9 +659,22 @@ export function SentinelApp() {
      disagreed about what "Towers" meant. Routing belongs to the shell that owns
      the screens, not to the screens. Add a destination here and every rail
      picks it up; wire it in a view and only that view will have it. */
+  /* Whether the Playback screen is open.
+     ⚠ IT DOES NOT CALL show(null), AND THAT IS THE REQUIREMENT, NOT AN
+     OVERSIGHT. `playbackTargets` above is derived from `open`: drilled into a
+     site it is that site's cameras, otherwise the fleet's. Every other
+     destination clears `open` on the way past, which swaps the target list and
+     tears down the live sessions to build different ones.
+     Review must not do that. An operator checking what happened a minute ago
+     should come back to a wall that never stopped, so this flag renders a
+     different screen and leaves `open` — and therefore every live session —
+     exactly as it was. */
+  const [onPlayback, setOnPlayback] = useState(false);
+
   const navigate = useCallback(
     (id: string) => {
       if (id === "dashboard") {
+        setOnPlayback(false);
         setOnPeople(false);
         setAdding(false);
         setOnAlerts(false);
@@ -668,6 +682,7 @@ export function SentinelApp() {
         return;
       }
       if (id === "add") {
+        setOnPlayback(false);
         setOnPeople(false);
         setOnAlerts(false);
         show(null);
@@ -675,6 +690,7 @@ export function SentinelApp() {
         return;
       }
       if (id === "poi") {
+        setOnPlayback(false);
         setAdding(false);
         setOnAlerts(false);
         show(null);
@@ -682,13 +698,23 @@ export function SentinelApp() {
         return;
       }
       if (id === "alerts") {
+        setOnPlayback(false);
         setAdding(false);
         setOnPeople(false);
         show(null);
         setOnAlerts(true);
         return;
       }
+      if (id === "playback") {
+        // Deliberately no show(null) — see the note on `onPlayback`.
+        setAdding(false);
+        setOnPeople(false);
+        setOnAlerts(false);
+        setOnPlayback(true);
+        return;
+      }
       if (id === "towers") {
+        setOnPlayback(false);
         /* The site something last happened at. Derived here rather than in the
            dashboard so the rail means the same thing from every screen. */
         const newest = alerts.reduce<Alert | undefined>(
@@ -1296,7 +1322,14 @@ export function SentinelApp() {
           )}
         </AnimatePresence>
         <div className="min-h-0 flex-1">
-      {onAlerts ? (
+      {onPlayback ? (
+        <PlaybackView
+          towers={towers}
+          feeds={feeds}
+          onNavigate={navigate}
+          onBack={() => setOnPlayback(false)}
+        />
+      ) : onAlerts ? (
         <AlertsView
           alerts={alerts}
           towers={towers}

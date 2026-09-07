@@ -24,6 +24,12 @@ const NAV: {
      two readings of one icon are as far apart as this product gets. */
   { id: "poi", label: "People of interest", icon: "/icons/nav-team.svg" },
   { id: "alerts", label: "Alerts", icon: "/icons/nav-alerts.svg" },
+  /* "Playback", not "Events". Events would promise detected occurrences — a
+     list of things the system decided were worth looking at — and nothing here
+     detects them yet. What this opens is a scrubber over recent recorded
+     footage, and that is what it says. Events can sit on top of it later, when
+     something is actually finding them. */
+  { id: "playback", label: "Playback", icon: "/icons/clip-play.svg" },
   /* No settings screen exists — the shell's router has no branch for it and
      the frame never drew one. Per-tower settings DO exist and are reached from
      the tower bar; what is missing is the account-level screen this glyph

@@ -83,7 +83,26 @@ export function ClipPlayer({
   onNavigate?: (id: string) => void;
   onClose: () => void;
 }) {
-  const duration = attachment.durationSec ?? 15;
+  /* ── THE MEDIA, WHEN THERE IS ANY ────────────────────────────────────────
+     `attachment.src` is the real thing: a clip the tower actually wrote. When
+     it is absent — which is every alert in the app today — this falls back to
+     the still and the simulated clock exactly as before, because an alert
+     attachment carries a thumbnail and a duration and no video URL at all.
+
+     Both paths are kept deliberately rather than the still being dropped: the
+     alert feed is the shipped, working use of this player, and "upgrade the
+     transport" must not mean "break the only thing currently using it". The
+     transport below does not know which path it is driving. */
+  const src = attachment.src;
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  /* Duration comes from the MEDIA when there is media. `durationSec` is what
+     the buffer said the clip would be; the file is what it actually is, and a
+     scrubber scaled to the first while playing the second puts every marker in
+     the wrong place. The attachment value stays as the pre-load estimate so
+     the track has a length before `loadedmetadata` arrives. */
+  const [mediaDuration, setMediaDuration] = useState<number | null>(null);
+  const duration = mediaDuration ?? attachment.durationSec ?? 15;
   const startsAt = at - PRE_ROLL_SEC * 1000;
 
   const [t, setT] = useState(0);
@@ -118,7 +137,19 @@ export function ClipPlayer({
   }, [alert, startsAt, duration]);
 
   const seek = useCallback(
-    (to: number) => setT(Math.min(duration, Math.max(0, to))),
+    (to: number) => {
+      const next = Math.min(duration, Math.max(0, to));
+      /* The element is the source of truth when it exists: setting
+         currentTime makes it emit `timeupdate`, which sets `t`. Setting `t`
+         here as well would fight that and show a playhead the picture has not
+         reached — the scrubber would lead the frame. */
+      const v = videoRef.current;
+      if (v) {
+        v.currentTime = next;
+        return;
+      }
+      setT(next);
+    },
     [duration],
   );
 
@@ -144,11 +175,33 @@ export function ClipPlayer({
     [nextMarker, prevMarker, seek],
   );
 
-  /* Playback. A clock rather than a media element, because the media is a
-     still — see the note above. Time is scaled by the rate so 4× actually
-     covers four seconds of footage per second, rather than just relabelling
-     the button. */
+  /* Playback, driven by whichever clock is real.
+     ────────────────────────────────────────────────────────────────────────
+     WITH MEDIA: `timeupdate` is the clock. The element decides where the
+     playhead is, because it is the only thing that knows — a frame that has
+     not decoded yet has not been watched, and a clock that ran ahead of it
+     would let an operator swear they saw something at 00:12 that the file puts
+     at 00:14. Rate and mute are pushed onto the element rather than modelled
+     beside it, for the same reason.
+
+     WITHOUT MEDIA: the original rAF clock, unchanged, driving a still. */
   useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = rate;
+    v.muted = muted;
+    if (playing) {
+      /* A rejected play() is normal, not an error: autoplay policy blocks an
+         unmuted start until the operator has interacted with the page. The
+         button falls back to showing paused rather than lying about it. */
+      void v.play().catch(() => setPlaying(false));
+    } else {
+      v.pause();
+    }
+  }, [playing, rate, muted, src]);
+
+  useEffect(() => {
+    if (src) return;                       // the element owns the clock
     if (!playing) return;
     let frame = 0;
     let last = performance.now();
@@ -167,7 +220,7 @@ export function ClipPlayer({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, rate, duration]);
+  }, [playing, rate, duration, src]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -295,11 +348,35 @@ export function ClipPlayer({
               crop costs nothing there; this is the frame an incident gets
               decided on, and cropping evidence to fit a box is how the thing
               that mattered ends up outside the picture. */}
-          <img
-            src={attachment.thumbnail}
-            alt=""
-            className="absolute inset-0 size-full object-contain"
-          />
+          {src ? (
+            <video
+              ref={videoRef}
+              src={src}
+              poster={attachment.thumbnail}
+              playsInline
+              /* No `controls`: the bar below IS the transport, and a second
+                 set of browser controls over it would be two scrubbers
+                 disagreeing about the same file. */
+              className="absolute inset-0 size-full object-contain"
+              onLoadedMetadata={(e) => {
+                const d = e.currentTarget.duration;
+                /* A live/unbounded source reports Infinity. Rejected rather
+                   than rendered: a track scaled to Infinity has no positions
+                   on it, and the estimate is a better answer than none. */
+                if (Number.isFinite(d) && d > 0) setMediaDuration(d);
+              }}
+              onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+              onEnded={() => setPlaying(false)}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+            />
+          ) : (
+            <img
+              src={attachment.thumbnail}
+              alt=""
+              className="absolute inset-0 size-full object-contain"
+            />
+          )}
 
           {/* One bar, floating clear of the bottom edge. It sits over the
               letterbox rather than the picture at this aspect, which is the

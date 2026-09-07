@@ -409,9 +409,22 @@ export interface AlertAttachment {
   kind: "clip" | "audio";
   title: string;
   thumbnail: string;
+  /**
+   * The playable file, when there is one.
+   *
+   * Absent for every alert in the app today: an attachment carries a
+   * thumbnail and a duration, and no backend writes clips yet. `ClipPlayer`
+   * renders the still and simulates the transport when this is missing, and
+   * drives a real `<video>` from `timeupdate` when it is present — which is
+   * what tower recordings will supply.
+   */
+  src?: string;
   /** Runtime in seconds. Shown on the thumbnail so the cost of watching is
    *  known before the click — a 30s clip and a 4-minute one are different
-   *  decisions mid-triage. */
+   *  decisions mid-triage.
+   *
+   *  An ESTIMATE once `src` exists: the player takes the real length from the
+   *  media's own metadata and uses this only until that arrives. */
   durationSec?: number;
   /** What the tower wrote it at, as printed in the player. A property of the
    *  file rather than of the tower's current setting — `recordingQuality` can

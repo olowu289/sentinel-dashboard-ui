@@ -1,6 +1,10 @@
 node_modules
-dist
-dist-ssr
+# Anchored to the ROOT build output on purpose. A bare `dist` matches a
+# directory of that name at ANY depth, which silently excluded
+# vendor/sentry-sdk/dist — the one thing a Vercel clone needs, and the
+# kind of omission that only shows up as a failed deploy.
+/dist
+/dist-ssr
 *.local
 .DS_Store
 *.pem

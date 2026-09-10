@@ -222,15 +222,29 @@ yesterday's parser quietly dropping a field today's server sends. The symptom
 was an Uplink row reading "No signal reading" while the Network tab plainly
 showed `signal_dbm` in the response.
 
-`@kallon/sentry-sdk` is `file:../sentry-sdk`, so npm resolves it to a symlink
-whose real path is *outside* the project root — and Vite's watcher only walks
-the root. `optimizeDeps.exclude` is not the problem and is doing its job; the
-module simply stays cached for the life of the process. Four servers were up
-that day, and the two started before the SDK rebuild were wrong while the two
-started after were right, on identical source.
+`@kallon/sentry-sdk` is a `file:` dependency, so npm resolves it to a symlink,
+and Vite's watcher only walks the project root. `optimizeDeps.exclude` is not
+the problem and is doing its job; the module simply stays cached for the life of
+the process. Four servers were up that day, and the two started before the SDK
+rebuild were wrong while the two started after were right, on identical source.
 
-`vite.config.ts` now adds the SDK's `dist/` to the watcher and full-reloads on
-change, so this specific trap is closed. The wider lesson stands: **if the
+`vite.config.ts` adds the SDK's `dist/` to the watcher and full-reloads on
+change, so this specific trap is closed.
+
+**The SDK now lives IN this repo, at `vendor/sentry-sdk`** (`file:./vendor/sentry-sdk`).
+It used to be `file:../sentry-sdk` — a sibling that exists on one laptop and on
+no build server, so Vercel's clone had nothing to resolve and the deploy died on
+`Cannot find module '@kallon/sentry-sdk'`. **The vendored copy is the source of
+truth**: edit `vendor/sentry-sdk/src`, rebuild in place (`npm run build` inside
+it — its `dist/` is committed on purpose so no build step is needed at deploy),
+and the sibling `../sentry-sdk` is now a historical checkout, not the thing this
+app compiles against.
+
+⚠ **`.gitignore`'s build-output rules are anchored (`/dist`) and must stay that
+way.** A bare `dist` matches a directory of that name at ANY depth, which
+silently excludes `vendor/sentry-sdk/dist` — the one thing a clone needs. It
+fails as a broken deploy, not as a git error. The same trap bites `tar
+--exclude=dist`. The wider lesson stands: **if the
 browser disagrees with the wire, check the dev server's start time against the
 SDK's `dist/` mtime before touching any code.** And keep one dev server, not
 four — `netstat -ano | grep :51` when in doubt.

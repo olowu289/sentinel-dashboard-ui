@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kallon/sentry-sdk": "file:../sentry-sdk",
+    "@kallon/sentry-sdk": "file:./vendor/sentry-sdk",
     "motion": "^12.23.12",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

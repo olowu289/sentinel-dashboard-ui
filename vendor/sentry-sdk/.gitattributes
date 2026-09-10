@@ -1,0 +1,4 @@
+# dist/ is committed on purpose (see README "Why dist/ is committed").
+# Mark it generated so diffs collapse in review.
+dist/** linguist-generated=true -diff
+* text=auto eol=lf

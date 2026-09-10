@@ -3,18 +3,23 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
-/* `@kallon/sentry-sdk` is installed as `file:../sentry-sdk`, which npm resolves
-   to a SYMLINK pointing outside this project. Two consequences, both proven
-   necessary and sufficient by the Stage 0 spike:
+/* `@kallon/sentry-sdk` LIVES IN THIS REPO NOW, at `vendor/sentry-sdk`, and the
+   dependency is `file:./vendor/sentry-sdk`.
 
-   - the dev server refuses to serve files outside its root, so the SDK's path
-     has to be allowed explicitly or every import 404s;
-   - prebundling a symlinked source dependency is more trouble than skipping it.
+   It used to be `file:../sentry-sdk` — a sibling directory that exists on the
+   machine this was written on and on no build server anywhere. Vercel clones
+   one repo, so `npm install` had nothing to resolve and the deploy died on
+   "Cannot find module '@kallon/sentry-sdk'". A dependency that only exists on
+   one laptop is not a dependency, it is a local arrangement.
 
-   The dashboard sets `turbopack.root` for the same reason. Both go away if the
-   dependency ever becomes a `github:` ref — the SDK commits its `dist/`
-   precisely so that needs no build step. */
-const SDK_PATH = fileURLToPath(new URL("../sentry-sdk", import.meta.url));
+   npm still resolves a `file:` dependency to a SYMLINK, so the shape is
+   unchanged — what changed is that the target is now inside the project root
+   and is cloned with it. `fs.allow` no longer needs the path spelled out for
+   that reason, and it is kept only because a symlink's realpath is the thing
+   Vite checks and being explicit costs nothing.
+
+   Prebundling is still skipped: see `optimizeDeps.exclude` below. */
+const SDK_PATH = fileURLToPath(new URL("./vendor/sentry-sdk", import.meta.url));
 
 /**
  * How long to wait for a rebuild to stop writing before reloading.
@@ -48,7 +53,7 @@ const REBUILD_SETTLE_MS = 500;
  * old copy.
  */
 function watchLinkedSdk(): Plugin {
-  const dist = fileURLToPath(new URL("../sentry-sdk/dist", import.meta.url));
+  const dist = fileURLToPath(new URL("./vendor/sentry-sdk/dist", import.meta.url));
   return {
     name: "watch-linked-sdk",
     apply: "serve",

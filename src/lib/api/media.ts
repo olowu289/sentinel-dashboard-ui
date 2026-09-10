@@ -45,7 +45,7 @@ import { getClient } from "./client";
  * so far is still a valid non-trickle offer, and on a LAN they are all present
  * within a few hundred milliseconds anyway.
  */
-export const ICE_GATHER_TIMEOUT_MS = 3_000;
+export const ICE_GATHER_TIMEOUT_MS = 8_000;
 
 /** How often to re-read the session's expiry from coordination. */
 export const STATUS_POLL_MS = 60_000;
@@ -106,6 +106,24 @@ export interface PlaybackHandlers {
    * resolved, because a connection can fail long after negotiation succeeded.
    */
   onFailure: (error: PlaybackError) => void;
+  /**
+   * THE TRANSPORT WENT AWAY, AND IT MAY COME BACK.
+   *
+   * ⚠ THIS IS NOT `onFailure`, AND THE DIFFERENCE IS THE WHOLE POINT. A failure
+   * is a statement about the world that the operator has to act on — the grant
+   * was refused, the tower is offline, the session ended. A drop is a statement
+   * about the PATH: a phone changed cell, a laptop moved between access points,
+   * a tab was suspended in the background. Those are normal on a mobile network
+   * and abnormal on the LAN this was written on, which is why the code only
+   * ever had the first kind.
+   *
+   * Fired for `disconnected` as well as `failed`. `disconnected` was previously
+   * ignored on the reasoning that ICE often recovers on its own — true, and it
+   * still gets the chance: the CALLER waits out a grace period before acting.
+   * What it must not do is stay silent, because a `disconnected` that never
+   * recovers is a frozen picture nobody is told about.
+   */
+  onDropped: (state: RTCPeerConnectionState) => void;
 }
 
 /**
@@ -255,23 +273,27 @@ export async function openPlayback(
     };
 
     /**
-     * ICE outcome. The one that matters here is `failed`.
+     * ICE outcome.
      *
-     * `disconnected` is deliberately NOT treated as failure: it is often
-     * transient and ICE recovers on its own. Only `failed` is terminal, and
-     * surfacing it is what turns a permanently black video element into a
-     * stated fact.
+     * ⚠ BOTH TRANSITIONS ARE REPORTED NOW, and which one it is decides what
+     * happens next — upstream, where the retry budget lives.
+     *
+     * `failed` after media has been flowing is a DROP, not a verdict: the path
+     * broke, and on a phone that is a lift, a tunnel, or a handover between
+     * cells. `failed` before any media ever arrived is the original
+     * `media_unreachable` case — a browser that cannot route to the tower at
+     * all — and it stays worth saying plainly, but it is now said after the
+     * reconnect budget is spent rather than on the first attempt, because the
+     * two are indistinguishable at this layer and only time tells them apart.
+     *
+     * `disconnected` used to be swallowed entirely. It still gets its grace —
+     * ICE does often recover unaided — but the caller is told, because a
+     * `disconnected` that never recovers is a frozen picture nobody reports.
      */
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState !== "failed") return;
-      handlers.onFailure(
-        new PlaybackError(
-          "media_unreachable",
-          "Signaling succeeded but no media arrived — this browser could not reach " +
-            "the tower's media address. Media flows direct from the tower, not " +
-            "through coordination.",
-        ),
-      );
+      const state = pc.connectionState;
+      if (state !== "failed" && state !== "disconnected") return;
+      handlers.onDropped(state);
     };
 
     // ── 3. Receive-only video, then a full gather before offering.

@@ -10,6 +10,7 @@ import { DEAD_STATES, FeedChip } from "./FeedChip";
 import { SirenOverlay } from "./SirenOverlay";
 import {
   AwaitingMediaFallback,
+  ReconnectingFallback,
   ConnectingFallback,
   ErrorFallback,
   NotStreamingFallback,
@@ -126,6 +127,10 @@ export function MonitorTile({
   const stream = playback?.kind === "playing" ? playback.stream : null;
   const playbackFailure = playback?.kind === "failed" ? playback.error : null;
   const awaitingMedia = playback?.kind === "connecting";
+  /* A drop being worked on: neither a fresh connect nor a failure. Named
+     `dropped` because `reconnecting` above already means something else here —
+     the FEED's own reconnect, reported by the tower. */
+  const dropped = playback?.kind === "reconnecting" ? playback : null;
 
   /* A real camera has no poster, so a tile the wall is not streaming has
      genuinely no picture to draw — say so rather than leaving an empty frame
@@ -253,7 +258,7 @@ export function MonitorTile({
       >
         {/* The picture is the tile. Everything else floats over it. */}
         <div className="absolute inset-0 overflow-hidden">
-          {isDead || playbackFailure || awaitingMedia || noPicture ? (
+          {isDead || playbackFailure || dropped || awaitingMedia || noPicture ? (
             /* One branch for every reason there is no moving picture, ordered
                most-specific first. A dead feed outranks a failed session:
                "this camera is down" is the truer thing to say than "the
@@ -281,6 +286,8 @@ export function MonitorTile({
                   error={playbackFailure.message}
                   onRetry={onRetry}
                 />
+              ) : dropped ? (
+                <ReconnectingFallback attempt={dropped.attempt} of={dropped.of} />
               ) : awaitingMedia ? (
                 <AwaitingMediaFallback name={feed.name} />
               ) : (

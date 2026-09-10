@@ -9,6 +9,7 @@ import { PtzPad } from "./PtzPad";
 import { SirenOverlay } from "./SirenOverlay";
 import {
   AwaitingMediaFallback,
+  ReconnectingFallback,
   ConnectingFallback,
   ErrorFallback,
   NoMediaPathFallback,
@@ -95,6 +96,10 @@ export function CameraTile({
   const stream = playback?.kind === "playing" ? playback.stream : null;
   const playbackFailure = playback?.kind === "failed" ? playback.error : null;
   const awaitingMedia = playback?.kind === "connecting";
+  /* A drop being worked on: neither a fresh connect nor a failure. Named
+     `dropped` because `reconnecting` above already means something else here —
+     the FEED's own reconnect, reported by the tower. */
+  const dropped = playback?.kind === "reconnecting" ? playback : null;
 
   /* Always fill, in the wall and in the takeover. Contain would collapse a 4:3
      source to a strip in a tile, and letterbox ~350px a side on an ultrawide
@@ -358,7 +363,7 @@ export function CameraTile({
           it — there is no point explaining a media path to a camera that is
           off. Below that, a playback failure outranks "awaiting", because a
           spinner over a failure is a promise that will not be kept. */}
-      {(isDead || playbackFailure || awaitingMedia) && (
+      {(isDead || playbackFailure || dropped || awaitingMedia) && (
         <div className="absolute inset-0 flex items-center justify-center">
           {hasError ? (
             <ErrorFallback error={feed.error!} onRetry={onRetry} />
@@ -371,6 +376,8 @@ export function CameraTile({
               name={feed.name}
               reconnecting={reconnecting}
             />
+          ) : dropped ? (
+            <ReconnectingFallback attempt={dropped.attempt} of={dropped.of} />
           ) : playbackFailure?.failure === "media_unreachable" ? (
             <NoMediaPathFallback onRetry={onRetry} />
           ) : playbackFailure?.failure === "session_expired" ? (

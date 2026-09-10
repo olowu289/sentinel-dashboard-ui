@@ -328,7 +328,26 @@ export function SentinelApp() {
 
   /* Which fleet tiles are on screen, settled rather than instantaneous.
      The hysteresis and the reasoning for it are in `useVisibleTiles`. */
-  const { observe: observeTile, visible: visibleTiles } = useVisibleTiles();
+  /* Whether the Playback screen is open.
+     ⚠ IT DOES NOT CALL show(null), AND THAT IS THE REQUIREMENT, NOT AN
+     OVERSIGHT. `playbackTargets` above is derived from `open`: drilled into a
+     site it is that site's cameras, otherwise the fleet's. Every other
+     destination clears `open` on the way past, which swaps the target list and
+     tears down the live sessions to build different ones.
+     Review must not do that. An operator checking what happened a minute ago
+     should come back to a wall that never stopped, so this flag renders a
+     different screen and leaves `open` — and therefore every live session —
+     exactly as it was. */
+  const [onPlayback, setOnPlayback] = useState(false);
+
+  /* ⚠ FROZEN WHILE PLAYBACK IS OPEN. The dashboard unmounts under that screen,
+     which detaches every tile's observer ref and would drain the visible set —
+     closing exactly the live sessions Playback was built not to disturb.
+     `onPlayback` is declared immediately above for this reason: a ref read here
+     would carry the previous render's value, which is one render too late —
+     the tiles detach in the very commit the flag flips. */
+  const { observe: observeTile, visible: visibleTiles } =
+    useVisibleTiles(onPlayback);
 
   /* ── WHAT IS ACTUALLY BEING STREAMED ──────────────────────────────────
 
@@ -659,17 +678,7 @@ export function SentinelApp() {
      disagreed about what "Towers" meant. Routing belongs to the shell that owns
      the screens, not to the screens. Add a destination here and every rail
      picks it up; wire it in a view and only that view will have it. */
-  /* Whether the Playback screen is open.
-     ⚠ IT DOES NOT CALL show(null), AND THAT IS THE REQUIREMENT, NOT AN
-     OVERSIGHT. `playbackTargets` above is derived from `open`: drilled into a
-     site it is that site's cameras, otherwise the fleet's. Every other
-     destination clears `open` on the way past, which swaps the target list and
-     tears down the live sessions to build different ones.
-     Review must not do that. An operator checking what happened a minute ago
-     should come back to a wall that never stopped, so this flag renders a
-     different screen and leaves `open` — and therefore every live session —
-     exactly as it was. */
-  const [onPlayback, setOnPlayback] = useState(false);
+
 
   const navigate = useCallback(
     (id: string) => {

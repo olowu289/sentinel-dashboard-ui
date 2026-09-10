@@ -73,7 +73,21 @@ export interface VisibleTiles {
   visible: ReadonlySet<string>;
 }
 
-export function useVisibleTiles(): VisibleTiles {
+/**
+ * @param frozen  Hold the current set still, ignoring the observer entirely.
+ *
+ * ⚠ FOR NAVIGATION, NOT FOR SCROLLING. When another screen renders over the
+ * wall, its tiles UNMOUNT — every ref detaches, every tile is reported gone,
+ * and 1.2 seconds later the sessions close. Coming back then paid the full cold
+ * connect, which is what "playback and back re-loads everything" was. The tiles
+ * did not stop being what the operator is watching; they stopped being
+ * RENDERED, and the observer cannot tell those apart.
+ *
+ * So the caller freezes the set across a navigation that should not disturb
+ * live sessions, and the observer's own hysteresis keeps handling the case it
+ * IS good at: actual scrolling, on a screen that is actually on.
+ */
+export function useVisibleTiles(frozen = false): VisibleTiles {
   const [visible, setVisible] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
@@ -103,8 +117,16 @@ export function useVisibleTiles(): VisibleTiles {
      that leaves and comes back inside the grace therefore never closes, and one
      that arrives and leaves inside the settle never opens — the two timers can
      never both be armed. */
+  /* Read inside callbacks that are created once; a captured boolean would be
+     whatever it was when the observer was built. */
+  const frozenRef = useRef(frozen);
+  frozenRef.current = frozen;
+
   const schedule = useCallback(
     (id: string, isVisible: boolean) => {
+      /* Frozen: neither direction commits. Not just hides — a tile arriving
+         while another screen is up is not on screen either. */
+      if (frozenRef.current) return;
       const pending = timers.current.get(id);
       if (pending) {
         clearTimeout(pending);

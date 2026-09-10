@@ -214,6 +214,34 @@ export function UnknownFallback({ since }: { since?: string }) {
  *     is the one that needs an explanation and a way out, so it keeps the
  *     button: the tower view streams the camera regardless.
  */
+/**
+ * The path dropped and is being rebuilt.
+ *
+ * ⚠ NOT `AwaitingMediaFallback`, and the difference is what the operator is
+ * owed. Awaiting is a feed that has never played; this one was playing a moment
+ * ago and they expect it back. Saying which attempt it is on is the honest part:
+ * "2 of 5" is the difference between "give it a second" and "this is not coming
+ * back", which is exactly the judgement somebody is trying to make while they
+ * watch a still frame.
+ */
+export function ReconnectingFallback({
+  attempt,
+  of,
+}: {
+  attempt: number;
+  of: number;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-white/35">
+      <CameraOffGlyph />
+      <p className="text-[0.8125rem] font-medium text-white/70">Reconnecting\u2026</p>
+      <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-white/35">
+        The connection dropped. Attempt {attempt} of {of}.
+      </p>
+    </div>
+  );
+}
+
 export function NotStreamingFallback({
   reason = "capped",
   onOpen,

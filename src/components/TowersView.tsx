@@ -318,7 +318,7 @@ type ColumnId = (typeof COLUMNS)[number][0];
 /* One grid for the header and every row, so the columns line up down the
    whole board. The identity column takes the slack; the readings share the
    rest evenly and never drop below what "Great · −58" needs. */
-const GRID = "grid grid-cols-[minmax(232px,1.8fr)_repeat(9,minmax(88px,1fr))_96px]";
+const GRID = "grid grid-cols-[minmax(232px,1.8fr)_repeat(9,minmax(88px,1fr))_124px]";
 
 interface Assessed {
   tower: Tower;
@@ -497,7 +497,7 @@ function TowerRow({
          no stagger, so a tower that changes state moves at once. */
       transition={{ default: { ...ENTER, delay: Math.min(index, 10) * 0.02 }, layout: ENTER }}
       onClick={onOpen}
-      className={`group relative ${GRID} h-[72px] cursor-pointer items-center rounded-[10px] bg-panel pr-[12px] transition-colors hover:bg-card-lift`}
+      className={`group relative ${GRID} h-[72px] cursor-pointer items-center rounded-[10px] bg-panel pr-[18px] transition-colors hover:bg-card-lift`}
     >
       {/* A site that needs somebody carries its status down its leading edge,
           so a problem row reads as one before any cell is. Healthy rows carry
@@ -546,7 +546,10 @@ function TowerRow({
         role="cell"
         data-cell="mast"
         title={`${cells.uplink.hint} ${tower.batteryPct === undefined ? "No battery sensor fitted." : cells.power.hint}`}
-        className="flex h-full items-center justify-end gap-[10px]"
+        /* The mast and the way in, given room to be two things: the drawing
+           is the row's identity and the arrow is its affordance, and at ten
+           pixels apart they read as one crowded glyph. */
+        className="flex h-full items-center justify-end gap-[18px] pl-[10px]"
       >
         <MiniMast tower={tower} uplink={uplink} />
         <img
@@ -635,22 +638,18 @@ export function TowersView({
             in place. */}
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="min-w-[1180px] px-[16px] pb-[calc(24px+env(safe-area-inset-bottom))] lg:px-[24px]">
-            {/* Pinned left and held to the screen's width, so on a phone the key
-                stays readable while the board scrolls sideways beneath it. */}
-            <div className="sticky left-0 flex w-fit max-w-[calc(100vw-32px)] flex-wrap items-center gap-x-[18px] gap-y-[8px] pb-[6px] pt-[16px]">
-              {seeded && (
+            {/* The badge, and nothing else. The board explains itself: every
+                cell says what it is on hover, and the order is the point of the
+                order — a line telling an operator how to read a status board is
+                a note to the person who built it. Pinned left so it holds its
+                place while the board scrolls sideways on a phone. */}
+            {seeded && (
+              <div className="sticky left-0 w-fit pb-[6px] pt-[16px]">
                 <p className="rounded-[6px] bg-detect/20 px-[10px] py-[6px] font-display text-[0.6875rem] tracking-[0.11px] text-detect">
                   SEEDED FLEET — NOT YOUR TOWERS
                 </p>
-              )}
-              {/* The key to the board, said once rather than on every row. */}
-              <p className="text-[0.75rem] leading-[16px] tracking-[0.12px] text-muted">
-                Sorted problems first. A{" "}
-                <span className="font-display text-white/40">—</span> is a reading this
-                dashboard is not given yet. Hover any cell for the full figure, or the
-                reason.
-              </p>
-            </div>
+              </div>
+            )}
 
             {/* The same three empty walls the fleet panel tells apart: a wait,
                 a failure to read, and a genuinely empty account. */}
@@ -675,7 +674,7 @@ export function TowersView({
               <div role="table" aria-label="Fleet status">
                 <div
                   role="row"
-                  className={`sticky top-0 z-[2] ${GRID} items-center bg-ink pr-[12px] pb-[8px] pt-[10px]`}
+                  className={`sticky top-0 z-[2] ${GRID} items-center bg-ink pr-[18px] pb-[8px] pt-[14px]`}
                 >
                   <div role="columnheader" className="sticky left-0 bg-ink pl-[31px] font-display text-[0.6875rem] tracking-[0.11px] text-muted uppercase">
                     Tower

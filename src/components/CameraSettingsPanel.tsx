@@ -921,10 +921,6 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 /** 53px, label muted at 16, value white and medium at the right with a 20px
  *  chevron. The frame's row, and every row below is a variation of it. */
 const ROW = "flex h-[53px] w-full items-center justify-between gap-[12px] px-[16px] text-left";
-/* The towers board's row: the same type and gutters at 40px, because nine
-   readings a panel across a fleet of twenty is a column read by colour, and
-   the frame's 53px is a settings list read one row at a time. */
-const ROW_DENSE = "flex h-[40px] w-full items-center justify-between gap-[12px] px-[16px] text-left";
 const ROW_LINE = "border-b border-row-line";
 const LABEL = "text-[0.875rem] leading-[18px] tracking-[0.14px] text-muted";
 /* The value's type, WITHOUT a colour. A reading that carries a tone must carry
@@ -1112,50 +1108,29 @@ function RowLink({
  *
  * Never renders blank: an absent reading says why, the way the alert fields do.
  */
-export function RowReading({
+function RowReading({
   label,
   value,
   tone,
   icon,
   action,
   last = false,
-  dense = false,
-  pending = false,
-  hint,
 }: {
   label: string;
   value: string;
-  tone?: string | undefined;
+  tone?: string;
   /** A glyph after the value, as the uplink row carries. */
   icon?: string;
   /** An action beside the value, as the firmware row carries. */
   action?: string;
   last?: boolean;
-  /** The towers board's 40px row. */
-  dense?: boolean;
-  /**
-   * Not a reading — something this dashboard is not told yet, and `value` says
-   * why. Drawn muted behind a hollow ring and NEVER given a tone: a pending row
-   * in a status colour would be reporting a status nobody measured.
-   */
-  pending?: boolean;
-  /** The longer why, for the pointer that asks. */
-  hint?: string | undefined;
 }) {
   return (
-    <div
-      title={hint}
-      data-pending={pending || undefined}
-      className={`${dense ? ROW_DENSE : ROW} ${last ? "" : ROW_LINE}`}
-    >
+    <div className={`${ROW} ${last ? "" : ROW_LINE}`}>
       <span className={LABEL}>{label}</span>
       <span className="flex min-w-0 items-center gap-[6px]">
-        {pending && (
-          <span aria-hidden className="size-[6px] shrink-0 rounded-full border border-muted" />
-        )}
-        <span
-          className={`truncate ${VALUE_TYPE} ${pending ? "text-muted" : (tone ?? "text-white")} tabular-nums`}
-        >
+        {/* One colour class, never two — see VALUE_TYPE. */}
+        <span className={`truncate ${VALUE_TYPE} ${tone ?? "text-white"} tabular-nums`}>
           {value || "Not reported"}
         </span>
         {icon && <img src={icon} alt="" width={16} height={16} className="block shrink-0" />}
@@ -1191,18 +1166,12 @@ export function RowReading({
  * resolution: a label with the measurement behind it can be checked, and one
  * without it has to be believed.
  */
-export function UplinkRow({
-  reading,
-  dense = false,
-}: {
-  reading: UplinkReading;
-  dense?: boolean;
-}) {
+function UplinkRow({ reading }: { reading: UplinkReading }) {
   if (reading.kind === "signal") {
     const word =
       reading.grade === "great" ? "Great" : reading.grade === "fair" ? "Fair" : "Poor";
     return (
-      <RowReading dense={dense}
+      <RowReading
         label="Uplink"
         value={`${word} · ${reading.dbm} dBm`}
         tone={
@@ -1229,12 +1198,12 @@ export function UplinkRow({
 
   /* Everything below is an honest absence of a signal, not a bad one. */
   if (reading.kind === "wired") {
-    return <RowReading dense={dense} label="Uplink" value="Wired" />;
+    return <RowReading label="Uplink" value="Wired" />;
   }
   if (reading.kind === "unassociated") {
-    return <RowReading dense={dense} label="Uplink" value="Radio not connected" tone="text-warn" />;
+    return <RowReading label="Uplink" value="Radio not connected" tone="text-warn" />;
   }
-  return <RowReading dense={dense} label="Uplink" value="No signal reading" />;
+  return <RowReading label="Uplink" value="No signal reading" />;
 }
 
 /**
@@ -1253,13 +1222,7 @@ export function UplinkRow({
  * how this app makes a takeover snap instead of animate, which is written up at
  * the hook. Only this row re-renders.
  */
-export function ConnectedSince({
-  at,
-  dense = false,
-}: {
-  at?: number | undefined;
-  dense?: boolean;
-}) {
+function ConnectedSince({ at }: { at?: number }) {
   /* 30s, the hook's default. The finest thing this can show is a minute, so a
      faster tick would be renders nobody can read. */
   const now = useNow();
@@ -1270,11 +1233,11 @@ export function ConnectedSince({
        tower did not fail to report a connection time, it has no connection.
        Showing the last known uptime would be worse still — a link that is down,
        reported as having held for days. */
-    return <RowReading dense={dense} label="Connected since" value="Not connected" tone="text-critical" />;
+    return <RowReading label="Connected since" value="Not connected" tone="text-critical" />;
   }
 
   return (
-    <RowReading dense={dense}
+    <RowReading
       label="Connected since"
       value={`${formatEventTime(at, now)} · up ${formatUptime(now - at)}`}
     />

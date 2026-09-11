@@ -156,6 +156,15 @@ positionally so the stagger belongs to the reveal and a button's own hover
 colour still answers at once. `transition-delay` takes a **comma**-separated
 list — spaces make it invalid and the whole declaration is dropped silently.
 
+**The same trap, for colour.** `CameraSettingsPanel`'s `VALUE` carried
+`text-white`, and `RowReading` appended a `tone` beside it. Two colour utilities
+are one `color` declaration, and Tailwind emits `text-white` *after* every
+status colour — so every tone on that panel (the uplink's Great/Fair/Poor,
+"Not connected", the storage warning) rendered white for as long as it existed,
+while the code read as if it were green, amber and red. `VALUE_TYPE` is the
+value's type without a colour; a row takes exactly one colour class. When a
+tone "does nothing", check the computed colour before the logic.
+
 **Feed state grammar has one home.** `FeedChip` owns `stateWord` and
 `STATE_DOT`, and both walls render `FeedChip` itself. Add a seventh `FeedState`
 and both pick it up; restate the switch locally and only one of them will.

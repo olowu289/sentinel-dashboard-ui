@@ -7,7 +7,7 @@ import { batteryFill, TowerBattery } from "./TowerBattery";
 /* Status is the same three-tier grammar the tiles use, one level up. Nothing
    here gets a hue for being a card: green is a healthy site, amber a degraded
    one, red a dark one. */
-const STATUS: Record<TowerStatus, { label: string; dot: string }> = {
+export const STATUS: Record<TowerStatus, { label: string; dot: string }> = {
   online: { label: "ONLINE", dot: "bg-terra" },
   degraded: { label: "DEGRADED", dot: "bg-warn" },
   offline: { label: "OFFLINE", dot: "bg-critical" },
@@ -40,9 +40,17 @@ const SOLAR_TONE = {
 } as const;
 
 /** Sealed cabinet in the sun. Past 45 the battery is losing life, past 55 it is
- *  a fault waiting to happen. */
+ *  a fault waiting to happen. Exported so the towers board grades a cabinet on
+ *  the same two numbers as this card — one threshold, one home. */
+export const CABINET_WARN_C = 45;
+export const CABINET_CRITICAL_C = 55;
+
 function tempTone(c: number) {
-  return c >= 55 ? "text-critical" : c >= 45 ? "text-warn" : "text-[#cccccc]";
+  return c >= CABINET_CRITICAL_C
+    ? "text-critical"
+    : c >= CABINET_WARN_C
+      ? "text-warn"
+      : "text-[#cccccc]";
 }
 
 export function TowerCard({

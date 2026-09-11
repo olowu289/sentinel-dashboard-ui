@@ -41,8 +41,19 @@ import type { Tower } from "@/lib/types";
  * `docs/integration/README.md` carries the same note. This is the code half.
  */
 
-/** The single switch. Set to `false` and honest absence returns everywhere. */
-export const DEMO_CABINET_READINGS = true;
+/**
+ * The single switch — OFF, taking option 3 above.
+ *
+ * Honest absence shows on every real tower: no cell on the mast, NO CABINET
+ * READINGS in the hover panel, "Not reported" in the settings rows, no battery
+ * in the tower bar. A seeded fleet is unaffected — its fixtures carry their own
+ * readings and never pass through here — so demos keep their populated screens.
+ *
+ * Switched off 2026-09-11, when the towers board made these fields a column an
+ * operator scans the whole fleet by. Turn it back on for a development
+ * screenshot at most, never for anything an operator will see.
+ */
+export const DEMO_CABINET_READINGS = false;
 
 /**
  * Deterministic per tower, so a card does not reshuffle its own readings on

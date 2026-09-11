@@ -433,11 +433,17 @@ export function CameraSettingsPanel({
             *which* tower without being read, and its cell fills to the charge
             like every other drawing of it. */}
         <div className="relative mx-auto mt-[25px] block h-[282px] w-[163px] shrink-0">
-          <TowerBattery
-            pct={tower.batteryPct ?? 0}
-            charging={reportedSolar === "charging"}
-            className="absolute inset-0 size-full"
-          />
+          {/* No cell without a charge to draw — the fleet card's rule, and
+              the pending card's before it. `?? 0` used to stand in here, which
+              drew an EMPTY RED cell on every real tower: a flat battery nobody
+              measured, in the fault colour. */}
+          {tower.batteryPct !== undefined && (
+            <TowerBattery
+              pct={tower.batteryPct}
+              charging={reportedSolar === "charging"}
+              className="absolute inset-0 size-full"
+            />
+          )}
           <img
             src="/icons/twr-mast.svg"
             alt=""
@@ -480,14 +486,25 @@ export function CameraSettingsPanel({
                       a *full* battery in amber, and a full battery is a claim —
                       the glyph at 194:2565 is what 100% looks like, so anything
                       short of it has to read short. The tier colour still comes
-                      through: `batteryFill` picks the same three. */}
+                      through: `batteryFill` picks the same three.
+
+                      With no reading there is no fill and no tier: the glyph
+                      and its words go muted. `?? 0` used to stand in, which
+                      drew an empty battery and printed "No reading" in RED —
+                      a fault colour on a reading that does not exist. */}
                   <MaskIcon
                     src="/icons/set-battery.svg"
                     size={24}
-                    background={batteryFill(tower.batteryPct ?? 0)}
+                    {...(tower.batteryPct !== undefined
+                      ? { background: batteryFill(tower.batteryPct) }
+                      : {})}
                   />
                   <span
-                    className={`flex items-center gap-[2px] font-display text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] tabular-nums ${batteryTone(tower.batteryPct ?? 0)}`}
+                    className={`flex items-center gap-[2px] font-display text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] tabular-nums ${
+                      tower.batteryPct !== undefined
+                        ? batteryTone(tower.batteryPct)
+                        : "text-muted"
+                    }`}
                   >
                     {tower.batteryPct !== undefined
                       ? `${tower.batteryPct}%`
@@ -904,10 +921,20 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 /** 53px, label muted at 16, value white and medium at the right with a 20px
  *  chevron. The frame's row, and every row below is a variation of it. */
 const ROW = "flex h-[53px] w-full items-center justify-between gap-[12px] px-[16px] text-left";
+/* The towers board's row: the same type and gutters at 40px, because nine
+   readings a panel across a fleet of twenty is a column read by colour, and
+   the frame's 53px is a settings list read one row at a time. */
+const ROW_DENSE = "flex h-[40px] w-full items-center justify-between gap-[12px] px-[16px] text-left";
 const ROW_LINE = "border-b border-row-line";
 const LABEL = "text-[0.875rem] leading-[18px] tracking-[0.14px] text-muted";
-const VALUE =
-  "text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white";
+/* The value's type, WITHOUT a colour. A reading that carries a tone must carry
+   only that one: two colour utilities on one element is one `color`
+   declaration, and the stylesheet — not the class list — decides which wins.
+   `text-white` is emitted after every status colour, so for as long as the two
+   were written side by side every tone on this panel rendered white: the
+   uplink's Great/Fair/Poor, "Not connected", the storage warning. */
+const VALUE_TYPE = "text-[0.875rem] leading-[18px] font-medium tracking-[0.14px]";
+const VALUE = `${VALUE_TYPE} text-white`;
 
 /* The export points left. Figma composes it with a vertical flip and a half
    turn, which together are a horizontal flip — so the raw asset is the mirror
@@ -1085,28 +1112,50 @@ function RowLink({
  *
  * Never renders blank: an absent reading says why, the way the alert fields do.
  */
-function RowReading({
+export function RowReading({
   label,
   value,
   tone,
   icon,
   action,
   last = false,
+  dense = false,
+  pending = false,
+  hint,
 }: {
   label: string;
   value: string;
-  tone?: string;
+  tone?: string | undefined;
   /** A glyph after the value, as the uplink row carries. */
   icon?: string;
   /** An action beside the value, as the firmware row carries. */
   action?: string;
   last?: boolean;
+  /** The towers board's 40px row. */
+  dense?: boolean;
+  /**
+   * Not a reading — something this dashboard is not told yet, and `value` says
+   * why. Drawn muted behind a hollow ring and NEVER given a tone: a pending row
+   * in a status colour would be reporting a status nobody measured.
+   */
+  pending?: boolean;
+  /** The longer why, for the pointer that asks. */
+  hint?: string | undefined;
 }) {
   return (
-    <div className={`${ROW} ${last ? "" : ROW_LINE}`}>
+    <div
+      title={hint}
+      data-pending={pending || undefined}
+      className={`${dense ? ROW_DENSE : ROW} ${last ? "" : ROW_LINE}`}
+    >
       <span className={LABEL}>{label}</span>
       <span className="flex min-w-0 items-center gap-[6px]">
-        <span className={`truncate ${VALUE} ${tone ?? ""} tabular-nums`}>
+        {pending && (
+          <span aria-hidden className="size-[6px] shrink-0 rounded-full border border-muted" />
+        )}
+        <span
+          className={`truncate ${VALUE_TYPE} ${pending ? "text-muted" : (tone ?? "text-white")} tabular-nums`}
+        >
           {value || "Not reported"}
         </span>
         {icon && <img src={icon} alt="" width={16} height={16} className="block shrink-0" />}
@@ -1142,12 +1191,18 @@ function RowReading({
  * resolution: a label with the measurement behind it can be checked, and one
  * without it has to be believed.
  */
-function UplinkRow({ reading }: { reading: UplinkReading }) {
+export function UplinkRow({
+  reading,
+  dense = false,
+}: {
+  reading: UplinkReading;
+  dense?: boolean;
+}) {
   if (reading.kind === "signal") {
     const word =
       reading.grade === "great" ? "Great" : reading.grade === "fair" ? "Fair" : "Poor";
     return (
-      <RowReading
+      <RowReading dense={dense}
         label="Uplink"
         value={`${word} · ${reading.dbm} dBm`}
         tone={
@@ -1174,12 +1229,12 @@ function UplinkRow({ reading }: { reading: UplinkReading }) {
 
   /* Everything below is an honest absence of a signal, not a bad one. */
   if (reading.kind === "wired") {
-    return <RowReading label="Uplink" value="Wired" />;
+    return <RowReading dense={dense} label="Uplink" value="Wired" />;
   }
   if (reading.kind === "unassociated") {
-    return <RowReading label="Uplink" value="Radio not connected" tone="text-warn" />;
+    return <RowReading dense={dense} label="Uplink" value="Radio not connected" tone="text-warn" />;
   }
-  return <RowReading label="Uplink" value="No signal reading" />;
+  return <RowReading dense={dense} label="Uplink" value="No signal reading" />;
 }
 
 /**
@@ -1198,7 +1253,13 @@ function UplinkRow({ reading }: { reading: UplinkReading }) {
  * how this app makes a takeover snap instead of animate, which is written up at
  * the hook. Only this row re-renders.
  */
-function ConnectedSince({ at }: { at?: number }) {
+export function ConnectedSince({
+  at,
+  dense = false,
+}: {
+  at?: number | undefined;
+  dense?: boolean;
+}) {
   /* 30s, the hook's default. The finest thing this can show is a minute, so a
      faster tick would be renders nobody can read. */
   const now = useNow();
@@ -1209,11 +1270,11 @@ function ConnectedSince({ at }: { at?: number }) {
        tower did not fail to report a connection time, it has no connection.
        Showing the last known uptime would be worse still — a link that is down,
        reported as having held for days. */
-    return <RowReading label="Connected since" value="Not connected" tone="text-critical" />;
+    return <RowReading dense={dense} label="Connected since" value="Not connected" tone="text-critical" />;
   }
 
   return (
-    <RowReading
+    <RowReading dense={dense}
       label="Connected since"
       value={`${formatEventTime(at, now)} · up ${formatUptime(now - at)}`}
     />

@@ -7,6 +7,7 @@ import { useSession } from "@/components/AuthProvider";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { TowerView } from "@/components/TowerView";
+import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
 import { listFleet, renameTower as renameTowerOnServer } from "@/lib/api/fleet";
@@ -143,7 +144,12 @@ export function SentinelApp() {
   const seededFleet = isSeededFleet();
 
   const [feeds, setFeeds] = useState<CameraFeed[]>(seededFleet ? FEEDS : []);
-  const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
+  /* Seeded fleet only, the same condition `feeds` uses. A live fleet has no
+     alert feed yet — coordination serves none — and the fixtures name TWR-1042
+     and TWR-2071, towers no account has. Loaded into a live session they put
+     phantom counts on real cards and a banner about a yard nobody owns, and
+     sent the rail's Towers item to a tower that does not exist. */
+  const [alerts, setAlerts] = useState<Alert[]>(seededFleet ? ALERTS : []);
   /* State rather than the module constant, because a seeded battery actually
      fills: those towers are off-grid and the panel is the only thing that
      refills them, so a card claiming to be charging while the number sits
@@ -273,6 +279,15 @@ export function SentinelApp() {
      panel: it is not scoped to a tower, so there is no wall for it to sit
      beside. */
   const [onAlerts, setOnAlerts] = useState(false);
+  /* The towers board — every tower's status on one screen (`TowersView`). A
+     flag like the other rail destinations, because it replaces the wall rather
+     than opening a tower. */
+  const [onTowers, setOnTowers] = useState(false);
+  /* Where the tower view's way back goes. Its breadcrumb reads TOWERS, and an
+     operator who opened the tower from the board means the board — landing
+     them on the camera wall instead would be a breadcrumb lying about where it
+     leads. A ref, because only the back press ever reads it. */
+  const backToBoard = useRef(false);
   /* Up here rather than in the tower view, because that view is keyed on the
      tower id and renaming a tower therefore remounts it — a settings panel
      that closes the moment you use it is the flaw the rename introduced. */
@@ -340,7 +355,7 @@ export function SentinelApp() {
      The hysteresis and the reasoning for it are in `useVisibleTiles`.
 
      ⚠ FROZEN WHENEVER THE WALL IS NOT THE SCREEN — under Playback, in a tower,
-     on alerts, people or setup. The dashboard unmounts under every one of
+     on alerts, people, setup or the towers board. The dashboard unmounts under every one of
      them, which detaches each tile's observer ref and would drain the set, so
      the wall would come back believing nothing was on screen and sit out the
      settle before showing pictures it was holding all along. Frozen, it comes
@@ -349,7 +364,7 @@ export function SentinelApp() {
      previous render's value, which is one render too late — the tiles detach
      in the very commit the flag flips. */
   const wallOffScreen =
-    onPlayback || onAlerts || onPeople || adding || open !== null;
+    onPlayback || onAlerts || onPeople || adding || onTowers || open !== null;
   const { observe: observeTile, visible: visibleTiles } =
     useVisibleTiles(wallOffScreen);
 
@@ -466,10 +481,11 @@ export function SentinelApp() {
     }));
 
   /* What the current screen ATTACHES. Playback falls through to the screen it
-     covers (see `onPlayback`); alerts, people and setup show no live camera,
-     so they attach nothing and whatever the wall held idles behind them. */
+     covers (see `onPlayback`); alerts, people, setup and the towers board show
+     no live camera, so they attach nothing and whatever the wall held idles
+     behind them. */
   const attachedTargets: PlaybackTarget[] =
-    seededFleet || onAlerts || onPeople || adding
+    seededFleet || onAlerts || onPeople || adding || onTowers
       ? []
       : open !== null
         ? towerTargets
@@ -731,6 +747,12 @@ export function SentinelApp() {
 
   const navigate = useCallback(
     (id: string) => {
+      /* Every destination but Playback leaves the board. Playback is layered
+         over whatever it was opened from, the board included. */
+      if (id !== "playback") {
+        setOnTowers(false);
+        backToBoard.current = false;
+      }
       if (id === "dashboard") {
         setOnPlayback(false);
         setOnPeople(false);
@@ -772,19 +794,19 @@ export function SentinelApp() {
         return;
       }
       if (id === "towers") {
+        /* The board: every tower's status, one panel each.
+
+           This USED to jump into a single tower — the one with the newest
+           alert, else the first. With the alert fixtures loaded into a live
+           fleet that was always TWR-1042, a tower no account has, so the item
+           opened "TWR-1042 IS UNAVAILABLE" on every click. The rail's Towers
+           means all of them now, which is what its label always said. */
         setOnPlayback(false);
-        /* The site something last happened at. Derived here rather than in the
-           dashboard so the rail means the same thing from every screen. */
-        const newest = alerts.reduce<Alert | undefined>(
-          (best, a) => (!best || a.at > best.at ? a : best),
-          undefined,
-        );
-        const target = newest?.towerId ?? towers[0]?.id;
-        if (!target) return;
         setOnPeople(false);
         setAdding(false);
         setOnAlerts(false);
-        show({ id: target, showAlerts: false });
+        show(null);
+        setOnTowers(true);
       }
       /* `settings` deliberately has no branch: there is no account-level
          settings screen, so the rail draws that item disabled rather than
@@ -792,7 +814,7 @@ export function SentinelApp() {
          built, clear `unavailable` in `IconRail`'s NAV and add the branch —
          both, or the item lights up and still goes nowhere. */
     },
-    [alerts, show, towers],
+    [show],
   );
 
   const applyRejectMatch = useCallback((id: string) => {
@@ -933,9 +955,32 @@ export function SentinelApp() {
    * no longer any path in this app that can put a tower on a fleet that the
    * server does not already have. */
   const openTower = useCallback(
-    (id: string, showAlerts = false) => show({ id, showAlerts }),
+    (id: string, showAlerts = false) => {
+      backToBoard.current = false;
+      show({ id, showAlerts });
+    },
     [show],
   );
+
+  /* A panel on the board opens its tower, and remembers the way back. */
+  const openFromBoard = useCallback(
+    (id: string) => {
+      backToBoard.current = true;
+      setOnTowers(false);
+      show({ id, showAlerts: false });
+    },
+    [show],
+  );
+
+  /* The tower view's way up: to the board if that is where the operator came
+     from, otherwise to the wall. Read once and cleared, so a later drill-in
+     from anywhere else cannot inherit it. */
+  const leaveTower = useCallback(() => {
+    const toBoard = backToBoard.current;
+    backToBoard.current = false;
+    show(null);
+    if (toBoard) setOnTowers(true);
+  }, [show]);
 
   /**
    * Towers whose alert notice this operator has read.
@@ -1433,6 +1478,18 @@ export function SentinelApp() {
             setClaimTick((n) => n + 1);
           }}
         />
+      ) : onTowers ? (
+        <TowersView
+          towers={towers}
+          feeds={feeds}
+          alerts={alerts}
+          alertFeed={seededFleet}
+          seeded={seededFleet}
+          loading={fleetLoading}
+          problem={reachProblem?.headline ?? null}
+          onNavigate={navigate}
+          onOpenTower={openFromBoard}
+        />
       ) : open === null ? (
         <DashboardView
           towers={towers}
@@ -1468,7 +1525,7 @@ export function SentinelApp() {
            exist": coordination returns one indistinguishable 404 for "no such
            tower" and "not yours" precisely so the endpoint cannot enumerate a
            fleet, and claiming non-existence would make it an oracle. */
-        <TowerUnavailable id={open.id} onBack={() => show(null)} />
+        <TowerUnavailable id={open.id} onBack={leaveTower} />
       ) : (
         <TowerView
           /* Keyed on the tower so drilling into a second site starts from a
@@ -1485,7 +1542,7 @@ export function SentinelApp() {
           sessionFor={sessionFor}
           onRetryPlayback={retryPlayback}
           showAlerts={open.showAlerts}
-          onBack={() => show(null)}
+          onBack={leaveTower}
           onSetFeedState={setFeedState}
           onRetryFeed={retryFeed}
           onToggleRecord={toggleRecord}

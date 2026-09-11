@@ -100,6 +100,22 @@ camera all afternoon by ducking out to the fleet and back. It resets on a
 different tower, not on leaving one — `watchedTower` in `App.tsx` is the ref
 that tells those two apart.
 
+**Live sessions are held by the manager, keyed by camera; screens only
+attach.** `usePlayback` holds every WebRTC session this browser has open, one
+per camera, shared by every screen. A screen declares what it shows
+(`attachedTargets` in `App.tsx`) and never opens or closes a session itself.
+Leaving a screen DETACHES: the session keeps streaming unseen and the next
+screen to show that camera reuses it. Only the manager closes, and only by
+its rules — `IDLE_CLOSE_MS` with nothing attached, a *different* tower opened
+(the `watchedTower` line again), the held ceiling needing the slot, or
+deliberately (camera no longer live, a profile chosen, retry, sign-out,
+unload). Before this, the fleet and the tower each rebuilt their own set and
+every drill-in renegotiated the camera the operator had just clicked. A new
+screen that shows live video adds itself to `attachedTargets`; one that does
+not attaches nothing and lets the wall idle behind it. And a profile is a
+*requirement* only when the operator chose one — the fleet's `sub` is a
+preference, so a camera that is already streaming is reused, not renegotiated.
+
 **Tokens live in the `@theme` block of `src/index.css`.** Use `bg-panel`,
 `text-muted`, `border-line`, `text-critical` and friends. A raw hex in a
 component is a bug unless it is a one-off scrim or overlay alpha.

@@ -15,7 +15,7 @@ import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
 import { loadPrefs, savePrefs } from "@/lib/prefs";
 import { CoordinationBanner } from "@/components/CoordinationBanner";
-import { usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
+import { cameraKey, usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
 import { useVisibleTiles } from "@/lib/useVisibleTiles";
 import { useMutation } from "@/lib/useMutation";
 import type { SimState } from "@/components/StateSimulator";
@@ -326,28 +326,32 @@ export function SentinelApp() {
     setCameraProfiles((prev) => ({ ...prev, [feedId]: profile }));
   }, []);
 
-  /* Which fleet tiles are on screen, settled rather than instantaneous.
-     The hysteresis and the reasoning for it are in `useVisibleTiles`. */
   /* Whether the Playback screen is open.
      ⚠ IT DOES NOT CALL show(null), AND THAT IS THE REQUIREMENT, NOT AN
-     OVERSIGHT. `playbackTargets` above is derived from `open`: drilled into a
-     site it is that site's cameras, otherwise the fleet's. Every other
-     destination clears `open` on the way past, which swaps the target list and
-     tears down the live sessions to build different ones.
-     Review must not do that. An operator checking what happened a minute ago
-     should come back to a wall that never stopped, so this flag renders a
-     different screen and leaves `open` — and therefore every live session —
-     exactly as it was. */
+     OVERSIGHT. Playback is layered OVER the live screen rather than replacing
+     it — its back button returns to exactly where the operator was — so what
+     that screen attached stays attached underneath: `attachedTargets` below is
+     derived from `open`, and this flag leaves `open` alone. An operator
+     checking what happened a minute ago comes back to a wall that never
+     stopped, however long the minute was. */
   const [onPlayback, setOnPlayback] = useState(false);
 
-  /* ⚠ FROZEN WHILE PLAYBACK IS OPEN. The dashboard unmounts under that screen,
-     which detaches every tile's observer ref and would drain the visible set —
-     closing exactly the live sessions Playback was built not to disturb.
-     `onPlayback` is declared immediately above for this reason: a ref read here
-     would carry the previous render's value, which is one render too late —
-     the tiles detach in the very commit the flag flips. */
+  /* Which fleet tiles are on screen, settled rather than instantaneous.
+     The hysteresis and the reasoning for it are in `useVisibleTiles`.
+
+     ⚠ FROZEN WHENEVER THE WALL IS NOT THE SCREEN — under Playback, in a tower,
+     on alerts, people or setup. The dashboard unmounts under every one of
+     them, which detaches each tile's observer ref and would drain the set, so
+     the wall would come back believing nothing was on screen and sit out the
+     settle before showing pictures it was holding all along. Frozen, it comes
+     back to the tiles it left and they attach on the first frame. The flags
+     are declared above for this reason: a ref read here would carry the
+     previous render's value, which is one render too late — the tiles detach
+     in the very commit the flag flips. */
+  const wallOffScreen =
+    onPlayback || onAlerts || onPeople || adding || open !== null;
   const { observe: observeTile, visible: visibleTiles } =
-    useVisibleTiles(onPlayback);
+    useVisibleTiles(wallOffScreen);
 
   /* ── WHAT IS ACTUALLY BEING STREAMED ──────────────────────────────────
 
@@ -368,28 +372,29 @@ export function SentinelApp() {
      happening right now.
 
      So the fleet wall streams what is visible, bounded three ways: by the
-     viewport, by MAX_LIVE_TILES below, and by the sub profile. The battery
-     argument survives in all three.
+     viewport, by the session manager's MAX_LIVE_TILES, and by the sub profile.
+     The battery argument survives in all three.
 
-     The two screens are MUTUALLY EXCLUSIVE rather than additive. Drilling in
-     hands the sessions over rather than opening a second set beside them — the
-     fleet tiles unmount, and a grace period that let both sets exist for a
-     second would be four sessions on a two-camera tower.
+     What a screen shows is ATTACHED; what is open is HELD — by `usePlayback`,
+     keyed by camera, and shared by every screen. The two screens attach one or
+     the other, never both, but they share the sessions: drilling into a tower
+     attaches that tower's cameras to the sessions the wall already had, and
+     coming back attaches the wall to them again. Nothing is handed over,
+     because nothing was ever the screen's. What is not attached idles and then
+     closes — the rules are in `usePlayback`'s header.
 
      Cameras the tower reports as anything but live are excluded — asking for a
      session on a camera that has already said it is down burns a grant to be
      refused, and the tile has a truer thing to show. Seeded feeds are excluded
      because there is no session to open for a fixture. */
 
-  /** The ceiling, whatever the viewport does.
-
-      Eight is four sites at two cameras each, which is the widest the design's
-      two-column bands go before a tile stops being worth looking at. It is also
-      a number a browser will hold peers for without complaint, and — the reason
-      it is a hard cap rather than a guideline — it stops a wall-mounted 4K
-      monitor from quietly opening sixty sessions because they all technically
-      fit. A tile over the ceiling says so rather than pretending to load. */
-  const MAX_LIVE_TILES = 8;
+  /* What an open that names no profile resolves to, so the manager can tell
+     that "opened with nothing" and "asked for the default" are the same
+     stream, and does not renegotiate one into the other. */
+  const defaultProfileField = (f: CameraFeed) => {
+    const id = f.profiles?.find((p) => p.default)?.id;
+    return id ? { defaultProfile: id } : {};
+  };
 
   const towerTargets: PlaybackTarget[] = feeds
     .filter(
@@ -410,7 +415,13 @@ export function SentinelApp() {
         id: f.id,
         towerId: f.towerId,
         index: f.index!,
+        /* A REQUIREMENT, and only when the operator made one. With no choice
+           the tower attaches to whatever the camera is already streaming —
+           usually the wall's sub stream — rather than renegotiating on the
+           way in. The quality selector says which, and choosing one there is
+           the one deliberate way to change it. */
         ...(chosen && known ? { profile: chosen } : {}),
+        ...defaultProfileField(f),
       };
     });
 
@@ -426,38 +437,76 @@ export function SentinelApp() {
         f.index !== undefined &&
         visibleTiles.has(f.id),
     )
-    .slice(0, MAX_LIVE_TILES)
+    /* No slice here: the manager applies MAX_LIVE_TILES to whatever is
+       attached, in this order, so wall order still decides which eight. */
     .map((f) => ({
       id: f.id,
       towerId: f.towerId,
       index: f.index!,
-      /* ⚠ SUB, ALWAYS, ON THIS WALL. Twelve tiles at 2K is a different order of
-         magnitude of uplink and battery than twelve at 704×576, and nobody is
-         reading detail off a tile this size — the main stream is what the tower
-         view is for. The operator's per-camera profile choice is deliberately
-         NOT consulted here: it is a choice about how they watch ONE camera,
-         not licence to pull 2K twelve times over.
+      /* ⚠ SUB, WHENEVER THIS WALL IS THE ONE OPENING THE SESSION. Twelve
+         tiles at 2K is a different order of magnitude of uplink and battery
+         than twelve at 704×576, and nobody is reading detail off a tile this
+         size — the main stream is what the tower view is for. The operator's
+         per-camera profile choice is deliberately NOT consulted here: it is a
+         choice about how they watch ONE camera, not licence to pull 2K twelve
+         times over.
+
+         A PREFERENCE, NOT A REQUIREMENT. A camera the operator is already
+         watching at main — chosen in its tower — is reused as it is when the
+         wall attaches to it, not renegotiated down: one tile at main costs
+         less than tearing a working stream down to open a smaller one, and it
+         idles out with everything else once nobody is looking.
 
          Named only when the camera advertises it, because a tower running an
          older agent advertises no profiles at all and its default already IS
          the sub stream — naming one it never offered would be asking for a
          stream by a name it does not know. */
-      ...(f.profiles?.some((p) => p.id === "sub") ? { profile: "sub" } : {}),
+      ...(f.profiles?.some((p) => p.id === "sub") ? { prefer: "sub" } : {}),
+      ...defaultProfileField(f),
     }));
 
-  const playbackTargets: PlaybackTarget[] = seededFleet
-    ? []
-    : open !== null
-      ? towerTargets
-      : fleetTargets;
+  /* What the current screen ATTACHES. Playback falls through to the screen it
+     covers (see `onPlayback`); alerts, people and setup show no live camera,
+     so they attach nothing and whatever the wall held idles behind them. */
+  const attachedTargets: PlaybackTarget[] =
+    seededFleet || onAlerts || onPeople || adding
+      ? []
+      : open !== null
+        ? towerTargets
+        : fleetTargets;
 
-
+  /* Every camera a session may be held for at all. Leaving this set is the one
+     thing that closes a session at once — a camera that has said it is down is
+     not coming back because nobody closed it. Empty for a seeded fleet, which
+     has no sessions to open. */
+  const eligibleCameras = new Set(
+    seededFleet
+      ? []
+      : feeds
+          .filter((f) => f.state === "live" && f.index !== undefined)
+          .map((f) => cameraKey(f.towerId, f.index!)),
+  );
 
   const {
     phases: playback,
     retry: retryPlayback,
     sessionFor,
-  } = usePlayback(playbackTargets);
+    profileOf,
+  } = usePlayback({
+    attached: attachedTargets,
+    eligible: eligibleCameras,
+    focusTower: open?.id ?? null,
+  });
+
+  /* What each camera is ACTUALLY streaming, wherever a session is held — a
+     reused wall session may be sub though nobody in the tower chose it, and a
+     quality selector showing the operator's last pick over it would describe a
+     stream that is not the one playing. The pick shows where nothing is held. */
+  const shownProfiles: Record<string, string> = { ...cameraProfiles };
+  for (const f of feeds) {
+    const running = profileOf(f.id);
+    if (running !== undefined) shownProfiles[f.id] = running;
+  }
 
   /* Looked up once, so the render below and the guard above cannot disagree. */
   const openTowerRecord = open ? towers.find((t) => t.id === open.id) : undefined;
@@ -1451,7 +1500,7 @@ export function SentinelApp() {
           onToggleSettings={() => setSettingsOpen((o) => !o)}
           onCloseSettings={() => setSettingsOpen(false)}
           onChangeSettings={changeSettings}
-          cameraProfiles={cameraProfiles}
+          cameraProfiles={shownProfiles}
           onChooseProfile={chooseProfile}
           settingsMutation={routine}
           recordMutation={routine}

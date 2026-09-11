@@ -650,9 +650,25 @@ export interface ThermalHealth {
     soc_c: number | null;
     state?: ThermalState;
 }
-/** §3.1 `health.disk`. */
+/**
+ * §3.1 `health.disk` — the tower's recordings volume.
+ *
+ * `free_pct` is the protocol's field and is always present when a tower reports
+ * a disk at all. The gigabyte pair is ADDITIVE and optional: an agent that
+ * predates it sends only the percentage, and a consumer must keep working on
+ * that alone.
+ *
+ * ⚠ THEY ARE NOT SUBSTITUTES FOR ONE ANOTHER. "68% free" and "41 of 128 GB"
+ * answer different questions, and a percentage of an unknown total cannot be
+ * rendered where a reading in gigabytes was promised. Show whichever you have;
+ * never convert one into a claim about the other.
+ */
 export interface DiskHealth {
     free_pct: number;
+    /** Used space, gigabytes. Absent from an agent that reports only a percentage. */
+    used_gb?: number;
+    /** Total capacity, gigabytes. Absent likewise. */
+    total_gb?: number;
 }
 /**
  * §3.1 `health.feeds[]` / §3.4 — per-path liveness. `since` appears on the

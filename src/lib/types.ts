@@ -185,8 +185,19 @@ export interface Tower {
    * down. Absence is the answer, not a missing value.
    */
   connectedAt?: number;
-  /** On-tower recording, in GB. Not in the projection; `health.disk.freePct` is
-   *  a percentage of an unknown total and is not the same reading. */
+  /**
+   * On-tower recording, in GB.
+   *
+   * SUPERSEDED 2026-09-12: this said "Not in the projection". It is now — §3.1's
+   * `disk` block carries the gigabytes additively beside `free_pct`, and
+   * `map.ts` fills these from it. They are absent only when a tower's agent
+   * reports the percentage alone, which an older one does.
+   *
+   * The rest of the original note stands, and is precisely why BOTH are carried:
+   * `health.disk.freePct` is a percentage of the total this pair states, and
+   * neither is a substitute for the other. A row that promises gigabytes still
+   * must not render a percentage in their place.
+   */
   storageUsedGb?: number;
   storageTotalGb?: number;
 }

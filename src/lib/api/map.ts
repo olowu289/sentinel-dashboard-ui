@@ -273,11 +273,29 @@ export function toTower(raw: TowerInfo | TowerDetail, now?: number): {
     asOf,
     healthAsOf: parseStamp(detail.health_as_of),
     ...(toHealth(detail.health) ? { health: toHealth(detail.health) } : {}),
+    /* STORAGE, in the units a person reads. `health.disk.freePct` already
+       crosses in `toHealth`; these are the same disk stated the other way, and
+       both are carried because neither answers the other's question — see
+       `DiskHealth` in the SDK. Absent from an agent that reports only the
+       percentage, which is why they are spread conditionally rather than
+       defaulted to zero: a tower with no figures must read "Not reported",
+       never "0 of 0 GB". */
+    ...(detail.health?.disk?.used_gb !== undefined
+      ? { storageUsedGb: detail.health.disk.used_gb }
+      : {}),
+    ...(detail.health?.disk?.total_gb !== undefined
+      ? { storageTotalGb: detail.health.disk.total_gb }
+      : {}),
     /* `agent_version` is the nearest real thing to a firmware string, and the
-       projection marks it optional. Everything else the settings panel wants —
-       battery, solar, cabinet temperature, uplink quality, storage, location,
-       model, IP, backup connection, serial — is ABSENT FROM THE CONTRACT and
-       therefore absent here. See the note on `Tower`. */
+       projection marks it optional.
+
+       SUPERSEDED 2026-09-12 in part: this listed STORAGE among the things
+       "ABSENT FROM THE CONTRACT and therefore absent here". It is in the
+       contract now — §3.1's `disk` block carries free_pct and, additively, the
+       gigabytes — and it is mapped just above. The rest of the list stands:
+       battery, solar, cabinet temperature, location, model, IP, backup
+       connection and serial are still absent, and still must not be invented
+       here. See the note on `Tower`. */
     ...(raw.agent_version ? { firmware: raw.agent_version } : {}),
     /* Real, and one of the very few things on the settings panel's Network
        section that is. Omitted rather than nulled when the tower is offline —

@@ -3,6 +3,7 @@ import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
+import { storageHint, storageTone } from "@/lib/storage";
 import { useNow } from "@/lib/useNow";
 import type { Alert, CameraFeed, Tower, TowerStatus } from "@/lib/types";
 import { IconRail } from "./IconRail";
@@ -251,26 +252,42 @@ function temperatureCell(tower: Tower): Cell {
 }
 
 function storageCell(tower: Tower): Cell {
-  /* The settings panel's own tier: amber from 90% used, and no invented red
-     above it. */
-  if (tower.storageUsedGb !== undefined && tower.storageTotalGb !== undefined) {
-    const pct = Math.round((tower.storageUsedGb / Math.max(1, tower.storageTotalGb)) * 100);
-    return {
-      value: `${pct}%`,
-      ...(pct >= 90 ? { tone: "text-warn" } : {}),
-      hint: `${tower.storageUsedGb} of ${tower.storageTotalGb} GB used.`,
-    };
-  }
-  const disk = tower.health?.disk;
-  if (disk) {
-    const used = Math.round(100 - disk.freePct);
-    return {
-      value: `${used}%`,
-      ...(used >= 90 ? { tone: "text-warn" } : {}),
-      hint: `${used}% of the recordings disk used.`,
-    };
-  }
-  return pending(NOT_PASSED_ON, WHY.storage);
+  /* SUPERSEDED 2026-09-12. This read "the settings panel's own tier: amber from
+     90% used, and no invented red above it", and both halves have changed.
+
+     THE TIER MOVED OUT OF HERE. It lives in lib/storage.ts now, shared with the
+     settings row, because the same fact drawn in two places with two copies of
+     a threshold disagrees with itself the first time one is tuned.
+
+     AND THERE IS A RED NOW. "No invented red" was the right instinct without
+     data; there is data now and it argues the other way. Below 10% free the
+     tower is deleting footage to keep recording — it is losing evidence while
+     every other reading says the site is fine. That is a fault, and red is what
+     this app uses for a fault.
+
+     FREE, NOT USED. This showed used%; it shows free% now, matching §3.1's
+     `disk.free_pct` and answering the question an operator actually has — how
+     much longer can this tower keep recording. */
+  const gb =
+    tower.storageUsedGb !== undefined && tower.storageTotalGb !== undefined
+      ? { used: tower.storageUsedGb, total: tower.storageTotalGb }
+      : undefined;
+  /* The reported percentage wins over one derived from the gigabytes: it is the
+     protocol's own field, and the two are the same disk measured once. */
+  const freePct =
+    tower.health?.disk?.freePct ??
+    (gb ? ((gb.total - gb.used) / Math.max(1, gb.total)) * 100 : undefined);
+
+  if (freePct === undefined) return pending(NOT_PASSED_ON, WHY.storage);
+  /* Both the colour and the sentence take the MEASURED value; only the cell's
+     own label is rounded. Rounding first would hand 9.6 in as 10 and paint a
+     disk that is already overwriting footage in amber, with the wording to
+     match — see the warning on `storageHint`. */
+  return {
+    value: `${Math.round(freePct)}% free`,
+    tone: storageTone(freePct),
+    hint: storageHint(freePct, gb?.used, gb?.total),
+  };
 }
 
 function powerCell(tower: Tower): Cell {

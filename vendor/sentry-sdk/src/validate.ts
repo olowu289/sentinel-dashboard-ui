@@ -515,7 +515,20 @@ export function parseTowerHealth(c: Check, path: string, raw: unknown): TowerHea
   }
 
   const disk = o["disk"] === undefined || o["disk"] === null ? undefined : c.obj(`${path}.disk`, o["disk"]);
-  if (disk) out.disk = { free_pct: c.num(`${path}.disk.free_pct`, disk["free_pct"]) };
+  if (disk) {
+    /* `free_pct` stays REQUIRED whenever a disk block is present — it is the
+       protocol's field, and a disk reported without it is a tower saying
+       nothing while appearing to say something. The gigabytes are additive and
+       optional, so an older agent that sends only the percentage still parses.
+       Each is taken only when it is actually a number: a null or a string here
+       would otherwise reach a UI that renders it as a size. */
+    const d: { free_pct: number; used_gb?: number; total_gb?: number } = {
+      free_pct: c.num(`${path}.disk.free_pct`, disk["free_pct"]),
+    };
+    if (typeof disk["used_gb"] === "number") d.used_gb = disk["used_gb"];
+    if (typeof disk["total_gb"] === "number") d.total_gb = disk["total_gb"];
+    out.disk = d;
+  }
 
   const uplink =
     o["uplink"] === undefined || o["uplink"] === null

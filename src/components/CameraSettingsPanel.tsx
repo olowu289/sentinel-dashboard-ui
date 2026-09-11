@@ -10,6 +10,7 @@ import { MaskIcon } from "./Icon";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
+import { storageTone } from "@/lib/storage";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { useNow } from "@/lib/useNow";
 import {
@@ -364,9 +365,21 @@ export function CameraSettingsPanel({
     tower.solar !== undefined
       ? solarState({ solar: tower.solar, batteryPct: tower.batteryPct })
       : undefined;
-  const usedPct = Math.round(
-    ((tower.storageUsedGb ?? 0) / Math.max(1, tower.storageTotalGb ?? 1)) * 100,
-  );
+  /* FREE space, and `undefined` when the tower has not reported any.
+     The old form defaulted the missing case to `0 / 1` and rounded it to 0%
+     used — an unmeasured disk reading as an empty one, which is the same class
+     of lie as a guessed reading. Absence stays absent, and the row below
+     renders "Not reported" for it.
+
+     The reported percentage wins over one derived from the gigabytes: it is
+     §3.1's own field, and the two are one disk measured once. */
+  const storageFreePct =
+    tower.health?.disk?.freePct ??
+    (tower.storageUsedGb !== undefined && tower.storageTotalGb !== undefined
+      ? ((tower.storageTotalGb - tower.storageUsedGb) /
+          Math.max(1, tower.storageTotalGb)) *
+        100
+      : undefined);
 
   if (editingZones) {
     return (
@@ -712,18 +725,38 @@ export function CameraSettingsPanel({
           <Group title="Storage">
             <RowReading
               label="Memory"
-              /* Empty renders as "Not reported" — the row already does that,
-                 which is exactly the absence grammar this app asks for. The
-                 projection carries no storage figures at all; `disk.free_pct`
-                 is a percentage of an unknown total and is not the same
-                 reading, so it is not substituted in here. */
+              /* SUPERSEDED 2026-09-12. This said "the projection carries no
+                 storage figures at all", and refused to substitute
+                 `disk.free_pct` because it was "a percentage of an unknown
+                 total". The projection carries them now — §3.1's `disk` block
+                 has free_pct, and additively the gigabytes — so the row shows
+                 the real reading instead of "Not reported".
+
+                 THE REFUSAL ITSELF STANDS and is why the order below is what it
+                 is: gigabytes are preferred because that is what this row
+                 promises, and the percentage is shown AS a percentage rather
+                 than dressed up as a size. An older agent that reports only
+                 free_pct gets "68% free", which is true; it never gets an
+                 invented total.
+
+                 Empty still renders as "Not reported", for a tower that has
+                 reported neither — the absence grammar this app asks for. */
               value={
                 tower.storageUsedGb !== undefined &&
                 tower.storageTotalGb !== undefined
-                  ? `${tower.storageUsedGb}GB / ${tower.storageTotalGb}GB Used`
-                  : ""
+                  ? `${tower.storageUsedGb} of ${tower.storageTotalGb} GB used`
+                  : storageFreePct !== undefined
+                    ? `${Math.round(storageFreePct)}% free`
+                    : ""
               }
-              tone={usedPct >= 90 ? "text-warn" : undefined}
+              /* One tier, shared with the fleet board's Storage cell — see
+                 lib/storage.ts. Amber below 20% free, red below 10%, where the
+                 tower has started overwriting footage. */
+              tone={
+                storageFreePct !== undefined
+                  ? storageTone(storageFreePct)
+                  : undefined
+              }
             />
             <Row
               label="Recording"

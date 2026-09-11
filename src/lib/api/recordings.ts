@@ -94,13 +94,31 @@ export async function listRecordings(session: ViewerSession): Promise<RecordingW
  * its blob alive for the life of the document, and a scrubbing operator
  * generates one per slice. `useReviewPlayer` owns that.
  */
+/**
+ * How long the browser waits for one playback slice.
+ *
+ * ⚠ THIS USED TO BE THE SDK'S 10-SECOND DEFAULT, and that is what "PLAYBACK
+ * FAILED — REQUEST_TIMEOUT" was: not the tower failing, the browser giving up
+ * on a relay that was still delivering. Slow is not failed.
+ *
+ * Fifty seconds is deliberately a little LONGER than coordination's own bound
+ * for a slice (45s, `RECORDING_SLICE_HTTP_TIMEOUT_SEC`), so that when a relay
+ * genuinely runs out of time it is the SERVER'S answer that arrives — a 504
+ * that says the footage did not come through in time — rather than this
+ * side's generic timeout racing it. Still bounded: a dead relay is reported,
+ * never waited on for ever.
+ */
+const PLAYBACK_FETCH_TIMEOUT_MS = 50_000;
+
 export async function fetchSliceUrl(
   session: ViewerSession,
   start: string,
   durationSec: number,
 ): Promise<string> {
   try {
-    const bytes = await getClient().fetchRecordingSlice(session, start, durationSec);
+    const bytes = await getClient().fetchRecordingSlice(session, start, durationSec, {
+      timeoutMs: PLAYBACK_FETCH_TIMEOUT_MS,
+    });
     return URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
   } catch (err) {
     endSessionIfUnauthorized(err);
@@ -198,6 +216,12 @@ export function describeRecordingFailure(err: unknown): string {
     if (code === "slice_too_long") return "THAT WINDOW IS TOO LONG TO FETCH";
     if (code === "tower_offline") return "TOWER OFFLINE — NO FOOTAGE UNTIL IT RECONNECTS";
     if (code === "tower_timeout") return "THE TOWER DID NOT ANSWER";
+    /* Both of these are the footage being SLOW, which is a different fact from
+       the tower not answering — it answered, and was still sending. Saying
+       "did not answer" would send somebody to check a tower that is fine. */
+    if (code === "relay_timeout" || code === "request_timeout") {
+      return "FOOTAGE DID NOT ARRIVE IN TIME — THE TOWER'S LINK IS SLOW";
+    }
     if (code === "grant_permission" || code === "not_authorized") {
       return "NOT PERMITTED TO REVIEW THIS CAMERA";
     }

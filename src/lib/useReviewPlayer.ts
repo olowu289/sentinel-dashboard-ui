@@ -42,8 +42,25 @@ import {
 /** How long a scrub must settle before it costs a fetch. */
 const SETTLE_MS = 350;
 
-/** Seconds per slice. Under the SDK's 30s cap, and the unit the player plays. */
-export const SLICE_SEC = 20;
+/**
+ * Seconds per slice — the unit the player fetches and plays.
+ *
+ * ⚠ FIVE, NOT TWENTY, AND THE REASON IS THE UPLINK. A slice comes off the
+ * tower's own disk through the relay, and the relay is window-limited: four
+ * 64KB chunks in flight, each waiting on an ack round trip. On the reference
+ * tower's LAN that was fast. Over a WiFi uplink and the public internet it
+ * measured ~0.14MB/s, and a 20s slice of main-stream footage (~15MB at
+ * ~7.4Mbps) took ~105s to arrive — so every scrub sat on a spinner until the
+ * request timed out and read as a failure.
+ *
+ * Five seconds is a quarter of the data. It does NOT make 2K footage arrive in
+ * a second or two on that link — at that rate a 5s slice is still tens of
+ * seconds — but it is the difference between arriving and timing out, and
+ * the next-slice logic already fetches on demand, so more, smaller slices cost
+ * nothing on the timeline. The real fixes for speed are on the tower (record
+ * the sub stream, or widen the relay window) and are recorded as follow-ups.
+ */
+export const PLAYBACK_SLICE_SEC = 5;
 
 /** Slices kept. Small: each holds a multi-megabyte blob alive. */
 const CACHE_MAX = 6;
@@ -165,7 +182,7 @@ export function useReviewPlayer(
           const newest = window.spans.reduce((a, b) => (spanEnd(a) > spanEnd(b) ? a : b));
           // A slice back from the very end, so there is something to play
           // rather than a playhead sitting on the edge of what exists.
-          setPositionAt(Math.max(Date.parse(newest.start), spanEnd(newest) - SLICE_SEC * 1000));
+          setPositionAt(Math.max(Date.parse(newest.start), spanEnd(newest) - PLAYBACK_SLICE_SEC * 1000));
         }
       } catch (err) {
         if (cancelled || gen !== generation.current) return;
@@ -213,7 +230,7 @@ export function useReviewPlayer(
     if (!background) setLoading(true);
     const gen = generation.current;
     try {
-      const url = await fetchSliceUrl(session, new Date(startMs).toISOString(), SLICE_SEC);
+      const url = await fetchSliceUrl(session, new Date(startMs).toISOString(), PLAYBACK_SLICE_SEC);
       if (gen !== generation.current) {
         URL.revokeObjectURL(url);
         return;
@@ -272,7 +289,7 @@ export function useReviewPlayer(
     setPositionAt(toEpochMs);
     // Slices are aligned to a grid so scrubbing within one reuses it rather
     // than fetching a near-identical window one second over.
-    const aligned = Math.floor(toEpochMs / (SLICE_SEC * 1000)) * SLICE_SEC * 1000;
+    const aligned = Math.floor(toEpochMs / (PLAYBACK_SLICE_SEC * 1000)) * PLAYBACK_SLICE_SEC * 1000;
     if (settle.current) clearTimeout(settle.current);
     settle.current = null;
     if (immediate) {
@@ -303,7 +320,7 @@ export function useReviewPlayer(
    */
   const prefetchNext = useCallback(() => {
     if (sliceStartAt === null) return;
-    const next = sliceStartAt + SLICE_SEC * 1000;
+    const next = sliceStartAt + PLAYBACK_SLICE_SEC * 1000;
     if (cache.current.has(next)) return;
     void load(next, true);
   }, [load, sliceStartAt]);
@@ -316,7 +333,7 @@ export function useReviewPlayer(
     if (sliceStartAt === null) return;
     // Immediate: reaching the end of a slice is not a drag, and waiting out a
     // settle here would put the stall back that pre-fetching removed.
-    seek(sliceStartAt + SLICE_SEC * 1000, true);
+    seek(sliceStartAt + PLAYBACK_SLICE_SEC * 1000, true);
   }, [sliceStartAt, seek]);
 
   const retry = useCallback(() => {
@@ -326,7 +343,7 @@ export function useReviewPlayer(
   /* The first load once a position exists. */
   useEffect(() => {
     if (phase.kind === "ready" && positionAt !== null && sliceUrl === null && !loading) {
-      const aligned = Math.floor(positionAt / (SLICE_SEC * 1000)) * SLICE_SEC * 1000;
+      const aligned = Math.floor(positionAt / (PLAYBACK_SLICE_SEC * 1000)) * PLAYBACK_SLICE_SEC * 1000;
       void load(aligned);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

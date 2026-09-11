@@ -3,7 +3,7 @@ import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import type { CameraFeed, Tower } from "@/lib/types";
 import type { RecordingSpan } from "@kallon/sentry-sdk";
-import { SLICE_SEC, covered, useReviewPlayer } from "@/lib/useReviewPlayer";
+import { PLAYBACK_SLICE_SEC, covered, useReviewPlayer } from "@/lib/useReviewPlayer";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 import { SITE_TZ_LABEL, formatSiteStamp } from "@/lib/time";
 import { clipFilename, downloadBlob } from "@/lib/snapshot";
@@ -45,9 +45,12 @@ import { MutationError, MutationIcon, errorRing } from "@/components/MutationFee
  *   the clock      is the footage's own recorded time. An offset into a slice
  *                  is not something anybody can put in a handover.
  */
-/** How far before a slice ends to start fetching the next one. Long enough to
- *  cover a relay of a few megabytes, short enough that a viewer who scrubs away
- *  has usually already done so. */
+/** How far before a slice ends to start fetching the next one.
+ *
+ *  Now LONGER than a slice (see PLAYBACK_SLICE_SEC), which means the next slice
+ *  is asked for the moment one starts playing. That is deliberate rather than a
+ *  leftover: on a remote uplink a slice takes longer to fetch than to play, so
+ *  anything later than "immediately" is a guaranteed stall at every boundary. */
 const PREFETCH_LEAD_SEC = 6;
 
 /**
@@ -234,7 +237,7 @@ export function PlaybackView({
                    the next has not been asked for — and a few seconds of lead
                    turns that stall into a hand-off. One ahead only; the hook
                    drops it if it is already cached or a fetch is running. */
-                const left = (v.duration || SLICE_SEC) - v.currentTime;
+                const left = (v.duration || PLAYBACK_SLICE_SEC) - v.currentTime;
                 if (left <= PREFETCH_LEAD_SEC) review.prefetchNext();
               }}
               /* Playing off the end of a 20s slice fetches the next one rather

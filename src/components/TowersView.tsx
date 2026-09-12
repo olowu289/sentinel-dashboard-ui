@@ -1,4 +1,4 @@
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { ENTER } from "@/lib/motion";
@@ -94,6 +94,15 @@ interface Cell {
   level?: number;
   /** Charge is going IN right now — the bolt, and only ever from a real sign. */
   charging?: boolean;
+  /**
+   * A glyph this reading draws INSTEAD of its column's default.
+   *
+   * One column uses it. Every other symbol on the board says WHAT is being
+   * measured and leaves the reading to colour and figure; the cabinet is the
+   * exception, because "open" is a shape a person recognises across a room
+   * before they have read a word of it.
+   */
+  glyph?: string;
 }
 
 /* The three reasons a reading is not here. Each is a different fact and sends
@@ -228,9 +237,22 @@ function connectedCell(tower: Tower, now: number): Cell {
 function doorCell(tower: Tower): Cell {
   const door = tower.health?.door;
   if (!door) return pending(NOT_PASSED_ON, WHY.door);
+  /* The box as the reed switch reports it: shut, or swung open on its hinge
+     with the boards showing. The word says the same thing; the drawing is what
+     carries down a column of twenty. */
   return door.open
-    ? { value: "Open", tone: "text-critical", hint: "The cabinet door is open." }
-    : { value: "Closed", tone: "text-terra", hint: "The cabinet door is closed." };
+    ? {
+        value: "Open",
+        tone: "text-critical",
+        hint: "The cabinet door is open.",
+        glyph: "/icons/twr-box-open.svg",
+      }
+    : {
+        value: "Closed",
+        tone: "text-terra",
+        hint: "The cabinet door is closed.",
+        glyph: "/icons/twr-box.svg",
+      };
 }
 
 function coverCell(tower: Tower): Cell {
@@ -412,13 +434,15 @@ const COLUMNS = [
 type ColumnId = (typeof COLUMNS)[number][0];
 
 /**
- * The glyph each column draws, all of them existing exports.
+ * The glyph each column draws.
  *
- * Two are reused for a job they were not drawn for, and both earn it: the
- * cover sensor is an LDR — it reports that it can SEE light — and the door is
- * a panel that opens. A dedicated lock or shield export can replace either
- * without touching anything else here. Nothing is hand-drawn: this repo's rule
- * is to reuse the exported set rather than invent glyphs beside it.
+ * The cover keeps a borrowed one and earns it: the sensor is an LDR, and what
+ * it reports is that it can SEE light. The door draws the cabinet itself —
+ * `twr-box`, the enclosure on the mast with its hinge seam and handle — and
+ * `doorCell` swaps it for `twr-box-open` when the switch says so. It is the
+ * only column whose symbol changes with its reading, and the default here is
+ * the shut box, which is also what a pending door shows: the right drawing,
+ * dark, with nothing claimed about it.
  */
 const GLYPH: Partial<Record<ColumnId, string>> = {
   /* THE HARDWARE THIS FLEET ACTUALLY FLIES: a PTZ dome under its cap, on the
@@ -431,7 +455,7 @@ const GLYPH: Partial<Record<ColumnId, string>> = {
      on the live-view banner, which is about watching rather than about this
      hardware. */
   cameras: "/icons/cctv-dome.svg",
-  door: "/icons/panel-collapse.svg",
+  door: "/icons/twr-box.svg",
   cover: "/icons/poi-eye.svg",
   temperature: "/icons/twr-temp.svg",
   power: "/icons/twr-battery.svg",
@@ -609,6 +633,27 @@ function CellView({ id, cell, row }: { id: ColumnId; cell: Cell; row: Assessed }
             size={17}
             background={batteryFill(cell.level * 100)}
           />
+        ) : id === "door" ? (
+          /* THE ONE GLYPH THAT CHANGES WITH ITS READING, so it moves when the
+             reading does — the door swings on its hinge as it opens or shuts.
+
+             ⚠ `initial={false}` IS THE WHOLE RESTRAINT. Without it every row
+             swings its door on first paint and the board arrives flapping; with
+             it, a swing happens only when a cabinet actually moved while
+             somebody was looking. ENTER is the app's own tween, and the rotation
+             hangs off the hinge side. */
+          <AnimatePresence initial={false} mode="wait">
+            <motion.span
+              key={cell.glyph ?? "pending"}
+              initial={{ opacity: 0, rotate: -14 }}
+              animate={{ opacity: 1, rotate: 0 }}
+              exit={{ opacity: 0 }}
+              transition={ENTER}
+              className="block origin-bottom-right"
+            >
+              <MaskIcon src={cell.glyph ?? GLYPH.door!} size={15} />
+            </motion.span>
+          </AnimatePresence>
         ) : GLYPH[id] ? (
           <MaskIcon src={GLYPH[id]!} size={15} />
         ) : null}

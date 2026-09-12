@@ -428,6 +428,65 @@ test("getTower rejects a response missing health_as_of", async () => {
   );
 });
 
+/* --- §3.1 health.battery: reachable is the contract ---------------------- */
+
+test("a battery block parses its readings", async () => {
+  const detail = {
+    ...structuredClone(PROJECTED),
+    health: {
+      battery: {
+        reachable: true,
+        as_of: "2026-09-12T10:00:00Z",
+        soc_pct: 37,
+        voltage_v: 13.94,
+        current_a: -4.86,
+        temp_c: 24,
+      },
+    },
+    health_as_of: "2026-09-12T10:00:00Z",
+  };
+  const f = fakeFetch(() => json(detail));
+  const t = await client(f).getTower("kln_northridge_004821");
+  assert.equal(t.health.battery.reachable, true);
+  assert.equal(t.health.battery.soc_pct, 37);
+  assert.equal(t.health.battery.voltage_v, 13.94);
+  assert.equal(t.health.battery.current_a, -4.86, "negative is discharging");
+  assert.equal(t.health.battery.temp_c, 24);
+});
+
+test("a battery block without `reachable` is rejected — the ordering guarantee", async () => {
+  // Coordination returns NO battery block unless it has a real boolean here, so
+  // this response should be impossible. It is asserted anyway, because the
+  // whole safety of the deploy order rests on this field being mandatory: if it
+  // ever became optional, a half-deployed tower could blank the cell silently
+  // instead of failing loudly here.
+  const detail = {
+    ...structuredClone(PROJECTED),
+    health: { battery: { soc_pct: 37 } },
+    health_as_of: "2026-09-12T10:00:00Z",
+  };
+  const f = fakeFetch(() => json(detail));
+  await assert.rejects(
+    () => client(f).getTower("kln_northridge_004821"),
+    (err) => /battery\.reachable/.test(err.issues.join(" ")),
+  );
+});
+
+test("an unreachable battery parses with no readings at all", async () => {
+  // One BLE connection: something else holding it is routine, not an error, and
+  // it must be representable without a charge level. Absent, not stale.
+  const detail = {
+    ...structuredClone(PROJECTED),
+    health: { battery: { reachable: false, as_of: "2026-09-12T10:00:00Z" } },
+    health_as_of: "2026-09-12T10:00:00Z",
+  };
+  const f = fakeFetch(() => json(detail));
+  const t = await client(f).getTower("kln_northridge_004821");
+  assert.equal(t.health.battery.reachable, false);
+  assert.equal(t.health.battery.soc_pct, undefined);
+  assert.equal(t.health.battery.voltage_v, undefined);
+});
+
 test("a viewer with no authorized towers gets an empty list, not an error", async () => {
   const f = fakeFetch(() => json({ towers: [] }));
   assert.deepEqual(await client(f).listTowers(), []);

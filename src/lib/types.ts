@@ -77,6 +77,31 @@ export interface TowerHealthReading {
   thermal?: { socC: number | null; state?: string };
   disk?: { freePct: number };
   /**
+   * The battery pack, read over Bluetooth by the tower.
+   *
+   * ⚠ `reachable` CARRIES THE MEANING, and the readings are absent when it is
+   * false — not stale, not zero. The pack accepts ONE Bluetooth connection, so a
+   * tower with a battery regularly cannot read it: someone standing at the
+   * cabinet with the vendor's app is enough. Never substitute a remembered
+   * charge behind this flag.
+   *
+   * ⚠ `socPct` is STATE OF CHARGE. `thermal.socC` above is the processor's die
+   * TEMPERATURE. Same abbreviation, unrelated quantities, adjacent fields.
+   *
+   * Shaped inline to match `BatteryReading` in `lib/battery.ts`, which owns the
+   * tiers and the helpers that read this — structurally the same type, so it
+   * passes to `batteryHint`/`batteryTone` directly.
+   */
+  battery?: {
+    reachable: boolean;
+    asOf?: string;
+    socPct?: number;
+    voltageV?: number;
+    currentA?: number;
+    /** The PACK's temperature, not the processor's. */
+    tempC?: number;
+  };
+  /**
    * The uplink, as MEASURED — never as graded.
    *
    * `signalDbm` is a raw RSSI, always negative. Grading it is the dashboard's
@@ -100,9 +125,15 @@ export interface TowerHealthReading {
  * invent whatever it liked. A real tower comes from coordination's §A.3
  * projection, and that carries `device_id`, `label`, `link`, `as_of`,
  * `cameras`, `sensors`, and a `health` block of door · cover · impact ·
- * thermal · disk. It carries **no battery, no solar array state, no cabinet
- * temperature, no storage figures, and no uplink *quality*** — those are not
- * withheld, they do not exist anywhere in the contract.
+ * thermal · disk · battery. It carries **no solar array state, no cabinet
+ * temperature, and no uplink *quality*** — those are not withheld, they do not
+ * exist anywhere in the contract.
+ *
+ * SUPERSEDED 2026-09-12: this listed **battery** and **storage figures** among
+ * the things the projection does not carry. Both arrived — storage as
+ * `health.disk`, and the battery as `health.battery`, read off the pack over
+ * Bluetooth. `batteryPct` below is still absent for a real tower, and that is
+ * now a different statement from "no battery reading exists": see its note.
  *
  * So the choice was: invent them, or admit they are absent. Absence is
  * diagnostic in this app — the fleet card already draws a mast with no battery
@@ -142,7 +173,15 @@ export interface Tower {
 
   /** Solar array state. Not in the projection — absent for a real tower. */
   solar?: SolarState;
-  /** Battery charge, 0–100. Not in the projection — absent for a real tower. */
+  /**
+   * Battery charge, 0–100 — **the seed's field, and only the seed's**.
+   *
+   * ⚠ DO NOT MAP A REAL TOWER'S CHARGE INTO THIS. A real reading lives in
+   * `health.battery.socPct`. This one is demo state: `App.tsx` drives it upward
+   * 1% a second to animate a charging tower, so anything downstream of it is
+   * downstream of a simulation. Keeping them apart is what lets the demo screens
+   * keep moving while a live tower shows only what its pack actually said.
+   */
   batteryPct?: number;
   /** Cabinet temperature in °C. Not in the projection. Note `health.thermal` is
    *  the *SoC* temperature, which is a different reading and not a substitute. */

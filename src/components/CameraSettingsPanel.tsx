@@ -7,6 +7,7 @@ import {
 } from "react";
 import { solarState } from "@/lib/data";
 import { MaskIcon } from "./Icon";
+import { batteryCharging } from "@/lib/battery";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
@@ -381,6 +382,27 @@ export function CameraSettingsPanel({
         100
       : undefined);
 
+  /* THE BATTERY, and the charge this panel is allowed to DRAW.
+     A real tower reports `health.battery`; a seeded one carries `batteryPct`.
+     They are kept apart on purpose — `batteryPct` is demo state that App.tsx
+     drives upward 1% a second, and a live pack's charge must never come from a
+     simulation.
+
+     An UNREACHABLE pack draws nothing. Not the last value, not a zero: the pack
+     allows one Bluetooth connection, so failing to read it is routine, and the
+     honest answer is to say so rather than to keep the last number on screen. */
+  const reportedBattery = tower.health?.battery;
+  const chargePct = reportedBattery
+    ? reportedBattery.reachable
+      ? reportedBattery.socPct
+      : undefined
+    : tower.batteryPct;
+  /* Solar says the array is working; a positive pack current says charge is
+     actually going in. Either is enough to animate the cell. */
+  const chargingNow =
+    reportedSolar === "charging" ||
+    (reportedBattery ? batteryCharging(reportedBattery) === true : false);
+
   if (editingZones) {
     return (
       <ZoneEditor
@@ -450,10 +472,10 @@ export function CameraSettingsPanel({
               the pending card's before it. `?? 0` used to stand in here, which
               drew an EMPTY RED cell on every real tower: a flat battery nobody
               measured, in the fault colour. */}
-          {tower.batteryPct !== undefined && (
+          {chargePct !== undefined && (
             <TowerBattery
-              pct={tower.batteryPct}
-              charging={reportedSolar === "charging"}
+              pct={chargePct}
+              charging={chargingNow}
               className="absolute inset-0 size-full"
             />
           )}
@@ -508,21 +530,28 @@ export function CameraSettingsPanel({
                   <MaskIcon
                     src="/icons/set-battery.svg"
                     size={24}
-                    {...(tower.batteryPct !== undefined
-                      ? { background: batteryFill(tower.batteryPct) }
+                    {...(chargePct !== undefined
+                      ? { background: batteryFill(chargePct) }
                       : {})}
                   />
                   <span
                     className={`flex items-center gap-[2px] font-display text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] tabular-nums ${
-                      tower.batteryPct !== undefined
-                        ? batteryTone(tower.batteryPct)
+                      chargePct !== undefined
+                        ? batteryTone(chargePct)
                         : "text-muted"
                     }`}
                   >
-                    {tower.batteryPct !== undefined
-                      ? `${tower.batteryPct}%`
-                      : "No reading"}
-                    {reportedSolar === "charging" && (
+                    {/* Three states, the same three the fleet board's Power cell
+                        draws: a charge, a pack that could not be reached, or no
+                        battery at all. "Unreachable" is muted rather than red —
+                        it is a normal condition (one Bluetooth connection, and
+                        something else has it), not a fault. */}
+                    {chargePct !== undefined
+                      ? `${Math.round(chargePct)}%`
+                      : reportedBattery
+                        ? "Unreachable"
+                        : "No reading"}
+                    {chargingNow && (
                       <MaskIcon
                         src="/icons/set-bolt.svg"
                         size={16}
@@ -788,6 +817,43 @@ export function CameraSettingsPanel({
           </Group>
 
           <Group title="Power">
+            {/* The pack's own readings, above the control that spends them.
+                Same order as the Storage group: what is true, then what to do
+                about it. Each is empty — "Not reported" — when the tower did not
+                send it, and ALL of them are empty when the pack could not be
+                reached, because an unreachable battery has no readings rather
+                than old ones. */}
+            <RowReading
+              label="Battery"
+              value={
+                chargePct !== undefined
+                  ? `${Math.round(chargePct)}%`
+                  : reportedBattery
+                    ? "Unreachable"
+                    : ""
+              }
+              tone={chargePct !== undefined ? batteryTone(chargePct) : undefined}
+            />
+            <RowReading
+              label="Pack Voltage"
+              value={
+                reportedBattery?.reachable &&
+                reportedBattery.voltageV !== undefined
+                  ? `${reportedBattery.voltageV} V`
+                  : ""
+              }
+            />
+            <RowReading
+              label="Pack Temperature"
+              /* The PACK's temperature. `health.thermal.socC` is the processor's
+                 and is a different reading — the Device group's business, not
+                 this one's. */
+              value={
+                reportedBattery?.reachable && reportedBattery.tempC !== undefined
+                  ? `${reportedBattery.tempC}°C`
+                  : ""
+              }
+            />
             <Row
               label="Working Mode"
               value={power?.label ?? ""}

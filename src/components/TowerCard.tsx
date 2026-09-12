@@ -95,12 +95,34 @@ export function TowerCard({
     tower.solar !== undefined
       ? solarState({ solar: tower.solar, batteryPct: tower.batteryPct })
       : undefined;
-  const hasBattery = tower.batteryPct !== undefined;
+  /* THE CHARGE THIS CARD MAY DRAW.
+     A real tower reports `health.battery` (read off the pack over Bluetooth); a
+     seeded one carries `batteryPct`, which App.tsx drives upward 1% a second to
+     animate the demo. They are kept apart so a live reading is never downstream
+     of a simulation.
+
+     An UNREACHABLE pack draws no cell. The pack allows one Bluetooth connection,
+     so failing to read it is routine — and the last known charge is not the
+     current one. `batteryUnreachable` is what lets the hover panel say that
+     outright instead of falling back to "NO CABINET READINGS", which would
+     claim there is no battery fitted when there is. */
+  const reportedBattery = tower.health?.battery;
+  const chargePct = reportedBattery
+    ? reportedBattery.reachable
+      ? reportedBattery.socPct
+      : undefined
+    : tower.batteryPct;
+  const hasBattery = chargePct !== undefined;
+  const batteryUnreachable = reportedBattery !== undefined && !reportedBattery.reachable;
   const hasTemp = tower.tempC !== undefined;
   /* Nothing to hover for. A panel that opens onto three blank rows is worse
      than a mast that simply does not offer one. */
   const hasReadings =
-    hasBattery || hasTemp || solar !== undefined || tower.link !== undefined;
+    hasBattery ||
+    batteryUnreachable ||
+    hasTemp ||
+    solar !== undefined ||
+    tower.link !== undefined;
   const alertCount = alerts.length;
   /* The strip reports the newest one still waiting on somebody. A card is a
      summary; the feed inside the tower is where the rest of them live, and an
@@ -119,10 +141,13 @@ export function TowerCard({
         solar !== undefined ? SOLAR_LABEL[solar] : null,
         hasBattery
           ? "Battery " +
-            tower.batteryPct +
+            Math.round(chargePct!) +
             "%" +
             (solar === "charging" ? " and rising" : "")
           : null,
+        /* The screen-reader path must not be the one place this goes quiet: a
+           pack that could not be read is a distinct state from no pack. */
+        batteryUnreachable ? "Battery unreachable" : null,
         hasTemp ? tower.tempC + " degrees" : null,
         tower.link !== undefined ? LINK_LABEL[tower.link] : null,
       ]
@@ -210,7 +235,7 @@ export function TowerCard({
             than to an unfinished one. */}
         {hasBattery && (
           <TowerBattery
-            pct={tower.batteryPct!}
+            pct={chargePct!}
             charging={solar === "charging"}
             className="absolute inset-0 size-full"
           />
@@ -278,10 +303,20 @@ export function TowerCard({
                 <MaskIcon
                   src="/icons/twr-battery.svg"
                   size={19.2}
-                  background={batteryFill(tower.batteryPct!)}
+                  background={batteryFill(chargePct!)}
                 />
               </span>
-              {tower.batteryPct}%
+              {Math.round(chargePct!)}%
+            </span>
+          ) : batteryUnreachable ? (
+            /* A battery IS fitted and the tower could not reach it. Saying "NO
+               CABINET READINGS" here would deny the hardware exists; showing the
+               last charge would be worse. So: the glyph unlit, and the word. */
+            <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/45">
+              <span className="flex size-[16px] items-center">
+                <MaskIcon src="/icons/twr-battery.svg" size={19.2} />
+              </span>
+              UNREACHABLE
             </span>
           ) : (
             <span className="px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] tracking-[0.12px] whitespace-nowrap text-white/45">

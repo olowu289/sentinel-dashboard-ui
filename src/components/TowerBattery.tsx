@@ -1,4 +1,9 @@
 import { useId, type CSSProperties } from "react";
+import {
+  BATTERY_CRITICAL_PCT,
+  BATTERY_LOW_PCT,
+  batteryTone,
+} from "@/lib/battery";
 
 /**
  * The battery cell on the tower mast, drawn as a level rather than picked from
@@ -42,21 +47,25 @@ const SIDE =
    existing battery tiers, and the hues are the house grammar: a charge is a
    reading, and readings get green, amber or red. */
 const TIERS = [
-  { min: 40, front: "#409421", side: "#34781a" },
-  { min: 20, front: "#f3cf58", side: "#c4a749" },
+  { min: BATTERY_LOW_PCT, front: "#409421", side: "#34781a" },
+  { min: BATTERY_CRITICAL_PCT, front: "#f3cf58", side: "#c4a749" },
   { min: 0, front: "#c44949", side: "#9e3b3b" },
 ] as const;
 
 /**
  * The charge tier as a text colour, for everything that names a battery beside
  * the cell — the fleet card's hover panel, the settings identity, the tower
- * bar. It lives here because this file already owns `TIERS`, and three copies
- * of the same two thresholds is how a product ends up disagreeing with itself
- * about when a battery is low.
+ * bar, and now the fleet board's Power cell.
+ *
+ * SUPERSEDED 2026-09-12, in LOCATION only. This said the thresholds live here
+ * "because this file already owns `TIERS`, and three copies of the same two
+ * thresholds is how a product ends up disagreeing with itself about when a
+ * battery is low." That reasoning was right, and it is exactly why they no
+ * longer live here: the Power cell became a fourth drawing of the same fact, so
+ * the numbers moved to `lib/battery.ts` and this file imports them for its
+ * geometry. Re-exported, so every existing call site is untouched.
  */
-export function batteryTone(pct: number) {
-  return pct < 20 ? "text-critical" : pct < 40 ? "text-warn" : "text-terra";
-}
+export { batteryTone };
 
 /* Where the battery's body starts and ends as a fraction of the icon's box —
    0.8→16.4 of 19.2 in `twr-battery.svg`, 1→20.5 of 24 in `set-battery.svg`, the
@@ -103,7 +112,14 @@ const BATTERY_HEX = {
  */
 export function batteryFill(pct: number) {
   const level = Math.min(100, Math.max(0, pct));
-  const lit = BATTERY_HEX[pct < 20 ? "critical" : pct < 40 ? "warn" : "ok"];
+  const lit =
+    BATTERY_HEX[
+      pct < BATTERY_CRITICAL_PCT
+        ? "critical"
+        : pct < BATTERY_LOW_PCT
+          ? "warn"
+          : "ok"
+    ];
   const stop =
     level >= 100 ? 100 : BODY_START + (BODY_END - BODY_START) * (level / 100);
   return `linear-gradient(to right, ${lit} 0 ${stop}%, rgba(255,255,255,0.16) ${stop}% 100%)`;

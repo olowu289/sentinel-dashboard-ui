@@ -714,6 +714,39 @@ export interface UplinkHealth {
     /** `false` when the radio is up but joined to nothing. */
     associated?: boolean;
 }
+/**
+ * §3.1 `health.battery` — the tower's LiFePO4 pack, read over BLE.
+ *
+ * ⚠ `reachable` IS THE ONLY REQUIRED FIELD, and that is deliberate rather than
+ * lax. The pack accepts exactly ONE BLE connection, so a tower is regularly
+ * unable to read its own battery — an operator with the vendor's phone app open
+ * is enough. That is a normal state, not an error, and it has to be
+ * representable without any readings at all.
+ *
+ * ⚠ THE READINGS ARE PRESENT ONLY WHEN `reachable` IS TRUE. When it is false
+ * they are ABSENT, not stale, not zero, not last-known-good. Do not fall back
+ * to a previous value behind this flag: "the battery was 40% the last time
+ * anyone could ask" is not a charge level, and drawing it as one is the exact
+ * failure this shape exists to prevent.
+ *
+ * ⚠ `soc_pct` IS STATE OF CHARGE. `ThermalHealth.soc_c` three fields up is the
+ * System-on-Chip's die TEMPERATURE. Two unrelated quantities, one abbreviation,
+ * in the same health block.
+ */
+export interface BatteryHealth {
+    /** Whether the tower could read the pack at all. Always present. */
+    reachable: boolean;
+    /** When the reading was taken. Staleness is the consumer's to judge. */
+    as_of?: string;
+    /** State of charge, percent. Absent unless `reachable`. */
+    soc_pct?: number;
+    /** Pack voltage. Absent unless `reachable`. */
+    voltage_v?: number;
+    /** Amps; positive is charging, negative is discharging. Absent unless `reachable`. */
+    current_a?: number;
+    /** Pack temperature, °C — NOT the processor's (`thermal.soc_c`). */
+    temp_c?: number;
+}
 export interface TowerHealth {
     door?: DoorHealth;
     cover?: CoverHealth;
@@ -722,6 +755,7 @@ export interface TowerHealth {
     disk?: DiskHealth;
     feeds?: FeedHealth[];
     uplink?: UplinkHealth;
+    battery?: BatteryHealth;
 }
 /** §3.4 `tower.state.reason` — why an unsolicited health push was sent. */
 export type TowerStateReason = "feed_lost" | "feed_restored" | "tamper" | "thermal" | "disk" | "mediamtx_restart" | "ptz_unavailable" | "manual";

@@ -516,6 +516,34 @@ function parseTowerHealth(c, path, raw) {
         }
         out.uplink = out2;
     }
+    const battery = o["battery"] === undefined || o["battery"] === null
+        ? undefined
+        : c.obj(`${path}.battery`, o["battery"]);
+    if (battery) {
+        /* `reachable` is the ONLY required field, and it is what makes the deploy
+           order safe: coordination returns no battery block at all unless it has a
+           real boolean here, so this cannot be handed a block that throws.
+    
+           Every reading is optional because a tower that cannot reach its pack —
+           the phone app holds the single BLE connection — is a normal state that
+           must be representable with no numbers. Each is taken only when it really
+           is a number, so a null or a string cannot reach a UI that would draw it
+           as a charge level. Local shape rather than a new type import, matching
+           the disk block above. */
+        const b = { reachable: c.bool(`${path}.battery.reachable`, battery["reachable"]) };
+        const stamp = c.optStr(`${path}.battery.as_of`, battery["as_of"]);
+        if (stamp !== undefined)
+            b.as_of = stamp;
+        if (typeof battery["soc_pct"] === "number")
+            b.soc_pct = battery["soc_pct"];
+        if (typeof battery["voltage_v"] === "number")
+            b.voltage_v = battery["voltage_v"];
+        if (typeof battery["current_a"] === "number")
+            b.current_a = battery["current_a"];
+        if (typeof battery["temp_c"] === "number")
+            b.temp_c = battery["temp_c"];
+        out.battery = b;
+    }
     if (o["feeds"] !== undefined && o["feeds"] !== null) {
         out.feeds = c.arr(`${path}.feeds`, o["feeds"]).map((f, i) => {
             const fo = c.obj(`${path}.feeds[${i}]`, f);

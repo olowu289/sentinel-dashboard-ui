@@ -3,12 +3,13 @@ import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
+import { batteryHint, batteryTone } from "@/lib/battery";
 import { storageHint, storageTone } from "@/lib/storage";
 import { useNow } from "@/lib/useNow";
 import type { Alert, CameraFeed, Tower, TowerStatus } from "@/lib/types";
 import { IconRail } from "./IconRail";
 import { CABINET_CRITICAL_C, CABINET_WARN_C, STATUS } from "./TowerCard";
-import { batteryTone, TowerBattery } from "./TowerBattery";
+import { TowerBattery } from "./TowerBattery";
 
 /**
  * The towers board: the fleet as a status board, one row per tower.
@@ -88,7 +89,18 @@ const WHY = {
     "the tower measures its own temperature, but coordination does not pass that reading to the dashboard yet.",
   storage:
     "the tower can measure its recordings disk, but that reading is not reported to the dashboard yet.",
-  power: "no tower on this fleet carries a battery or charge sensor, so there is no reading to show.",
+  /* SUPERSEDED 2026-09-12. This read "no tower on this fleet carries a battery
+     or charge sensor, so there is no reading to show", and it is now false: a
+     tower with ENABLE_BATTERY_BLE=1 reads its LiFePO4 pack over Bluetooth and
+     reports charge, voltage and pack temperature. A REACHABLE BATTERY IS A
+     FITTED SENSOR.
+
+     This copy now covers only what is left — a tower that reports no battery
+     block at all, which is a tower with no pack wired or the reader switched
+     off. A tower that HAS one and cannot reach it is a different state and says
+     so in its own words rather than borrowing this one. */
+  power:
+    "this tower reports no battery. A tower with a pack fitted and the battery reader enabled reports charge, voltage and pack temperature.",
   alerts:
     "coordination has no alert feed yet. A tower's own tamper and camera alerts stay on the tower for now.",
 } as const;
@@ -291,6 +303,48 @@ function storageCell(tower: Tower): Cell {
 }
 
 function powerCell(tower: Tower): Cell {
+  /* THREE HONEST STATES, AND THEY ARE NOT INTERCHANGEABLE.
+
+     SUPERSEDED 2026-09-12: this cell only ever had two — a seeded percentage or
+     "No sensor fitted" — because no real tower reported a battery. One does
+     now, over Bluetooth, and the middle case it introduced is the important
+     one: the pack accepts a SINGLE BLE connection, so a tower that has a
+     battery regularly cannot read it (someone standing at it with the vendor's
+     app is enough).
+
+       reachable          the charge, colour-coded.
+       not reachable      said plainly, with NO number. Not the last one, not a
+                          zero. "It was 37% when anyone could last ask" is not a
+                          charge level, and the whole point of `reachable`
+                          crossing the wire is so this cell can say so.
+       no battery block   "No sensor fitted" — no pack wired, or the reader off.
+
+     The real reading is read from `health.battery` and NOT from `batteryPct`,
+     deliberately. `batteryPct` is the seed's field and App.tsx drives it upward
+     1% a second to animate the demo; a live tower's charge must never be
+     downstream of that. Seeded towers still fall through to it below, so the
+     demo screens are unchanged. */
+  const battery = tower.health?.battery;
+  if (battery) {
+    if (!battery.reachable) {
+      return {
+        value: "unreachable",
+        empty: true,
+        hint: batteryHint(battery),
+      };
+    }
+    if (battery.socPct !== undefined) {
+      return {
+        value: `${Math.round(battery.socPct)}%`,
+        tone: batteryTone(battery.socPct),
+        hint: batteryHint(battery),
+      };
+    }
+    /* Reached the pack and got no charge level out of it. Rare, and still not a
+       reason to show a number. */
+    return { value: "—", empty: true, hint: batteryHint(battery) };
+  }
+
   if (tower.batteryPct === undefined) return pending(NO_SENSOR, WHY.power);
   const charging =
     tower.solar !== undefined &&

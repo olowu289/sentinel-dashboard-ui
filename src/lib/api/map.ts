@@ -185,6 +185,28 @@ function toHealth(raw: TowerDetail["health"] | undefined): TowerHealthReading | 
     };
   }
   if (raw.disk) out.disk = { freePct: raw.disk.free_pct };
+  /* The battery. `reachable` always crosses; the readings only when the tower
+     actually reached the pack, which is what the SDK's shape already
+     guarantees. Spread conditionally rather than defaulted, for the usual
+     reason: an unreachable pack must render as unreachable, never as 0%. */
+  if (raw.battery) {
+    out.battery = {
+      reachable: raw.battery.reachable,
+      ...(raw.battery.as_of ? { asOf: raw.battery.as_of } : {}),
+      ...(typeof raw.battery.soc_pct === "number"
+        ? { socPct: raw.battery.soc_pct }
+        : {}),
+      ...(typeof raw.battery.voltage_v === "number"
+        ? { voltageV: raw.battery.voltage_v }
+        : {}),
+      ...(typeof raw.battery.current_a === "number"
+        ? { currentA: raw.battery.current_a }
+        : {}),
+      ...(typeof raw.battery.temp_c === "number"
+        ? { tempC: raw.battery.temp_c }
+        : {}),
+    };
+  }
   /* Each member carried only when present. A wired uplink has no `signalDbm`
      and must not gain one here — the whole point of the three shapes is that
      they stay distinguishable all the way to the row that draws them. */

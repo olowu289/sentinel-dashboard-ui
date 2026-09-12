@@ -222,7 +222,16 @@ export function TowerView({
       >
         <TopBar
           towerName={tower.site}
-          batteryPct={tower.batteryPct}
+          /* The real pack first, the seed's value for a demo tower. An
+             unreachable pack passes nothing, and the bar draws no glyph —
+             the last known charge is not the current one. */
+          batteryPct={
+            tower.health?.battery
+              ? tower.health.battery.reachable
+                ? tower.health.battery.socPct
+                : undefined
+              : tower.batteryPct
+          }
           online={tower.status !== "offline"}
           onNavigateUp={onBack}
           layout={layout}

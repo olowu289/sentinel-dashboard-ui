@@ -3,7 +3,7 @@ import { solarState } from "@/lib/data";
 import { formatRelative } from "@/lib/time";
 import { MaskIcon } from "./Icon";
 import { batteryFill, TowerBattery } from "./TowerBattery";
-import { batteryCurrentLabel, batteryFlow } from "@/lib/battery";
+import { batteryCurrentLabel, batteryCurrentValue, batteryFlow } from "@/lib/battery";
 
 /* Status is the same three-tier grammar the tiles use, one level up. Nothing
    here gets a hue for being a card: green is a healthy site, amber a degraded
@@ -123,6 +123,7 @@ export function TowerCard({
   const flow = reportedBattery ? batteryFlow(reportedBattery) : undefined;
   const charging = reportedBattery ? flow === "charging" : solar === "charging";
   const currentLabel = reportedBattery ? batteryCurrentLabel(reportedBattery) : undefined;
+  const currentAmps = reportedBattery ? batteryCurrentValue(reportedBattery) : undefined;
   /* The PACK's temperature, which is what this thermometer has always meant:
      the heat around the cell. A seeded tower carries its own `tempC`;
      `health.thermal` is the PROCESSOR's die and is not a substitute for it. */
@@ -354,18 +355,61 @@ export function TowerCard({
 
           {/* Volts and amps: what the pack knows and nothing else does. Absent
               for a seeded tower, which has no ammeter, and for an unreachable
-              one, which has no readings at all. No colour on the current — the
-              word carries it, and green here would be a fourth thing claiming
-              the battery is healthy. */}
-          {(reportedBattery?.voltageV !== undefined || currentLabel !== undefined) && (
-            <span className="flex items-center gap-[6px] border-t border-white/7 px-[8px] py-[5px] font-display text-[0.6875rem] leading-[16px] tracking-[0.11px] whitespace-nowrap text-white/70 tabular-nums">
+              one, which has no readings at all.
+
+              THE SAME GRAMMAR AS THE ROW ABOVE, and that is the whole of this
+              block: one cell each, glyph then value, 16px mask icon, the
+              display face at 0.75rem bold, tabular figures, 32px tall, divided
+              by the same hairline. It was a smaller, lighter, glyph-less line
+              with a middot in it — three considered readings and a note
+              stapled underneath.
+
+              NEITHER GLYPH TAKES A TONE, and that is deliberate. The three
+              above colour themselves from their own reading because each has a
+              tier to be in — charge, cabinet heat, array state. Pack voltage
+              and current have no tier in this app, and a hue here would be a
+              claim about health that nothing has measured. */}
+          {(reportedBattery?.voltageV !== undefined || currentAmps !== undefined) && (
+            <span className="flex h-[32px] items-center border-t border-white/7">
               {reportedBattery?.voltageV !== undefined && (
-                <span>{reportedBattery.voltageV} V</span>
+                <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+                  {/* The app's one electrical glyph, and the settings panel
+                      already spends it on this pack. */}
+                  <span className="text-white/45">
+                    <MaskIcon src="/icons/set-bolt.svg" size={16} />
+                  </span>
+                  {reportedBattery.voltageV} V
+                </span>
               )}
-              {reportedBattery?.voltageV !== undefined && currentLabel !== undefined && (
-                <span aria-hidden className="size-[2px] shrink-0 rounded-full bg-white/30" />
+
+              {currentAmps !== undefined && (
+                <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+                  {/* The PTZ pad's arrow, turned to where the charge is
+                      actually going: up into the pack, down out of it, flat
+                      while it rests. The rotation IS the reading, taken from
+                      the same sign the sweep is, so the glyph cannot disagree
+                      with the word beside it — and it breathes on the sun's own
+                      2s heartbeat while charge is going in, which is the
+                      vocabulary this panel already speaks. */}
+                  <span className="text-white/45">
+                    <MaskIcon
+                      src="/icons/ptz-arrow.svg"
+                      size={16}
+                      className={
+                        flow === "charging"
+                          ? "-rotate-90 solar-charging"
+                          : flow === "discharging"
+                            ? "rotate-90"
+                            : undefined
+                      }
+                    />
+                  </span>
+                  {currentAmps}
+                  {flow !== undefined && (
+                    <span className="text-white/45">{flow.toUpperCase()}</span>
+                  )}
+                </span>
               )}
-              {currentLabel !== undefined && <span>{currentLabel.toUpperCase()}</span>}
             </span>
           )}
         </span>

@@ -114,15 +114,28 @@ export function batteryCharging(reading: BatteryReading): boolean | undefined {
 }
 
 /**
- * The current as an operator reads it: signed, to one decimal, and what the
- * sign MEANS. "+20.7 A charging" says in one line what a bare 20.69 does not.
+ * The current as a figure alone: signed, to one decimal, with its unit.
+ *
+ * Kept apart from the label below because a panel draws the two halves
+ * differently — the figure leads in the instrument face, the direction
+ * qualifies it — while a screen reader wants them in one breath.
  */
-export function batteryCurrentLabel(reading: BatteryReading): string | undefined {
+export function batteryCurrentValue(reading: BatteryReading): string | undefined {
   if (!reading.reachable || reading.currentA === undefined) return undefined;
   const amps = reading.currentA;
   /* A typographic minus, matching the dBm the board prints beside it. */
   const sign = amps > 0 ? "+" : amps < 0 ? "−" : "";
-  return `${sign}${Math.abs(amps).toFixed(1)} A ${batteryFlow(reading) ?? ""}`.trim();
+  return `${sign}${Math.abs(amps).toFixed(1)} A`;
+}
+
+/**
+ * The current as an operator reads it: the figure, and what the sign MEANS.
+ * "+20.7 A charging" says in one line what a bare 20.69 does not.
+ */
+export function batteryCurrentLabel(reading: BatteryReading): string | undefined {
+  const value = batteryCurrentValue(reading);
+  if (value === undefined) return undefined;
+  return `${value} ${batteryFlow(reading) ?? ""}`.trim();
 }
 
 /**

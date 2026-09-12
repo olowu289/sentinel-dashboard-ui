@@ -144,12 +144,34 @@ export function SentinelApp() {
   const seededFleet = isSeededFleet();
 
   const [feeds, setFeeds] = useState<CameraFeed[]>(seededFleet ? FEEDS : []);
-  /* Seeded fleet only, the same condition `feeds` uses. A live fleet has no
-     alert feed yet — coordination serves none — and the fixtures name TWR-1042
-     and TWR-2071, towers no account has. Loaded into a live session they put
-     phantom counts on real cards and a banner about a yard nobody owns, and
-     sent the rail's Towers item to a tower that does not exist. */
-  const [alerts, setAlerts] = useState<Alert[]>(seededFleet ? ALERTS : []);
+  /*
+   * ⚠⚠ FIXTURE ALERTS, ON EVERY FLEET — NOT REAL DETECTIONS. ⚠⚠
+   *
+   * The same departure `demoCabinet` documents, made deliberately and by the
+   * owner: the alert feed is the one screen that is empty on a live account,
+   * because coordination serves no alerts yet, and an empty feed makes a built
+   * product look unfinished. So the fixtures load whatever the fleet is.
+   *
+   * WHAT THAT MEANS, PLAINLY. These six name TWR-1042 and TWR-2071, towers no
+   * real account has. On a live fleet the Alerts screen fills with them, the
+   * new-alert banner speaks for them, and a REAL tower's card still counts
+   * zero — because none of them are its. Nothing here is a detection anything
+   * saw.
+   *
+   * This was `seededFleet ? ALERTS : []` for exactly one day, and the reasons
+   * are kept rather than deleted because they are still true and still the
+   * argument for taking it out again:
+   *
+   *   · phantom counts on real cards, and a banner about a yard nobody owns;
+   *   · the rail's Towers item used to open the newest alert's tower, which
+   *     was always TWR-1042 — "TWR-1042 IS UNAVAILABLE" on every click. That
+   *     one cannot come back: Towers opens the board now and reads no alert.
+   *
+   * The way out is the same one `demoCabinet` names: a real feed, or a mark on
+   * screen. Until then this is a knowing choice, not an oversight — swap the
+   * line below back the moment coordination serves alerts.
+   */
+  const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
   /* State rather than the module constant, because a seeded battery actually
      fills: those towers are off-grid and the panel is the only thing that
      refills them, so a card claiming to be charging while the number sits
@@ -1483,7 +1505,12 @@ export function SentinelApp() {
           towers={towers}
           feeds={feeds}
           alerts={alerts}
-          alertFeed={seededFleet}
+          /* There IS an alert list now, on every fleet — see the note on
+             `alerts`. Saying "no alert feed yet" here while the Alerts screen
+             is full of them would be the board contradicting the screen next
+             door. A tower with none of the fixtures reads 0, which is true of
+             the list it is counting. */
+          alertFeed
           seeded={seededFleet}
           loading={fleetLoading}
           problem={reachProblem?.headline ?? null}

@@ -421,7 +421,16 @@ type ColumnId = (typeof COLUMNS)[number][0];
  * is to reuse the exported set rather than invent glyphs beside it.
  */
 const GLYPH: Partial<Record<ColumnId, string>> = {
-  cameras: "/icons/cctv.svg",
+  /* THE HARDWARE THIS FLEET ACTUALLY FLIES: a PTZ dome under its cap, on the
+     pole bracket. `cctv.svg` is the set's generic box camera on a wall arm,
+     which is not what is bolted to these masts — and on a board whose whole
+     claim is that every glyph is a reading, the one drawing of the kit itself
+     should be the kit. Same 16px box, same 1.5 stroke, same round caps as the
+     rest of the set, and the lens is the zero-length round-capped line
+     `cctv.svg` uses for its own dot. The generic one stays where it belongs,
+     on the live-view banner, which is about watching rather than about this
+     hardware. */
+  cameras: "/icons/cctv-dome.svg",
   door: "/icons/panel-collapse.svg",
   cover: "/icons/poi-eye.svg",
   temperature: "/icons/twr-temp.svg",

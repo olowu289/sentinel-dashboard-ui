@@ -32,20 +32,55 @@
  * honest placeholder. Nothing in this file can produce a frame.
  */
 
-import type { ViewerSession } from "@kallon/sentry-sdk";
+import type { IceCandidate, ViewerSession } from "@kallon/sentry-sdk";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
 
 /**
- * How long to wait for ICE gathering before sending what we have.
+ * Send the offer the moment it exists, and trickle candidates after it.
  *
- * §4.5 makes non-trickle the phase-one baseline: gather fully, then offer. But
- * "fully" has no guaranteed end on some networks — a host that never emits the
- * null candidate would hang the offer forever. Sending what has been gathered
- * so far is still a valid non-trickle offer, and on a LAN they are all present
- * within a few hundred milliseconds anyway.
+ * SUPERSEDED 2026-09-12: this file did gather-then-offer — `createOffer`,
+ * `setLocalDescription`, then WAIT for ICE gathering (up to the cap below) and
+ * only then `sendOffer`. On a LAN that wait is a few hundred milliseconds. On
+ * the network a real tower is on it is 1–3 s while the browser allocates on
+ * the TURN relay, and the full 8 s whenever one TURN URL is slow to answer —
+ * all of it spent before a single byte of signalling has left the machine.
+ *
+ * Now the offer goes out as soon as the local description is set, and the
+ * candidates follow it up `PATCH …/ice` as the browser finds them, through the
+ * relay coordination already had for exactly this (`sendIceCandidates` →
+ * `session.ice` → the tower's WHEP PATCH). Nothing comes back down: MediaMTX
+ * answers with its full candidate set, so there is no tower-side trickle to
+ * poll for.
+ *
+ * ⚠ A KILL SWITCH, FOR THE FIRST LIVE ROLLOUT ONLY. Trickle makes the
+ * connection depend on the tower's PATCH path for the first time — until now
+ * the offer carried every candidate and PATCH was decoration. That path has
+ * been corrected to the WHEP fragment format, but it has been exercised only
+ * against a mock, and the thing that can prove it is a real MediaMTX on a real
+ * tower. `false` restores gather-then-offer exactly as it was. Remove the
+ * switch once two cameras have connected on the tower with it on.
+ */
+export const TRICKLE_ICE = true;
+
+/**
+ * How long ICE gathering may run before the viewer declares it finished.
+ *
+ * SUPERSEDED 2026-09-12 in ROLE, not value. This was the wait before the offer
+ * could be sent at all. Under trickle it is a SAFETY CAP: the offer has long
+ * since gone, candidates have been flowing, and this only decides when to send
+ * `end_of_candidates` to a browser that never emitted the null candidate on its
+ * own — the same networks the old note described. Under the kill switch it is
+ * the old wait again.
  */
 export const ICE_GATHER_TIMEOUT_MS = 8_000;
+
+/**
+ * How long to hold candidates before PATCHing them, so a burst gathered in the
+ * same tick goes up as one request rather than five. Short enough to be
+ * invisible against a network round-trip.
+ */
+const TRICKLE_BATCH_MS = 40;
 
 /** How often to re-read the session's expiry from coordination. */
 export const STATUS_POLL_MS = 60_000;
@@ -195,6 +230,130 @@ function waitForIceGathering(pc: RTCPeerConnection, signal: AbortSignal): Promis
   });
 }
 
+interface Trickle {
+  /**
+   * The tower now holds the session — flush what was buffered and stream the
+   * rest as it arrives.
+   *
+   * ⚠ NOTHING IS SENT BEFORE THIS. The tower adds a session to its table only
+   * after MediaMTX has answered, and a `session.ice` for a session it does not
+   * know yet is refused as `session_unknown`. So every candidate the browser
+   * finds while the offer is in flight is held here and released the moment
+   * the answer is applied. That window is exactly where a naive trickle loses
+   * its first — and usually best — candidates.
+   */
+  release: () => void;
+  /** Stop listening and drop anything unsent. Idempotent. */
+  stop: () => void;
+}
+
+/**
+ * Relay the browser's candidates to the tower as they are found.
+ *
+ * Attached BEFORE `setLocalDescription`, because that is what starts gathering
+ * and the first candidates can arrive on the very next tick. Batches within
+ * `TRICKLE_BATCH_MS`; PATCHes strictly in order on one promise chain, because
+ * ICE does not mind a lost candidate but a reordered end-of-candidates would
+ * discard whatever came after it.
+ *
+ * Every PATCH is best-effort: a lost candidate degrades one path, it does not
+ * fail the session, so nothing here ever rejects into `openPlayback`.
+ */
+function startTrickle(
+  pc: RTCPeerConnection,
+  session: ViewerSession,
+  signal: AbortSignal,
+): Trickle {
+  const client = getClient();
+  let buffer: IceCandidate[] = [];
+  let released = false;
+  let ended = false;
+  let endSent = false;
+  let stopped = false;
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let chain: Promise<void> = Promise.resolve();
+
+  const flush = () => {
+    flushTimer = null;
+    if (stopped || !released || signal.aborted) return;
+    const batch = buffer;
+    buffer = [];
+    const sendEnd = ended && !endSent;
+    if (batch.length === 0 && !sendEnd) return;
+    if (sendEnd) endSent = true;
+    chain = chain.then(async () => {
+      if (stopped || signal.aborted) return;
+      try {
+        if (batch.length > 0) {
+          await client.sendIceCandidates(session, batch, { signal });
+        }
+        if (sendEnd) {
+          await client.sendIceCandidates(session, [], { signal, end_of_candidates: true });
+        }
+      } catch {
+        /* best-effort — see above */
+      }
+    });
+  };
+  const schedule = () => {
+    if (flushTimer === null) flushTimer = setTimeout(flush, TRICKLE_BATCH_MS);
+  };
+
+  const onCandidate = (e: RTCPeerConnectionIceEvent) => {
+    if (stopped) return;
+    if (e.candidate) {
+      buffer.push({
+        candidate: e.candidate.candidate,
+        sdpMid: e.candidate.sdpMid,
+        sdpMLineIndex: e.candidate.sdpMLineIndex,
+        usernameFragment: e.candidate.usernameFragment,
+      });
+    } else {
+      // The null candidate is the browser's own end-of-candidates.
+      ended = true;
+    }
+    schedule();
+  };
+  const onState = () => {
+    if (pc.iceGatheringState === "complete" && !ended) {
+      ended = true;
+      schedule();
+    }
+  };
+  // The cap: a browser that never emits the null candidate still lets the
+  // tower stop waiting.
+  const cap = setTimeout(() => {
+    if (!ended) {
+      ended = true;
+      schedule();
+    }
+  }, ICE_GATHER_TIMEOUT_MS);
+
+  pc.addEventListener("icecandidate", onCandidate);
+  pc.addEventListener("icegatheringstatechange", onState);
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(cap);
+    if (flushTimer !== null) clearTimeout(flushTimer);
+    flushTimer = null;
+    pc.removeEventListener("icecandidate", onCandidate);
+    pc.removeEventListener("icegatheringstatechange", onState);
+    signal.removeEventListener("abort", stop);
+    buffer = [];
+  };
+  signal.addEventListener("abort", stop);
+
+  return {
+    release: () => {
+      released = true;
+      flush();
+    },
+    stop,
+  };
+}
+
 /**
  * Open a session and negotiate a peer connection for one camera.
  *
@@ -247,10 +406,16 @@ export async function openPlayback(
         one is direct-only STUN, and TURN arrives as configuration. */
   const pc = new RTCPeerConnection({ iceServers: session.ice_servers });
 
+  /* Listening from the first moment, and sending nothing until the tower has
+     the session — see `Trickle`. Under the kill switch there is no trickle and
+     the offer waits for the gather, exactly as before. */
+  const trickle = TRICKLE_ICE ? startTrickle(pc, session, signal) : null;
+
   let closed = false;
   const close = async () => {
     if (closed) return;
     closed = true;
+    trickle?.stop();
     try {
       pc.getReceivers().forEach((r) => r.track?.stop());
     } catch {
@@ -296,27 +461,42 @@ export async function openPlayback(
       handlers.onDropped(state);
     };
 
-    // ── 3. Receive-only video, then a full gather before offering.
+    // ── 3. Receive-only video, and the offer the moment it exists.
     pc.addTransceiver("video", { direction: "recvonly" });
     const offer = await pc.createOffer();
     if (signal.aborted) throw new PlaybackError("unreachable", "aborted");
 
+    /* Gathering starts here. Under trickle the candidates go to the buffer as
+       they are found and the offer does NOT wait for them; the browser marks
+       the offer `a=ice-options:trickle` on its own. */
     await pc.setLocalDescription(offer);
     if (signal.aborted) throw new PlaybackError("unreachable", "aborted");
 
-    await waitForIceGathering(pc, signal);
-    if (signal.aborted) throw new PlaybackError("unreachable", "aborted");
+    if (!TRICKLE_ICE) {
+      /* SUPERSEDED — the gather-then-offer path, kept whole behind the kill
+         switch so the first live rollout can fall back without a rebuild. */
+      await waitForIceGathering(pc, signal);
+      if (signal.aborted) throw new PlaybackError("unreachable", "aborted");
+    }
 
     const localSdp = pc.localDescription?.sdp;
     if (!localSdp) throw new PlaybackError("negotiation_failed", "no local description");
 
     /* ── 4. Relay the offer and apply the answer. Coordination holds this
-          request open while the tower answers, and must not rewrite the SDP. */
+          request open while the tower answers, and must not rewrite the SDP.
+          MediaMTX's answer carries its full candidate set — the tower's side
+          of ICE arrives complete, in this one reply. */
     const answer = await client.sendOffer(session, localSdp, { signal });
     if (signal.aborted) throw new PlaybackError("unreachable", "aborted");
 
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
     if (signal.aborted) throw new PlaybackError("unreachable", "aborted");
+
+    /* ── 5. The tower holds the session now: everything gathered while the
+          offer was in flight goes up in one PATCH, and the rest follows as it
+          arrives. ICE connectivity checks begin on the tower's side the moment
+          the first of these lands. */
+    trickle?.release();
 
     return { session, pc, close };
   } catch (err) {

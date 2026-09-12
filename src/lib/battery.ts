@@ -80,15 +80,49 @@ export interface BatteryReading {
 }
 
 /**
- * Is the pack charging, per the current sign?
+ * Amps below which the pack is doing neither.
  *
- * Positive amps are charge going in. `undefined` when there is no current
- * reading, which is not the same as "not charging" — the distinction matters
- * because the charging indicator is a claim about the solar array working.
+ * A pack at rest still reads tens of milliamps, and the SIGN of that is noise
+ * rather than a direction — wired straight to an indicator it would flicker
+ * between charging and discharging while nothing at all was happening. Half an
+ * amp sits far below anything an array puts in or a tower draws out, so it
+ * separates "resting" from either without ever masking a real one: the
+ * reference tower reads +20.69 A while charging.
  */
-export function batteryCharging(reading: BatteryReading): boolean | undefined {
+export const BATTERY_IDLE_A = 0.5;
+
+/** Which way the charge is going, or neither. */
+export type BatteryFlow = "charging" | "discharging" | "idle";
+
+/**
+ * Which way the charge is moving, per the current's SIGN.
+ *
+ * Positive amps are charge going INTO the pack. `undefined` when there is no
+ * current reading, which is not the same as "not charging" — the distinction
+ * matters because the charging sweep is a claim about the array working.
+ */
+export function batteryFlow(reading: BatteryReading): BatteryFlow | undefined {
   if (!reading.reachable || reading.currentA === undefined) return undefined;
-  return reading.currentA > 0;
+  if (Math.abs(reading.currentA) < BATTERY_IDLE_A) return "idle";
+  return reading.currentA > 0 ? "charging" : "discharging";
+}
+
+/** The three states above, narrowed for callers that only drive an animation. */
+export function batteryCharging(reading: BatteryReading): boolean | undefined {
+  const flow = batteryFlow(reading);
+  return flow === undefined ? undefined : flow === "charging";
+}
+
+/**
+ * The current as an operator reads it: signed, to one decimal, and what the
+ * sign MEANS. "+20.7 A charging" says in one line what a bare 20.69 does not.
+ */
+export function batteryCurrentLabel(reading: BatteryReading): string | undefined {
+  if (!reading.reachable || reading.currentA === undefined) return undefined;
+  const amps = reading.currentA;
+  /* A typographic minus, matching the dBm the board prints beside it. */
+  const sign = amps > 0 ? "+" : amps < 0 ? "−" : "";
+  return `${sign}${Math.abs(amps).toFixed(1)} A ${batteryFlow(reading) ?? ""}`.trim();
 }
 
 /**
@@ -111,9 +145,10 @@ export function batteryHint(reading: BatteryReading): string {
   }
 
   const parts: string[] = [`Battery at ${Math.round(reading.socPct)}%`];
-  const charging = batteryCharging(reading);
-  if (charging === true) parts.push("charging");
-  else if (charging === false) parts.push("discharging");
+  const flow = batteryFlow(reading);
+  if (flow === "charging") parts.push("charging");
+  else if (flow === "discharging") parts.push("discharging");
+  else if (flow === "idle") parts.push("neither charging nor discharging");
 
   let sentence = `${parts.join(", ")}.`;
   const detail: string[] = [];

@@ -3,6 +3,7 @@ import { solarState } from "@/lib/data";
 import { formatRelative } from "@/lib/time";
 import { MaskIcon } from "./Icon";
 import { batteryFill, TowerBattery } from "./TowerBattery";
+import { batteryCurrentLabel, batteryFlow } from "@/lib/battery";
 
 /* Status is the same three-tier grammar the tiles use, one level up. Nothing
    here gets a hue for being a card: green is a healthy site, amber a degraded
@@ -114,7 +115,19 @@ export function TowerCard({
     : tower.batteryPct;
   const hasBattery = chargePct !== undefined;
   const batteryUnreachable = reportedBattery !== undefined && !reportedBattery.reachable;
-  const hasTemp = tower.tempC !== undefined;
+  /* ⚠ CHARGING IS THE PACK'S OWN CURRENT SIGN, not the solar state. The seed
+     has no ammeter and the projection has no array, so each answers from what
+     it actually has: a real tower from `current_a` (positive is charge going
+     IN, past a deadband), a seeded one from `solarState`. The sweep it drives
+     is the same animation either way. */
+  const flow = reportedBattery ? batteryFlow(reportedBattery) : undefined;
+  const charging = reportedBattery ? flow === "charging" : solar === "charging";
+  const currentLabel = reportedBattery ? batteryCurrentLabel(reportedBattery) : undefined;
+  /* The PACK's temperature, which is what this thermometer has always meant:
+     the heat around the cell. A seeded tower carries its own `tempC`;
+     `health.thermal` is the PROCESSOR's die and is not a substitute for it. */
+  const tempC = tower.tempC ?? (reportedBattery?.reachable ? reportedBattery.tempC : undefined);
+  const hasTemp = tempC !== undefined;
   /* Nothing to hover for. A panel that opens onto three blank rows is worse
      than a mast that simply does not offer one. */
   const hasReadings =
@@ -138,17 +151,23 @@ export function TowerCard({
      screen-reader path must not be the one place a lie survives. */
   const telemetry = hasReadings
     ? [
-        solar !== undefined ? SOLAR_LABEL[solar] : null,
+        solar !== undefined ? SOLAR_LABEL[solar] : "No solar sensor",
         hasBattery
           ? "Battery " +
             Math.round(chargePct!) +
             "%" +
-            (solar === "charging" ? " and rising" : "")
+            (charging ? " and rising" : "")
           : null,
+        /* The two readings only the pack has. Spelled out here because this
+           label is the whole panel for anyone not looking at it. */
+        reportedBattery?.voltageV !== undefined
+          ? reportedBattery.voltageV + " volts"
+          : null,
+        currentLabel ?? null,
         /* The screen-reader path must not be the one place this goes quiet: a
            pack that could not be read is a distinct state from no pack. */
         batteryUnreachable ? "Battery unreachable" : null,
-        hasTemp ? tower.tempC + " degrees" : null,
+        hasTemp ? tempC + " degrees" : null,
         tower.link !== undefined ? LINK_LABEL[tower.link] : null,
       ]
         .filter(Boolean)
@@ -236,7 +255,7 @@ export function TowerCard({
         {hasBattery && (
           <TowerBattery
             pct={chargePct!}
-            charging={solar === "charging"}
+            charging={charging}
             className="absolute inset-0 size-full"
           />
         )}
@@ -265,15 +284,18 @@ export function TowerCard({
              replaced. 4px, not the 5 the feed chips use: those sit over live
              video and need more, this sits over line art. */
           className={
-            "pointer-events-none absolute bottom-[24px] right-[-18px] flex h-[32px] origin-bottom-right scale-95 items-center rounded-[8px] bg-black/60 opacity-0 backdrop-blur-[4px] transition-[opacity,transform] duration-150 ease-out group-hover/mast:scale-100 group-hover/mast:opacity-100 group-focus-visible/mast:scale-100 group-focus-visible/mast:opacity-100 " +
+            "pointer-events-none absolute bottom-[24px] right-[-18px] flex origin-bottom-right scale-95 flex-col rounded-[8px] bg-black/60 opacity-0 backdrop-blur-[4px] transition-[opacity,transform] duration-150 ease-out group-hover/mast:scale-100 group-hover/mast:opacity-100 group-focus-visible/mast:scale-100 group-focus-visible/mast:opacity-100 " +
             (hasReadings ? "" : "hidden")
           }
         >
-          {solar !== undefined && (
+          {/* The frame's row, as it drew it: array, cabinet, charge, divided by
+              hairlines. What only the pack reports goes on a second line rather
+              than stretching this one past the card it sits on. */}
+          <span className="flex h-[32px] items-center">
           <span className="flex items-center gap-[6px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/78">
             {/* Only while it is actually taking charge. An idle or faulted
                 array is a still sun, which is the reading. */}
-            <span className={SOLAR_TONE[solar]}>
+            <span className={solar !== undefined ? SOLAR_TONE[solar] : "text-white/45"}>
               <MaskIcon
                 src="/icons/twr-solar.svg"
                 size={16}
@@ -282,16 +304,21 @@ export function TowerCard({
                 }
               />
             </span>
-            {SOLAR_LABEL[solar].toUpperCase()}
+            {/* The design's row, kept and made honest. NOTHING measures an
+                array on these towers — the charge going in is read off the
+                pack's own ammeter, not off a panel — so the row says there is
+                no sensor rather than going missing. A row that disappears reads
+                as a screen that forgot; this one reads as a site without the
+                hardware, which is the fact. */}
+            {solar !== undefined ? SOLAR_LABEL[solar].toUpperCase() : "NO SOLAR SENSOR"}
           </span>
-          )}
 
           {hasTemp && (
             <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
-              <span className={tempTone(tower.tempC!)}>
+              <span className={tempTone(tempC!)}>
                 <MaskIcon src="/icons/twr-temp.svg" size={16} />
               </span>
-              {tower.tempC}˚
+              {tempC}˚
             </span>
           )}
 
@@ -321,6 +348,24 @@ export function TowerCard({
           ) : (
             <span className="px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] tracking-[0.12px] whitespace-nowrap text-white/45">
               NO CABINET READINGS
+            </span>
+          )}
+          </span>
+
+          {/* Volts and amps: what the pack knows and nothing else does. Absent
+              for a seeded tower, which has no ammeter, and for an unreachable
+              one, which has no readings at all. No colour on the current — the
+              word carries it, and green here would be a fourth thing claiming
+              the battery is healthy. */}
+          {(reportedBattery?.voltageV !== undefined || currentLabel !== undefined) && (
+            <span className="flex items-center gap-[6px] border-t border-white/7 px-[8px] py-[5px] font-display text-[0.6875rem] leading-[16px] tracking-[0.11px] whitespace-nowrap text-white/70 tabular-nums">
+              {reportedBattery?.voltageV !== undefined && (
+                <span>{reportedBattery.voltageV} V</span>
+              )}
+              {reportedBattery?.voltageV !== undefined && currentLabel !== undefined && (
+                <span aria-hidden className="size-[2px] shrink-0 rounded-full bg-white/30" />
+              )}
+              {currentLabel !== undefined && <span>{currentLabel.toUpperCase()}</span>}
             </span>
           )}
         </span>

@@ -3,7 +3,7 @@ import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
-import { batteryHint, batteryTone } from "@/lib/battery";
+import { batteryFlow, batteryHint, batteryTone } from "@/lib/battery";
 import { storageHint, storageTone } from "@/lib/storage";
 import { useNow } from "@/lib/useNow";
 import type { Alert, CameraFeed, Tower, TowerStatus } from "@/lib/types";
@@ -505,26 +505,35 @@ function SignalBars({ online, reading }: { online: boolean; reading: UplinkReadi
  * The row's anchor: the fleet card's mast, small, carrying the two readings it
  * can honestly draw.
  *
- * The CELL renders only for a real charge — the fleet card's rule, and the
- * pending card's before it. No tower on a live fleet reports one, so today the
- * mast is line art alone, which is the truth: an empty or demo-filled cell
- * would be inventing a battery nobody has fitted.
+ * The CELL renders only for a charge that was actually reported — the fleet
+ * card's rule, and the pending card's before it.
+ *
+ * SUPERSEDED 2026-09-12: this said no live tower reports one, so the mast was
+ * line art alone. A pack is read over Bluetooth now, so the cell fills from
+ * `health.battery` and runs the card's own charging sweep while the current is
+ * positive. An UNREACHABLE pack still draws nothing: its last charge is not
+ * its charge.
  */
 function MiniMast({ tower, uplink }: { tower: Tower; uplink: UplinkReading }) {
-  const charging =
-    tower.solar !== undefined &&
-    tower.batteryPct !== undefined &&
-    solarState({ solar: tower.solar, batteryPct: tower.batteryPct }) === "charging";
+  const battery = tower.health?.battery;
+  /* A measured charge, or the seed's demo one — never either standing in for
+     the other. `batteryPct` is driven upward 1% a second by `App.tsx`. */
+  const pct = battery ? (battery.reachable ? battery.socPct : undefined) : tower.batteryPct;
+  const charging = battery
+    ? batteryFlow(battery) === "charging"
+    : tower.solar !== undefined &&
+      tower.batteryPct !== undefined &&
+      solarState({ solar: tower.solar, batteryPct: tower.batteryPct }) === "charging";
   return (
     <span aria-hidden className="flex items-start gap-[5px]">
       <SignalBars online={tower.online} reading={uplink} />
       {/* The export's own 58×101 grid at 35×61, both layers pinned to it so the
           cell registers under the struts exactly as it does on the card. */}
       <span className="relative block h-[61px] w-[35px] shrink-0">
-        {tower.batteryPct !== undefined && (
+        {pct !== undefined && (
           <span data-battery className="absolute inset-0">
             <TowerBattery
-              pct={tower.batteryPct}
+              pct={pct}
               charging={charging}
               className="absolute inset-0 size-full"
             />

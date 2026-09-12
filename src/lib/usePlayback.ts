@@ -179,6 +179,29 @@ const TERMINAL: ReadonlySet<PlaybackFailure> = new Set<PlaybackFailure>([
   "session_expired",
 ]);
 
+/**
+ * Failures a RETURN FROM BACKGROUND is new information about.
+ *
+ * ⚠ THE DISTINCTION THIS TURNS ON: a phone that has been in someone's pocket
+ * for five minutes comes back to a session that is gone — suspended timers,
+ * a torn-down peer, often a different network — and every one of those is a
+ * statement about the PAST. Coming back is the new fact, and the honest answer
+ * is to establish the feed again, which is exactly what the retry button does.
+ *
+ * `not_permitted` is the one that survives it: coordination has said this
+ * account may not watch this camera, and switching apps is not an argument
+ * against that. It stays on screen with its retry, because a person choosing
+ * to ask again is different from this app asking on a timer.
+ *
+ * `session_expired` is deliberately NOT here. It means the grant lapsed or the
+ * viewer session is gone — the ordinary end of being away — and re-creating one
+ * is what an operator wants. If access was genuinely revoked, the new session
+ * is refused and the honest `not_permitted` takes its place one request later.
+ */
+function recoverableOnReturn(error: PlaybackError): boolean {
+  return error.failure !== "not_permitted";
+}
+
 export type PlaybackPhase =
   /** Negotiating. There is no picture yet and none is being claimed. */
   | { kind: "connecting" }
@@ -469,7 +492,7 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
    * own at three in the morning.
    */
   const connect = useCallback(
-    (entry: Entry) => {
+    (entry: Entry, resuming = false) => {
       const id = entry.target.id;
       const set = (phase: PlaybackPhase) => {
         if (entry.disposed) return;
@@ -500,6 +523,23 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
           set({ kind: "failed", error: why });
           return;
         }
+        /* ⚠ A HIDDEN TAB DOES NOT SPEND THE BUDGET, and this is the half of
+           the phone bug that made the other half fatal. A backgrounded phone
+           suspends timers and takes the radio down, so every attempt made in
+           somebody's pocket fails on `fetch` within milliseconds of being
+           allowed to run. Five of those burn the whole allowance against a
+           network that was never asked, and the operator returns to a feed
+           that has already given up — terminal before they were even looking.
+
+           So while hidden: give back the grant, say what is happening, and
+           STOP. The return handler below reconnects from a full budget the
+           moment there is a network and a person to see it. */
+        if (document.visibilityState === "hidden") {
+          set({ kind: "reconnecting", attempt: entry.retries + 1, of: MAX_RECONNECTS });
+          releaseForRetry(entry, openHandles.current);
+          return;
+        }
+
         const attempt = entry.retries + 1;
         entry.retries = attempt;
         set({ kind: "reconnecting", attempt, of: MAX_RECONNECTS });
@@ -524,9 +564,18 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
         }, wait);
       };
 
-      set(entry.retries === 0
+      /* `connecting` is a feed that has never played; `reconnecting` is one the
+         operator was watching and expects back. Coming off a background is the
+         second thing even on the first attempt, so it says so — the picture was
+         there when they locked the phone. It costs no budget: `resuming` only
+         changes the word. */
+      set(entry.retries === 0 && !resuming
         ? { kind: "connecting" }
-        : { kind: "reconnecting", attempt: entry.retries, of: MAX_RECONNECTS });
+        : {
+            kind: "reconnecting",
+            attempt: Math.max(1, entry.retries),
+            of: MAX_RECONNECTS,
+          });
 
       void (async () => {
         try {
@@ -679,7 +728,7 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
   /* Broken out through a ref because `backOff` schedules a call to `connect`
      from inside `connect` — a plain reference would capture the first
      definition and pin every reconnect to the render it was born in. */
-  const connectRef = useRef<(entry: Entry) => void>(connect);
+  const connectRef = useRef<(entry: Entry, resuming?: boolean) => void>(connect);
   connectRef.current = connect;
 
   useEffect(() => {
@@ -823,8 +872,15 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
    *                     may have grown to fifteen seconds while nobody was
    *                     watching. Waiting out a delay accrued in the background
    *                     is the slow cold start wearing a different name.
-   *   terminal          left alone. A revoked grant is still revoked, and
-   *                     switching apps is not new information about it.
+   *   failed            RE-ESTABLISHED, unless it was refused. This is the
+   *                     phone case and it used to be the bug: the handler
+   *                     skipped anything already in `failed`, so a tile whose
+   *                     session died in somebody's pocket sat on "Stream
+   *                     unavailable" until they tapped retry — and the tap
+   *                     worked instantly, which is the tell that nothing was
+   *                     broken but this rule. `recoverableOnReturn` decides;
+   *                     only `not_permitted` is left alone, because that one
+   *                     is an answer rather than a casualty.
    *
    * Only ATTACHED sessions are revived. An idle one nobody is showing is left
    * to its drop handler, which closes it rather than rebuilding it.
@@ -839,12 +895,15 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
       for (const entry of live.current.values()) {
         if (entry.disposed || !entry.attached) continue;
         const phase = phasesRef.current[entry.target.id];
-        /* Terminal failures are somebody's answer, not a stale connection. */
-        if (phase?.kind === "failed") continue;
+        /* An answer, not a casualty — see `recoverableOnReturn`. */
+        if (phase?.kind === "failed" && !recoverableOnReturn(phase.error)) continue;
         if (entry.handle?.pc.connectionState === "connected") continue;
+        /* A full budget, because the network on the other side of a
+           backgrounded minute is frequently a different network — and because
+           anything spent while hidden was spent against no network at all. */
         entry.retries = 0;
         releaseForRetry(entry, openHandles.current);
-        connectRef.current(entry);
+        connectRef.current(entry, true);
       }
     };
     document.addEventListener("visibilitychange", onVisible);

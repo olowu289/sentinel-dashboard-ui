@@ -70,7 +70,26 @@ export const TOWERS: Tower[] = [
     batteryPct: 87,
     tempC: 34,
     link: "good",
+    /* FIXTURE SENSORS, SEED ONLY — the towers board's instruments, lit.
+       Every cell on that board is a gauge that fills to a reading, and half of
+       them have nothing to fill from on a live fleet yet (coordination does not
+       pass the cabinet sensors on). A seeded fleet is where the whole panel can
+       be SEEN, which is what the seed is for — and it is fenced by the same
+       wall everything else here is: `isSeededFleet()` decides which list the
+       app loads, and the board carries SEEDED FLEET — NOT YOUR TOWERS above it.
+       Nothing in this block can reach a real tower's row.
+       This one is the healthy reference: everything green. */
+    health: {
+      door: { open: false },
+      cover: { exposed: false },
+      disk: { freePct: 68 },
+      uplink: { signalDbm: -58 },
+    },
     location: "Lokogoma, Abuja GMT +1",
+    /* Fixture, seed only: the link came up three hours ago. Offsets from load
+       rather than a fixed stamp, the same way the seeded alerts are written —
+       a hardcoded date reads as "up since 2024" the moment the fixture ages. */
+    connectedAt: Date.now() - 3 * 60 * 60 * 1000,
     model: "Terra Sentry XL",
     backupConnection: "Satellite",
     serial: "SN-2208-D",
@@ -92,12 +111,29 @@ export const TOWERS: Tower[] = [
     batteryPct: 5,
     tempC: 41,
     link: "warn",
+    /* FIXTURE SENSORS, SEED ONLY — see the note on TWR-1042. This one is the
+       other half of the demonstration: the site in trouble. A door somebody
+       left open, a disk down to its last few percent and overwriting footage,
+       and a radio barely holding on. Every one of those is a state the board
+       has to be able to show — and a live fleet cannot be asked to produce one
+       on demand. */
+    health: {
+      door: { open: true },
+      cover: { exposed: false },
+      disk: { freePct: 8 },
+      uplink: { signalDbm: -78 },
+    },
     location: "Karu, Abuja GMT +1",
+    /* Fixture, seed only: the link came up three hours ago. Offsets from load
+       rather than a fixed stamp, the same way the seeded alerts are written —
+       a hardcoded date reads as "up since 2024" the moment the fixture ages. */
+    connectedAt: Date.now() - 3 * 60 * 60 * 1000,
     model: "Terra Sentry XL",
     backupConnection: "Satellite",
     serial: "SN-3140-B",
     firmware: "4.1.8",
-    storageUsedGb: 96,
+    /* Agrees with `health.disk` above: 118 of 128 is the 8% free it reports. */
+    storageUsedGb: 118,
     storageTotalGb: 128,
   },
 ];

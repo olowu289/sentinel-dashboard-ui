@@ -8,8 +8,9 @@ import { storageHint, storageTone } from "@/lib/storage";
 import { useNow } from "@/lib/useNow";
 import type { Alert, CameraFeed, Tower, TowerStatus } from "@/lib/types";
 import { IconRail } from "./IconRail";
+import { MaskIcon } from "./Icon";
 import { CABINET_CRITICAL_C, CABINET_WARN_C, STATUS } from "./TowerCard";
-import { TowerBattery } from "./TowerBattery";
+import { batteryFill, TowerBattery } from "./TowerBattery";
 
 /**
  * The towers board: the fleet as a status board, one row per tower.
@@ -21,33 +22,47 @@ import { TowerBattery } from "./TowerBattery";
  * the site and across for the detail, and a red cell in a column of green is
  * seen before it is read.
  *
- * ── PROBLEMS FIRST ──────────────────────────────────────────────────────
- *
- * Rows are ordered by how much they need somebody: offline, then degraded,
- * then any tower with a red cell, then amber, then the healthy ones. A single
- * dark site rises to the top of a fleet of fifty on its own. Ties keep fleet
- * order, so a quiet board does not reshuffle, and a tower that changes state
- * glides to its new place rather than jumping — the one motion on this screen,
- * and it is information: something here just got better or worse.
- *
  * ══════════════════════════════════════════════════════════════════════
- *  EVERY CELL IS EITHER A READING OR A REASON — NEVER A GUESS
+ *  EVERY CELL IS AN INSTRUMENT, AND THE INSTRUMENT IS THE READING
  * ══════════════════════════════════════════════════════════════════════
+ *
+ * Each cell is a glyph and a figure, and the GLYPH CARRIES THE VALUE rather
+ * than labelling it: the signal bars light to the grade, the tank fills to the
+ * free space, the battery fills to the charge and takes the mast's bolt while
+ * it is taking charge. That is the mast's own grammar — `batteryFill` paints a
+ * gradient into a mask, the glyph takes its reading's tone — applied a column
+ * at a time. Nothing here is a new hue, a new glyph or a new keyframe: every
+ * icon is an existing export and the only animations are the two this app
+ * already runs, `pulse-dot` and `solar-charging`.
+ *
+ * ── MOTION IS FOR TROUBLE, NOT FOR DECORATION ──────────────────────────
+ *
+ * A board that moves everywhere is a board nobody can scan, so a healthy
+ * reading is STILL: green cells do not pulse, and neither does amber. Only a
+ * RED cell breathes, on the 2s heartbeat the live dot uses, and an offline
+ * tower's leading edge breathes with it. On a wall of twenty towers that is
+ * the whole point — a field of calm green, and the one site in trouble calling
+ * across the room. Charging is the single exception, and it is a reading too:
+ * the bolt means charge is going in right now.
+ *
+ * ── WHAT IS REAL, AND WHAT IS ONLY PENDING ─────────────────────────────
  *
  *   a reading   something the tower reported, graded on this app's existing
  *               thresholds and nothing new — the status grammar, the uplink
- *               grades, the battery tiers, the cabinet temperatures. It carries
- *               a status colour because it has a status, and its hover gives
- *               the full figure behind the compact one.
- *   pending     something this dashboard is not told yet: a quiet dash, never
- *               a colour, with the reason on hover — "Not reported yet" (the
- *               tower measures it, coordination does not pass it on), "No
- *               sensor fitted" (no hardware measures it), "No alert feed yet"
- *               (no backend serves it).
+ *               grades, the battery tiers, the storage tiers, the cabinet
+ *               temperatures. Its glyph is lit in that tone.
+ *   pending     something this dashboard is not told yet: a dark glyph, a quiet
+ *               dash, NEVER a colour, and the reason on hover — "Not reported
+ *               yet" (the tower measures it, coordination does not pass it on),
+ *               "No sensor fitted" (no hardware measures it), "No alert feed
+ *               yet" (no backend serves it).
  *
  * The cells already read the fields the pending ones wait for —
  * `health.door`, `cover`, `thermal`, `disk` — so each lights up on its own the
- * day coordination passes the field through.
+ * day coordination passes the field through. A SEEDED fleet fills every one of
+ * them from fixtures, which is how the whole instrument panel can be seen lit
+ * without a single invented number reaching a live board; the badge above the
+ * table says whose towers those are.
  *
  * An OFFLINE tower has no current readings. Coordination keeps the last health
  * block a tower sent and serves it after the link drops; drawn as-is, a dark
@@ -72,8 +87,13 @@ interface Cell {
   pending?: boolean;
   /** The full sentence behind the compact value, for the pointer that asks. */
   hint: string;
-  /** A glyph after the value, as the uplink row carries. */
-  glyph?: string;
+  /**
+   * 0–1, for the cells whose glyph is a gauge rather than a symbol: how full
+   * the tank is, how charged the cell is. Absent when there is nothing to fill.
+   */
+  level?: number;
+  /** Charge is going IN right now — the bolt, and only ever from a real sign. */
+  charging?: boolean;
 }
 
 /* The three reasons a reading is not here. Each is a different fact and sends
@@ -160,7 +180,10 @@ function uplinkCell(online: boolean, reading: UplinkReading): Cell {
   switch (reading.kind) {
     case "signal":
       return {
-        value: `${GRADE_WORD[reading.grade]} · ${signed(reading.dbm)}`,
+        /* The BARS carry the grade now, so the figure carries what they
+           cannot: the measurement itself. "Great · −56" said the same thing
+           twice in a column 96px wide. */
+        value: `${signed(reading.dbm)} dBm`,
         tone:
           reading.grade === "poor"
             ? "text-critical"
@@ -168,14 +191,6 @@ function uplinkCell(online: boolean, reading: UplinkReading): Cell {
               ? "text-warn"
               : "text-terra",
         hint: `${GRADE_WORD[reading.grade]} — ${reading.dbm} dBm, as the tower measured it.`,
-        /* The settings row's own rule: a glyph only where an export exists for
-           that tier. There is no poor glyph, and one a tier above the truth
-           would be worse than none. */
-        ...(reading.grade === "great"
-          ? { glyph: "/icons/wifi-good.svg" }
-          : reading.grade === "fair"
-            ? { glyph: "/icons/wifi-warn.svg" }
-            : {}),
       };
     case "wired":
       return { value: "Wired", hint: "Wired uplink — there is no radio signal to grade." };
@@ -299,6 +314,9 @@ function storageCell(tower: Tower): Cell {
     value: `${Math.round(freePct)}% free`,
     tone: storageTone(freePct),
     hint: storageHint(freePct, gb?.used, gb?.total),
+    /* The tank fills with what is LEFT, like a fuel gauge: full is good, and
+       an empty one reads as the trouble it is. */
+    level: Math.min(1, Math.max(0, freePct / 100)),
   };
 }
 
@@ -338,6 +356,11 @@ function powerCell(tower: Tower): Cell {
         value: `${Math.round(battery.socPct)}%`,
         tone: batteryTone(battery.socPct),
         hint: batteryHint(battery),
+        level: Math.min(1, Math.max(0, battery.socPct / 100)),
+        /* The pack's own current sign, past the deadband — the same source the
+           mast's sweep reads, so the glyph here and the cell on the mast can
+           never disagree about whether charge is going in. */
+        charging: batteryFlow(battery) === "charging",
       };
     }
     /* Reached the pack and got no charge level out of it. Rare, and still not a
@@ -353,6 +376,8 @@ function powerCell(tower: Tower): Cell {
     value: `${tower.batteryPct}%`,
     tone: batteryTone(tower.batteryPct),
     hint: `Battery at ${tower.batteryPct}%${charging ? ", charging" : ""}.`,
+    level: Math.min(1, Math.max(0, tower.batteryPct / 100)),
+    charging,
   };
 }
 
@@ -386,10 +411,28 @@ const COLUMNS = [
 ] as const;
 type ColumnId = (typeof COLUMNS)[number][0];
 
+/**
+ * The glyph each column draws, all of them existing exports.
+ *
+ * Two are reused for a job they were not drawn for, and both earn it: the
+ * cover sensor is an LDR — it reports that it can SEE light — and the door is
+ * a panel that opens. A dedicated lock or shield export can replace either
+ * without touching anything else here. Nothing is hand-drawn: this repo's rule
+ * is to reuse the exported set rather than invent glyphs beside it.
+ */
+const GLYPH: Partial<Record<ColumnId, string>> = {
+  cameras: "/icons/cctv.svg",
+  door: "/icons/panel-collapse.svg",
+  cover: "/icons/poi-eye.svg",
+  temperature: "/icons/twr-temp.svg",
+  power: "/icons/twr-battery.svg",
+  alerts: "/icons/bell.svg",
+};
+
 /* One grid for the header and every row, so the columns line up down the
    whole board. The identity column takes the slack; the readings share the
-   rest evenly and never drop below what "Great · −58" needs. */
-const GRID = "grid grid-cols-[minmax(232px,1.8fr)_repeat(9,minmax(88px,1fr))_124px]";
+   rest evenly and never drop below what a glyph and its figure need. */
+const GRID = "grid grid-cols-[minmax(232px,1.7fr)_repeat(9,minmax(96px,1fr))_124px]";
 
 interface Assessed {
   tower: Tower;
@@ -436,42 +479,15 @@ function assess(
   return { tower, cells, uplink, rank, order };
 }
 
-function CellView({ id, cell }: { id: ColumnId; cell: Cell }) {
-  return (
-    <div
-      role="cell"
-      data-cell={id}
-      data-pending={cell.pending || undefined}
-      title={cell.hint}
-      className="flex min-w-0 items-center gap-[6px] px-[10px]"
-    >
-      <span
-        className={`truncate font-display text-[0.8125rem] leading-[18px] tracking-[0.13px] tabular-nums ${
-          /* One colour class, never two — see VALUE_TYPE in the settings panel. */
-          cell.empty ? "text-white/25" : (cell.tone ?? "text-white")
-        }`}
-      >
-        {cell.value}
-      </span>
-      {cell.glyph && (
-        <img src={cell.glyph} alt="" width={14} height={14} className="block shrink-0" />
-      )}
-      {/* A dash says nothing to a screen reader; the reason does. */}
-      {cell.empty && <span className="sr-only">{cell.hint}</span>}
-    </div>
-  );
-}
-
 /**
- * Three bars from the REAL dBm, in the grade's colour, beside the mast.
+ * Three bars from the REAL dBm, in the grade's colour.
  *
- * Lit by the same grades the Uplink cell prints, so the drawing and the words
+ * Lit by the same grades the Uplink cell prints, so the drawing and the figure
  * cannot disagree. No reading lights nothing: three empty bars say "not
- * measured" as plainly as a dash. A wired tower draws none — there is no radio
- * to have a signal.
+ * measured" as plainly as a dash. A wired tower draws a full, quiet set — there
+ * is no radio to grade, and an empty meter would read as a bad one.
  */
 function SignalBars({ online, reading }: { online: boolean; reading: UplinkReading }) {
-  if (online && reading.kind === "wired") return null;
   const lit =
     online && reading.kind === "signal"
       ? reading.grade === "great"
@@ -479,7 +495,9 @@ function SignalBars({ online, reading }: { online: boolean; reading: UplinkReadi
         : reading.grade === "fair"
           ? 2
           : 1
-      : 0;
+      : online && reading.kind === "wired"
+        ? 3
+        : 0;
   const tone =
     reading.kind === "signal"
       ? reading.grade === "great"
@@ -487,10 +505,10 @@ function SignalBars({ online, reading }: { online: boolean; reading: UplinkReadi
         : reading.grade === "fair"
           ? "bg-warn"
           : "bg-critical"
-      : "";
+      : "bg-white/45";
   return (
-    <span data-bars={lit} aria-hidden className="flex h-[10px] items-end gap-[1.5px]">
-      {[4, 7, 10].map((h, i) => (
+    <span data-bars={lit} aria-hidden className="flex h-[12px] shrink-0 items-end gap-[1.5px]">
+      {[5, 8.5, 12].map((h, i) => (
         <span
           key={h}
           style={{ height: h }}
@@ -502,19 +520,130 @@ function SignalBars({ online, reading }: { online: boolean; reading: UplinkReadi
 }
 
 /**
- * The row's anchor: the fleet card's mast, small, carrying the two readings it
- * can honestly draw.
+ * A tank that fills with what is LEFT — the storage cell's gauge.
  *
- * The CELL renders only for a charge that was actually reported — the fleet
- * card's rule, and the pending card's before it.
+ * Built from two spans rather than an export for the same reason the signal
+ * bars are: it is a meter, not a symbol, and its whole job is to be at a
+ * height. Its tone is `storageTone`'s, so the gauge and the figure beside it
+ * cross the same thresholds at the same moment.
+ */
+function Tank({ level, tone }: { level: number; tone: string }) {
+  const fill =
+    tone === "text-critical" ? "bg-critical" : tone === "text-warn" ? "bg-warn" : "bg-terra";
+  return (
+    <span
+      data-level={Math.round(level * 100)}
+      aria-hidden
+      className="relative block h-[14px] w-[5px] shrink-0 overflow-hidden rounded-[1.5px] bg-white/15"
+    >
+      <span
+        style={{ height: `${Math.round(level * 100)}%` }}
+        className={`absolute inset-x-0 bottom-0 rounded-[1.5px] ${fill}`}
+      />
+    </span>
+  );
+}
+
+/**
+ * One reading, drawn.
+ *
+ * The glyph is the instrument and the figure is the fine print. A LIT glyph
+ * takes its reading's tone; a pending one is dark and says nothing at all,
+ * because a coloured glyph over a reading nobody has is exactly the fake-green
+ * this app exists to refuse.
+ */
+function CellView({ id, cell, row }: { id: ColumnId; cell: Cell; row: Assessed }) {
+  /* ⚠ RED BREATHES, AND NOTHING ELSE DOES. `pulse-dot` is the live dot's own
+     2s heartbeat, already in this app and already switched off under
+     prefers-reduced-motion. Amber deliberately stays still: on a fleet of
+     twenty, several degraded towers pulsing at once is a screen that fidgets,
+     and the thing this is for — one site in real trouble, seen from across a
+     room — stops working the moment everything moves. */
+  const alarm = cell.tone === "text-critical";
+  const tone = cell.empty ? "text-white/25" : (cell.tone ?? "text-white");
+  const glyphTone = cell.empty ? "text-white/20" : (cell.tone ?? "text-white/70");
+
+  return (
+    <div
+      role="cell"
+      data-cell={id}
+      data-pending={cell.pending || undefined}
+      data-alarm={alarm || undefined}
+      title={cell.hint}
+      className="flex min-w-0 items-center gap-[7px] px-[10px]"
+    >
+      <span className={`flex shrink-0 items-center ${glyphTone} ${alarm ? "pulse-dot" : ""}`}>
+        {id === "uplink" ? (
+          <SignalBars online={row.tower.online} reading={row.uplink} />
+        ) : id === "storage" ? (
+          /* An EMPTY tank when there is nothing to fill it with, exactly as the
+             signal bars sit unlit on a tower that measured no radio: the
+             instrument is still there, dark, and the dash beside it says why.
+             A cell with no gauge at all would be the one hole in the panel. */
+          <Tank level={cell.level ?? 0} tone={cell.tone ?? ""} />
+        ) : id === "connected" ? (
+          /* The smallest instrument on the board, and the same one the status
+             word uses: lit while the link is up, dark when it is not. */
+          <span
+            aria-hidden
+            className={`block size-[6px] rounded-full ${
+              row.tower.online ? "bg-terra" : "bg-white/20"
+            }`}
+          />
+        ) : id === "power" && cell.level !== undefined ? (
+          /* The mast's own trick: the charge painted INTO the glyph as a
+             gradient, so the battery is full to exactly the figure beside it.
+             `batteryFill` owns the tiers, here as on the mast and in the
+             tooltip. */
+          <MaskIcon
+            src="/icons/twr-battery.svg"
+            size={17}
+            background={batteryFill(cell.level * 100)}
+          />
+        ) : GLYPH[id] ? (
+          <MaskIcon src={GLYPH[id]!} size={15} />
+        ) : null}
+      </span>
+
+      <span
+        className={`truncate font-display text-[0.8125rem] leading-[18px] tracking-[0.13px] tabular-nums ${
+          /* One colour class, never two — see VALUE_TYPE in the settings panel. */
+          tone
+        }`}
+      >
+        {cell.value}
+      </span>
+
+      {/* Charge going in, right now. The settings panel's bolt on the sun's own
+          2s breath — the app's existing marker for exactly this, rather than a
+          second way of saying it. */}
+      {cell.charging && (
+        <span className="shrink-0 text-terra">
+          <MaskIcon src="/icons/set-bolt.svg" size={13} className="solar-charging" />
+        </span>
+      )}
+
+      {/* A dash says nothing to a screen reader; the reason does. */}
+      {cell.empty && <span className="sr-only">{cell.hint}</span>}
+    </div>
+  );
+}
+
+/**
+ * The row's anchor: the fleet card's mast, small, carrying the charge it can
+ * honestly draw.
  *
  * SUPERSEDED 2026-09-12: this said no live tower reports one, so the mast was
  * line art alone. A pack is read over Bluetooth now, so the cell fills from
  * `health.battery` and runs the card's own charging sweep while the current is
  * positive. An UNREACHABLE pack still draws nothing: its last charge is not
  * its charge.
+ *
+ * The signal bars moved from here into the Uplink column, where they sit under
+ * their own header beside their own figure. The mast keeps the one reading it
+ * draws better than any cell could.
  */
-function MiniMast({ tower, uplink }: { tower: Tower; uplink: UplinkReading }) {
+function MiniMast({ tower }: { tower: Tower }) {
   const battery = tower.health?.battery;
   /* A measured charge, or the seed's demo one — never either standing in for
      the other. `batteryPct` is driven upward 1% a second by `App.tsx`. */
@@ -525,8 +654,7 @@ function MiniMast({ tower, uplink }: { tower: Tower; uplink: UplinkReading }) {
       tower.batteryPct !== undefined &&
       solarState({ solar: tower.solar, batteryPct: tower.batteryPct }) === "charging";
   return (
-    <span aria-hidden className="flex items-start gap-[5px]">
-      <SignalBars online={tower.online} reading={uplink} />
+    <span aria-hidden className="flex items-start">
       {/* The export's own 58×101 grid at 35×61, both layers pinned to it so the
           cell registers under the struts exactly as it does on the card. */}
       <span className="relative block h-[61px] w-[35px] shrink-0">
@@ -560,7 +688,7 @@ function TowerRow({
   index: number;
   onOpen: () => void;
 }) {
-  const { tower, cells, uplink } = row;
+  const { tower, cells } = row;
   const status = STATUS[tower.status];
   return (
     /* The whole row opens the tower, but only the name is the button: the
@@ -581,11 +709,16 @@ function TowerRow({
     >
       {/* A site that needs somebody carries its status down its leading edge,
           so a problem row reads as one before any cell is. Healthy rows carry
-          none — a green edge on every row would be decoration. */}
+          none — a green edge on every row would be decoration. A DARK site's
+          edge breathes, on the same heartbeat its red cells do: that row is the
+          one to walk towards. */}
       {tower.status !== "online" && (
         <span
           aria-hidden
-          className={`absolute inset-y-[12px] left-0 w-[2px] rounded-r-full ${status.dot}`}
+          data-edge={tower.status}
+          className={`absolute inset-y-[12px] left-0 w-[2px] rounded-r-full ${status.dot} ${
+            tower.status === "offline" ? "pulse-dot" : ""
+          }`}
         />
       )}
 
@@ -619,19 +752,19 @@ function TowerRow({
       </div>
 
       {COLUMNS.map(([id]) => (
-        <CellView key={id} id={id} cell={cells[id]} />
+        <CellView key={id} id={id} cell={cells[id]} row={row} />
       ))}
 
       <div
         role="cell"
         data-cell="mast"
-        title={`${cells.uplink.hint} ${tower.batteryPct === undefined ? "No battery sensor fitted." : cells.power.hint}`}
+        title={`${cells.uplink.hint} ${cells.power.hint}`}
         /* The mast and the way in, given room to be two things: the drawing
            is the row's identity and the arrow is its affordance, and at ten
            pixels apart they read as one crowded glyph. */
         className="flex h-full items-center justify-end gap-[18px] pl-[10px]"
       >
-        <MiniMast tower={tower} uplink={uplink} />
+        <MiniMast tower={tower} />
         <img
           src="/icons/chevron-right.svg"
           alt=""
@@ -717,12 +850,17 @@ export function TowersView({
             too narrow for eleven columns, with the header and the names held
             in place. */}
         <div className="min-h-0 flex-1 overflow-auto">
-          <div className="min-w-[1180px] px-[16px] pb-[calc(24px+env(safe-area-inset-bottom))] lg:px-[24px]">
+          <div className="min-w-[1260px] px-[16px] pb-[calc(24px+env(safe-area-inset-bottom))] lg:px-[24px]">
             {/* The badge, and nothing else. The board explains itself: every
                 cell says what it is on hover, and the order is the point of the
                 order — a line telling an operator how to read a status board is
                 a note to the person who built it. Pinned left so it holds its
-                place while the board scrolls sideways on a phone. */}
+                place while the board scrolls sideways on a phone.
+
+                It matters more now than it did: a seeded fleet fills every
+                instrument on this board from fixtures, which is how the design
+                is previewed lit. This badge is what keeps that from being
+                mistaken for somebody's actual site. */}
             {seeded && (
               <div className="sticky left-0 w-fit pb-[6px] pt-[16px]">
                 <p className="rounded-[6px] bg-detect/20 px-[10px] py-[6px] font-display text-[0.6875rem] tracking-[0.11px] text-detect">

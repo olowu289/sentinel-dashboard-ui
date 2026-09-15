@@ -51,34 +51,46 @@ export interface ReachProblem {
   headline: string;
   /** What it means, or what to do. Never blames the wrong thing. */
   detail: string;
-  /** The underlying message, shown verbatim and never paraphrased into "oops". */
+  /** The transport's own words. Logged, not rendered — see the note above
+   *  `HEADLINE`, and `CoordinationBanner`, which used to print this in mono
+   *  under the headline. Kept on the object because code still wants it. */
   raw: string;
 }
 
+/*
+ * WRITTEN FOR THE PERSON READING IT, NOT FOR US.
+ *
+ * Everything above this line is the diagnosis and it is worth every word — but
+ * it is a diagnosis for whoever is FIXING this, and it used to be printed
+ * straight onto the screen of somebody watching a yard. They were told the name
+ * of a service they have never heard of, and then asked to check that it was
+ * running and that their browser trusted its certificate: two things they
+ * cannot do, about a machine they cannot reach. Being handed a job you cannot
+ * start is worse than being told nothing.
+ *
+ * The classification does not change, and neither does `raw`. The specifics now
+ * go to `console.debug` in `classifyReach`, which is where the person who can
+ * act on them is already looking.
+ */
 const HEADLINE: Record<ReachFailure, string> = {
-  unreachable: "Can't reach coordination",
-  client_bug: "This app has a bug",
-  server_error: "Coordination returned an error",
-  contract: "Coordination returned something this app can't read",
+  unreachable: "Can't connect right now",
+  client_bug: "Something went wrong in the app",
+  server_error: "Something went wrong at our end",
+  contract: "This app needs an update",
 };
 
 const DETAIL: Record<ReachFailure, string> = {
-  /* The reference dashboard's own wording, and worth borrowing exactly: an
-     operator staring at an empty fleet needs to be told it is not their doing
-     and not a broken build, or the next thirty minutes go into the wrong
-     place entirely. */
-  unreachable:
-    "This is not a problem with the code. Check that coordination is running, " +
-    "and that this browser trusts its certificate.",
+  /* The half of the old wording worth keeping: an operator staring at an empty
+     fleet needs to hear that it is not their doing, or the next thirty minutes
+     go into the wrong place entirely. Said without handing them our plumbing. */
+  unreachable: "Check your connection and try again. Nothing you did caused this.",
   client_bug:
-    "A request could not be made at all. This is a defect in the app, not an " +
-    "outage — restarting coordination will not help.",
-  server_error:
-    "Coordination is reachable but answered with an error. What is shown may be " +
-    "incomplete.",
+    "The app couldn't send the request. Reloading the page usually clears it — " +
+    "if it keeps happening, let us know.",
+  server_error: "What you can see may be incomplete. Try again in a moment.",
   contract:
-    "The service and this app disagree about the shape of the data. That is " +
-    "usually a version mismatch rather than a fault at a tower.",
+    "This version can't read what it was sent. Reload the page, and tell us if " +
+    "that doesn't help.",
 };
 
 function messageOf(err: unknown): string {
@@ -100,12 +112,14 @@ export function classifyReach(err: unknown): ReachProblem {
   const status = (err as { status?: unknown })?.status;
   const code = (err as { code?: unknown })?.code;
 
-  const of = (failure: ReachFailure): ReachProblem => ({
-    failure,
-    headline: HEADLINE[failure],
-    detail: DETAIL[failure],
-    raw,
-  });
+  /* WHICH of the identical-looking failures it was — the whole point of the
+     three-way split at the top of this file — logged where an engineer looks
+     instead of printed at an operator who cannot act on it. `raw` stays on the
+     returned object: this line is for a person, the field is for code. */
+  const of = (failure: ReachFailure): ReachProblem => {
+    console.debug("[reach]", failure, { raw, name, status, code });
+    return { failure, headline: HEADLINE[failure], detail: DETAIL[failure], raw };
+  };
 
   /* Ours. The bound-fetch defect, and anything else where the request could not
      even be constructed. */

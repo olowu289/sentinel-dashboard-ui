@@ -280,7 +280,7 @@ export function AwaitingMediaFallback({ name }: { name: string }) {
       <span className="text-white/50">
         <Spinner />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/75">Awaiting media…</p>
+      <p className="text-[0.8125rem] font-medium text-white/75">Waiting for video…</p>
       <p className="-mt-[6px] text-[0.75rem] text-white/35">
         Negotiating a direct stream · {name}
       </p>
@@ -309,10 +309,15 @@ export function NoMediaPathFallback({ onRetry }: { onRetry?: () => void }) {
       <span className="text-warn/70">
         <SignalOffGlyph />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/70">No media path</p>
+      <p className="text-[0.8125rem] font-medium text-white/70">Camera unavailable</p>
+      {/* The second sentence used to explain that media travels direct from
+          the tower rather than through coordination. True, load-bearing, and
+          the reason this state exists at all — but it is our network topology,
+          offered to somebody looking at a black rectangle. The fact they can
+          use is the first half: the tower is fine, the picture is not. The
+          topology is in the comment above this component, where it belongs. */}
       <p className="-mt-[4px] max-w-[280px] text-center text-[0.75rem] text-white/35">
-        The tower answered, but its video never arrived here. Media travels
-        direct from the tower, not through coordination.
+        The tower is answering, but its video isn't getting through.
       </p>
       {onRetry && (
         <button

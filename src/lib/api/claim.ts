@@ -159,18 +159,24 @@ export class ClaimRejectedError extends Error {
 /** Not a bad code, and must never be shown as one. */
 export class ClaimUnreachableError extends Error {
   readonly reason: "network" | "no_endpoint" | "server_error" | "bad_response";
+  /** The specifics. For the console and for callers — never for the screen. */
+  readonly detail: string | undefined;
   constructor(reason: ClaimUnreachableError["reason"], detail?: string) {
-    super(REACH[reason] + (detail ? ` (${detail})` : ""));
+    /* Same rule as `AuthUnreachableError`: the message is read by whoever is
+       registering a tower, the detail by whoever is fixing it. */
+    super(REACH[reason]);
     this.name = "ClaimUnreachableError";
     this.reason = reason;
+    this.detail = detail;
+    console.debug("[claim] registration could not complete:", reason, detail ?? "");
   }
 }
 
 const REACH = {
-  network: "Can't reach coordination",
-  no_endpoint: "Coordination has no tower-registration endpoint",
-  server_error: "Coordination returned an error",
-  bad_response: "Coordination returned an unexpected response",
+  network: "Can't connect right now",
+  no_endpoint: "Registering a tower isn't available right now",
+  server_error: "Something went wrong at our end",
+  bad_response: "Something went wrong at our end",
 } as const;
 
 /** The session lapsed mid-flow. The app drops to login; the wizard says why. */

@@ -74,16 +74,14 @@ export function CoordinationBanner({
         >
           {problem.detail}
         </p>
-        {/* Verbatim, never paraphrased. It is the only thing on screen that
-            tells whoever is fixing this WHICH of the identical-looking failures
-            it actually was. */}
-        <p
-          className={`truncate font-mono text-[0.6875rem] leading-[16px] ${
-            bug ? "text-white/65" : "text-advice-ink/60"
-          }`}
-        >
-          {problem.raw}
-        </p>
+        {/* ⚠ THE TRANSPORT'S OWN WORDS USED TO BE PRINTED HERE, in mono, under
+            the detail line: "Failed to fetch", "Illegal invocation", a bare
+            status. It is genuinely the line that says WHICH of the three
+            identical-looking failures this was — but on a wall-mounted screen
+            in front of somebody watching a yard it reads as the app having come
+            apart, and there is nothing they can do with it. It goes to the
+            console instead, from `classifyReach`, with the name, status and
+            code beside it, which is more than was ever on screen. */}
       </div>
 
       {/* Deliberate, operator-driven, and only where retrying could help. A

@@ -103,8 +103,8 @@ export function StateSimulator({
             from here.
           </p>
           <p className="text-[0.75rem] leading-[16px] text-white/30 lg:text-[0.6875rem]">
-            Induce them: cut the tower's power for offline, block the media path
-            for no-media-path, let a grant lapse for session ended.
+            Induce them at the tower: cut its power, stop its video, or let a
+            viewing session lapse.
           </p>
         </div>
       )}

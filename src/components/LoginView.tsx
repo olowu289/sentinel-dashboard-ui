@@ -47,8 +47,34 @@ import {
 
 type Failure =
   | { kind: "rejected"; message: string }
-  | { kind: "unreachable"; message: string }
+  /** `hint` is the second line, and it is per-reason on purpose — see `HINT`. */
+  | { kind: "unreachable"; message: string; hint?: string }
   | null;
+
+/**
+ * The second line, chosen by WHY the sign-in did not go through.
+ *
+ * ⚠ THIS USED TO BE ONE HARDCODED SENTENCE printed for every failure that was
+ * not a wrong password — and a rate-limit lock is not a wrong password. So
+ * being locked out showed "Too many sign-in attempts. Wait a few minutes and
+ * try again" with "This is not a password problem — nothing answered. Check
+ * that coordination is running, and that this browser trusts its certificate"
+ * stapled underneath it. Two different states in one alert, and the second one
+ * flatly untrue: something DID answer. It answered 429. The screen sent
+ * somebody off to restart a service that was working perfectly and had simply
+ * said no.
+ *
+ * A LOCK GETS NO SECOND LINE. Its own sentence is already complete and already
+ * says the only thing that helps: wait. Everything else gets one short line
+ * naming something the person can actually do.
+ */
+const HINT: Record<AuthUnreachableError["reason"], string | undefined> = {
+  throttled: undefined,
+  network: "Check your connection and try again.",
+  no_endpoint: "Please try again in a moment.",
+  server_error: "Please try again in a moment.",
+  bad_response: "Please try again in a moment.",
+};
 
 export function LoginView() {
   const { signIn, pending, status, endedReason, account } = useSession();
@@ -83,11 +109,21 @@ export function LoginView() {
            must not undo the anti-enumeration property. */
         setFailure({ kind: "rejected", message: UNIFORM_AUTH_MESSAGE });
       } else if (err instanceof AuthUnreachableError) {
-        setFailure({ kind: "unreachable", message: err.message });
-      } else {
         setFailure({
           kind: "unreachable",
-          message: err instanceof Error ? err.message : "Unexpected failure",
+          message: err.message,
+          hint: HINT[err.reason],
+        });
+      } else {
+        /* Not one of ours, so its message was written for a developer and may
+           be anything at all — a stack-shaped string, a bare status. The person
+           gets the same plain line every other failure gets; the error itself
+           goes where it can be read. */
+        console.debug("[auth] sign-in failed with an unrecognised error:", err);
+        setFailure({
+          kind: "unreachable",
+          message: "Something went wrong",
+          hint: "Please try again in a moment.",
         });
       }
     }
@@ -226,11 +262,11 @@ export function LoginView() {
                 >
                   {failure.message}
                 </p>
-                {!rejected && (
+                {/* Only when there is one. A lock shows its own sentence and
+                    nothing else — see `HINT`. */}
+                {failure.kind === "unreachable" && failure.hint && (
                   <p className="text-[0.75rem] leading-[16px] text-muted">
-                    This is not a password problem — nothing answered. Check that
-                    coordination is running, and that this browser trusts its
-                    certificate.
+                    {failure.hint}
                   </p>
                 )}
               </motion.div>

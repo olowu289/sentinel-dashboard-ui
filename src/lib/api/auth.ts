@@ -118,11 +118,14 @@ export class AuthRejectedError extends Error {
   }
 }
 
+/* The sign-in screen is the first thing anyone meets and often the only thing
+   they ever see go wrong, so it gets plain words. The old set named the service
+   in all four — the reasoning is written out over `HEADLINE` in `reach.ts`. */
 const REACH_MESSAGE = {
-  network: "Can't reach coordination",
-  no_endpoint: "Coordination has no login endpoint",
-  server_error: "Coordination returned an error",
-  bad_response: "Coordination returned an unexpected response",
+  network: "Can't connect right now",
+  no_endpoint: "Signing in isn't available right now",
+  server_error: "Something went wrong at our end",
+  bad_response: "Something went wrong at our end",
   /* Coordination's brute-force lock (its H-1 fix). Keyed on the organization
      name as typed and on the caller's address, so it says nothing about
      whether the organization exists — which is why it is not an auth verdict
@@ -138,10 +141,20 @@ export class AuthUnreachableError extends Error {
   /** Short machine reason, so the UI can vary its wording honestly. */
   readonly reason: keyof typeof REACH_MESSAGE;
 
+  /** The specifics. For the console and for callers — never for the screen. */
+  readonly detail: string | undefined;
+
   constructor(reason: AuthUnreachableError["reason"], detail?: string) {
-    super(REACH_MESSAGE[reason] + (detail ? ` (${detail})` : ""));
+    /* ⚠ `detail` USED TO BE APPENDED TO THE MESSAGE, and the message is what
+       the sign-in screen prints under the password field. That is how
+       "(VITE_COORDINATION_URL is unset)" and bare HTTP status codes ended up in
+       front of an operator: the name of an environment variable, as advice. It
+       is kept on the error and logged, so nothing diagnostic is lost. */
+    super(REACH_MESSAGE[reason]);
     this.name = "AuthUnreachableError";
     this.reason = reason;
+    this.detail = detail;
+    console.debug("[auth] sign-in could not complete:", reason, detail ?? "");
   }
 }
 

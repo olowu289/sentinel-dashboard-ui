@@ -174,7 +174,7 @@ function classify(err: unknown): PlaybackError {
   const status = (err as { status?: unknown })?.status;
 
   if (code === "grant_permission" || code === "not_authorized" || status === 403) {
-    return new PlaybackError("not_permitted", "This account may not view this camera");
+    return new PlaybackError("not_permitted", "You don't have access to this camera");
   }
   if (code === "tower_offline" || status === 503) {
     return new PlaybackError("tower_offline", "The tower is not connected");
@@ -183,15 +183,21 @@ function classify(err: unknown): PlaybackError {
     return new PlaybackError("tower_timeout", "The tower did not answer");
   }
   if (code === "camera_offline" || code === "mediamtx_unavailable" || code === "whep_failed") {
-    return new PlaybackError("camera_unavailable", "The camera's media path failed");
+    /* Three different pieces of the video chain, and the operator's move is the
+       same for all three. Naming which one broke told them about software they
+       have never heard of; the code is still in the console line below. */
+    return new PlaybackError("camera_unavailable", "This camera isn't available right now");
   }
   if (code === "grant_expired" || code === "session_unknown") {
-    return new PlaybackError("session_expired", "The viewing session ended");
+    return new PlaybackError("session_expired", "The live view ended");
   }
-  return new PlaybackError(
-    "unreachable",
-    err instanceof Error ? err.message : "Could not start playback",
-  );
+  /* ⚠ THIS USED TO PUT `err.message` ON THE TILE, which meant whatever the SDK
+     or the browser happened to say — "Failed to fetch", a bare status line, a
+     hostname — appeared as the app's own explanation of a black rectangle. The
+     unrecognised case gets one honest sentence; the error keeps its detail
+     here, where it is read by somebody who can use it. */
+  console.debug("[media] unclassified playback failure:", { code, status, err });
+  return new PlaybackError("unreachable", "Couldn't connect to this camera");
 }
 
 /**

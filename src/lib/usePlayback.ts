@@ -617,7 +617,7 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
                       "media_unreachable",
                       entry.everPlayed
                         ? "The connection to this camera dropped"
-                        : "No media arrived from this camera",
+                        : "No video arrived from this camera",
                     ),
                   );
                 };
@@ -699,8 +699,8 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
             if (Number.isFinite(deadline) && Date.now() >= deadline) {
               end(
                 misses >= STATUS_POLL_TOLERANCE
-                  ? "The session expired and coordination could not be reached"
-                  : "The viewing session ended",
+                  ? "The live view ended and couldn't be restarted"
+                  : "The live view ended",
               );
               return;
             }

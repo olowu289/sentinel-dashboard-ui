@@ -112,12 +112,16 @@ const NO_SENSOR = "No sensor fitted";
 const NO_FEED = "No alert feed yet";
 
 const WHY = {
-  door: "the tower reads its door switch, but coordination does not pass that reading to the dashboard yet.",
-  cover: "the tower reads its cover sensor, but coordination does not pass that reading to the dashboard yet.",
+  /* Read on hover by an operator, so each one says what is true of the READING
+     — the tower has it, this screen does not — rather than naming the service
+     in the middle that has not been taught to forward it yet. The claim is the
+     same and it is still honest about the gap; it just stops being about us. */
+  door: "the tower reads its door switch, but that reading doesn't reach this dashboard yet.",
+  cover: "the tower reads its cover sensor, but that reading doesn't reach this dashboard yet.",
   temperature:
-    "the tower measures its own temperature, but coordination does not pass that reading to the dashboard yet.",
+    "the tower measures its own temperature, but that reading doesn't reach this dashboard yet.",
   storage:
-    "the tower can measure its recordings disk, but that reading is not reported to the dashboard yet.",
+    "the tower can measure its recordings disk, but that reading doesn't reach this dashboard yet.",
   /* SUPERSEDED 2026-09-12. This read "no tower on this fleet carries a battery
      or charge sensor, so there is no reading to show", and it is now false: a
      tower with ENABLE_BATTERY_BLE=1 reads its LiFePO4 pack over Bluetooth and
@@ -131,7 +135,7 @@ const WHY = {
   power:
     "this tower reports no battery. A tower with a pack fitted and the battery reader enabled reports charge, voltage and pack temperature.",
   alerts:
-    "coordination has no alert feed yet. A tower's own tamper and camera alerts stay on the tower for now.",
+    "alerts don't reach this dashboard yet. A tower's own tamper and camera alerts stay on the tower for now.",
 } as const;
 
 const pending = (reason: string, why: string): Cell => ({

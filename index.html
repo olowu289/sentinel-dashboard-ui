@@ -2,6 +2,27 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Content Security Policy (security report H-14). The bearer token lives in
+      sessionStorage, so a script that runs in this origin owns the account;
+      this is the page-level line against that. Kept deliberately tight:
+        script-src 'self'                 nothing inline, nothing third-party
+        style-src  'self' + Google Fonts  the two typefaces in <link> below
+        font-src   'self' + fonts.gstatic the files that stylesheet pulls
+        img-src    'self' data: blob:     /icons, /media, and camera snapshots
+        media-src  'self' blob:           clip playback is a Blob URL; live
+                                          video is a MediaStream, no URL at all
+        connect-src 'self' https:         fetch to coordination over HTTPS.
+                                          vite.config.ts narrows this at BUILD
+                                          to the exact VITE_COORDINATION_URL
+                                          origin, and relaxes it in dev.
+      frame-ancestors cannot travel in a <meta>; vercel.json sets it, with
+      HSTS, nosniff and X-Frame-Options, at the edge.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"

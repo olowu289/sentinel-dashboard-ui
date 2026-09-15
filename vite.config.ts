@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 
 /* `@kallon/sentry-sdk` LIVES IN THIS REPO NOW, at `vendor/sentry-sdk`, and the
    dependency is `file:./vendor/sentry-sdk`.
@@ -100,8 +100,89 @@ function watchLinkedSdk(): Plugin {
   };
 }
 
+/**
+ * The Content Security Policy, fitted to the mode (security report H-14).
+ *
+ * `index.html` carries the PRODUCTION policy in a `<meta>`, and `vercel.json`
+ * repeats it as a header at the edge. Both are static text, and two things
+ * about this app are not:
+ *
+ *   IN DEV, Vite's React plugin injects an inline preamble script into the
+ *   page and Vite serves CSS by appending `<style>` elements from JS. Neither
+ *   passes `script-src 'self'` / `style-src 'self'`. So the dev server rewrites
+ *   the meta to allow inline script and style — dev runs on localhost, and a
+ *   policy that breaks `npm run dev` is a policy someone deletes.
+ *
+ *   AT BUILD, the coordination origin is known: `VITE_COORDINATION_URL` is
+ *   inlined into the bundle, so the one host this app fetches from can be
+ *   named in `connect-src` instead of the `https:` that stands in for it in
+ *   the static text. The edge header stays at `https:` (Vercel cannot read the
+ *   build env into a header); the browser enforces the INTERSECTION of the
+ *   two, so the effective policy is the narrow one.
+ *
+ * What is NOT here: WebRTC. The live tiles are `MediaStream`s and the ICE/TURN
+ * traffic is not governed by CSP at all, so no directive is needed for video
+ * to work, and none is loosened for it. Verified against a live tower with a
+ * headless browser and the console open — see the commit that added this.
+ */
+function contentSecurityPolicy(): Plugin {
+  let serve = false;
+  let coordinationOrigin: string | undefined;
+
+  const META = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"\s*\/?>/;
+
+  const rewrite = (policy: string): string => {
+    const directives = new Map<string, string>();
+    for (const part of policy.split(";")) {
+      const [name, ...rest] = part.trim().split(/\s+/);
+      if (name) directives.set(name, rest.join(" "));
+    }
+    const add = (name: string, ...values: string[]) => {
+      const have = (directives.get(name) ?? "").split(" ").filter(Boolean);
+      for (const v of values) if (!have.includes(v)) have.push(v);
+      directives.set(name, have.join(" "));
+    };
+    if (serve) {
+      add("script-src", "'unsafe-inline'");
+      add("style-src", "'unsafe-inline'");
+      /* HMR is a WebSocket back to this same origin ('self' covers it in
+         current browsers; `ws:` for the ones where it does not), and a dev
+         box may point at any coordination, TLS or not. */
+      add("connect-src", "ws:", "wss:", "http:", "https:");
+    } else if (coordinationOrigin) {
+      directives.set("connect-src", `'self' ${coordinationOrigin}`);
+    }
+    return [...directives].map(([k, v]) => (v ? `${k} ${v}` : k)).join("; ");
+  };
+
+  return {
+    name: "content-security-policy",
+    config(_config, env) {
+      serve = env.command === "serve";
+    },
+    configResolved(config) {
+      const env = loadEnv(config.mode, config.envDir ?? config.root, "VITE_");
+      const raw = env.VITE_COORDINATION_URL;
+      if (!raw) return;
+      try {
+        /* The ORIGIN only — the app's own config.ts refuses a URL with a path,
+           and a CSP source is an origin anyway. */
+        coordinationOrigin = new URL(raw).origin;
+      } catch {
+        /* Not a URL. config.ts will say so at runtime, loudly; the policy
+           simply stays at `https:`. */
+      }
+    },
+    transformIndexHtml(html) {
+      const match = html.match(META);
+      if (!match) return html;
+      return html.replace(META, (tag) => tag.replace(match[1], rewrite(match[1])));
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), watchLinkedSdk()],
+  plugins: [react(), tailwindcss(), watchLinkedSdk(), contentSecurityPolicy()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

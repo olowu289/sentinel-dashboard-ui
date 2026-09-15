@@ -123,6 +123,11 @@ const REACH_MESSAGE = {
   no_endpoint: "Coordination has no login endpoint",
   server_error: "Coordination returned an error",
   bad_response: "Coordination returned an unexpected response",
+  /* Coordination's brute-force lock (its H-1 fix). Keyed on the organization
+     name as typed and on the caller's address, so it says nothing about
+     whether the organization exists — which is why it is not an auth verdict
+     and gets its own line rather than the uniform "wrong password". */
+  throttled: "Too many sign-in attempts. Wait a few minutes and try again",
 } as const;
 
 /**
@@ -199,6 +204,16 @@ export async function login(
   }
   if (response.status === 404 || response.status === 405) {
     throw new AuthUnreachableError("no_endpoint");
+  }
+  if (response.status === 429) {
+    /* Retry-After is whole seconds. Rounded UP to minutes so the wording never
+       promises a sooner retry than the lock allows. */
+    const seconds = Number(response.headers.get("Retry-After"));
+    const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds / 60) : 0;
+    throw new AuthUnreachableError(
+      "throttled",
+      minutes ? `try again in ${minutes} min` : undefined,
+    );
   }
   if (!response.ok) {
     throw new AuthUnreachableError("server_error", `HTTP ${response.status}`);

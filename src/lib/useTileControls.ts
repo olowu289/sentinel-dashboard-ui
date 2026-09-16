@@ -183,7 +183,7 @@ export function useTileControls({
     setView(HOME);
     /* A feed that drops takes its actuators with it — and a held move must be
        ENDED rather than merely forgotten, or the head keeps turning until the
-       (now tight ~1s) deadman catches it. */
+       ~3s link-death deadman catches it. */
     const held = holdRef.current;
     holdRef.current = null;
     if (held) void held.stop().catch(() => {});
@@ -335,10 +335,10 @@ export function useTileControls({
       void (async () => {
         try {
           /* CONTINUOUS hold: ONE ContinuousMove, kept alive by the SDK's
-             keepalive (which only refreshes the tower's tight ~1s deadman — no
-             per-tick movement, so nothing piles up at any latency). Release
-             sends a prompt Stop (jogEnd), and the deadman backs it up if the
-             link drops, so the coast is bounded to ~1 deadman interval. */
+             keepalive (which only refreshes the tower's ~3s link-death deadman —
+             no per-tick movement, so nothing piles up at any latency). Release
+             is bounded by the prompt Stop (jogEnd), NOT the deadman; the deadman
+             only bites if the link genuinely drops. */
           const held = await beginHold(feed, session, {
             mode: "continuous",
             ...CONTINUOUS_AXES[dir],
@@ -385,9 +385,10 @@ export function useTileControls({
       holdRef.current = null;
       void (async () => {
         try {
-          /* THE PROMPT STOP. `held.stop()` sends an explicit Stop that the tower
-             expedites (it preempts the queue), stopping the head as fast as the
-             link allows; the tight deadman is the backstop if the link dropped.
+          /* THE PROMPT STOP — this is what bounds the release coast, not the
+             deadman. `held.stop()` sends an explicit Stop that the tower
+             expedites (it preempts the queue), stopping the head in ~1 link-
+             latency; the generous deadman is only a link-death backstop.
              The second path covers a hold that never registered — a failure, or
              a release that beat the round trip — because the tower may still
              have started moving. Either way, always a real stop. */

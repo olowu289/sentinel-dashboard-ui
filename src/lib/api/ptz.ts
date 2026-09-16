@@ -12,20 +12,25 @@ import { getClient } from "./client";
  * Pointing a camera.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  HOLD-TO-MOVE IS CONTINUOUS, MADE PROMPT BY A TIGHT DEADMAN + FAST STOP.
+ *  HOLD-TO-MOVE IS CONTINUOUS. RELEASE STOPS VIA AN EXPLICIT STOP, NOT THE DEADMAN.
  * ══════════════════════════════════════════════════════════════════════
  *
- * The tower runs ONE ContinuousMove while it is fed keepalives and stops when
- * they cease or an explicit Stop arrives. This is LATENCY-INDEPENDENT: "moves
- * while held, stops when released" holds whether commands take 10ms, 1s or 3s —
- * latency only shifts when start/stop happen. The old coast was not continuous
- * being wrong; it was the deadman being ~4s. Two changes fix it: the tower
- * deadman is now TIGHT (~1s, {@link PTZ_DEADMAN_MS}), so a lost keepalive stops
- * the head within ~1 interval; and release sends an explicit Stop that the tower
- * EXPEDITES (it preempts the queue). The keepalive ({@link PTZ_KEEPALIVE_MS},
- * ~0.4s, inside the deadman) only refreshes the deadman — it is NOT per-tick
- * movement, so nothing piles up at any latency. `client.ptzHold` owns that one
- * timer; this file holds none.
+ * The tower runs ONE ContinuousMove while it is fed keepalives. This is LATENCY-
+ * INDEPENDENT: "moves while held, stops when released" holds whether commands
+ * take 10ms, 1s or 3s — latency only shifts when start/stop happen.
+ *
+ * TWO SEPARATE ROLES, decoupled after a false-stop bug:
+ *   - RELEASE is bounded by the EXPLICIT Stop, which the tower expedites (it
+ *     preempts the queue): release → Stop → head stops in ~1 link-latency,
+ *     independent of the deadman.
+ *   - The DEADMAN ({@link PTZ_DEADMAN_MS}) is ONLY a link-death safety net — tab
+ *     closed, link dropped. It is GENEROUS (~3s) on purpose: a tight 1s deadman
+ *     false-fired mid-hold at ~1s latency because keepalives sent every 0.5s
+ *     ARRIVE ~1s apart under jitter, so it must exceed the worst-case keepalive-
+ *     arrival gap over the link.
+ * The keepalive ({@link PTZ_KEEPALIVE_MS}, ~0.6s) sits WELL inside the deadman
+ * and only refreshes it — NOT per-tick movement, so nothing piles up at any
+ * latency. `client.ptzHold` owns that one timer; this file holds none.
  *
  * ── STOP IS UNCONDITIONAL ──────────────────────────────────────────────
  *

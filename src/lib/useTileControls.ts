@@ -8,7 +8,7 @@ import { useSiren } from "@/lib/useSiren";
 import { useMutation } from "@/lib/useMutation";
 import {
   MIN_PRESS_MS,
-  JOG_AXES,
+  CONTINUOUS_AXES,
   beginHold,
   describePtzFailure,
   stopOrHome,
@@ -227,8 +227,9 @@ export function useTileControls({
    * blurrier picture of the same view; the lens makes a sharper picture of a
    * closer one. They are different operations and only one is worth a button.
    *
-   * So the buttons now drive `JOG_AXES.in` / `.out` through the same held-jog
-   * path the pad's pan and tilt use, and the local crop is gone entirely.
+   * So the buttons now drive `CONTINUOUS_AXES.in` / `.out` through the same
+   * held continuous-move path the pad's pan and tilt use, and the local crop is
+   * gone entirely.
    *
    * WHAT REMAINS LOCAL is the nudge for a camera with NO head, which is the
    * only pan such a tile can offer. It is gated on `feed.ptz`, which the
@@ -301,9 +302,14 @@ export function useTileControls({
       }
       void (async () => {
         try {
+          /* CONTINUOUS, unbounded: a direction+speed with no `seconds`, so the
+             move runs until release. The SDK's ptzHold keepalive refreshes the
+             daemon's deadman while held, and jogEnd's stop ends it — this is the
+             hold-to-move path. `move_continuous` reaches the mount's physical
+             range, where `move_absolute` clamped short (see CONTINUOUS_AXES). */
           const held = await beginHold(feed, session, {
-            mode: "jog",
-            ...JOG_AXES[dir],
+            mode: "continuous",
+            ...CONTINUOUS_AXES[dir],
           });
           /* The release may already have happened while this was in flight.
              Stop it immediately rather than storing a hold nobody will end —

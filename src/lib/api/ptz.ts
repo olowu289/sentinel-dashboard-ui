@@ -47,24 +47,35 @@ import { getClient } from "./client";
 export const MIN_PRESS_MS = 260;
 
 /**
- * The axes, exactly as the reference dashboard sends them.
+ * The manual pad's directional velocities, spread into
+ * `{ mode: "continuous", ...axis }`.
  *
- * Always spread into `{ mode: "jog", ...axis }`. `jog` rather than `continuous`
- * for a recorded reason: the tower routes `continuous` to ONVIF and `jog` to
- * the camera's own CGI path, and the ONVIF route failed on this hardware with
- * `invalid_request` from camera clock skew. Pan and tilt worked throughout
- * because they were already jogging; zoom simply had never been asked.
+ * CONTINUOUS, not absolute or jog. Live testing on the real camera (a Dahua PTZ)
+ * settled this: `move_absolute` drives toward a -1…1 COORDINATE that clamps short
+ * of the mount's physical range and returned `confirmed:false` after a ~10s poll
+ * timeout on this hardware; `move_continuous` drives in a DIRECTION at a speed and
+ * reaches the physical limit cleanly, returning `done:true` immediately. So a
+ * hold-to-move pad sends a continuous velocity per axis and stops on release.
+ *
+ * (This supersedes an earlier note that preferred `jog`/CGI because ONVIF
+ * `continuous` had failed with `invalid_request` from camera clock skew — that
+ * was the camera's clock, since sync'd; continuous is the verified path now.)
+ *
+ * ⚠ ALL THREE AXES ARE ALWAYS PRESENT. The tower's continuous branch requires
+ * `pan`, `tilt` AND `zoom` together (a missing one is `invalid_request`), so an
+ * idle axis is an explicit `0`, not omitted. `pan`/`tilt`/`zoom` are signed
+ * rates in -1…1; `+tilt` is up, `+pan` is right, `+zoom` is tele (in).
  */
-export const JOG_AXES = {
-  up: { tilt: 0.5 },
-  down: { tilt: -0.5 },
-  left: { pan: -0.5 },
-  right: { pan: 0.5 },
-  in: { zoom: 0.5 },
-  out: { zoom: -0.5 },
+export const CONTINUOUS_AXES = {
+  up: { pan: 0, tilt: 0.5, zoom: 0 },
+  down: { pan: 0, tilt: -0.5, zoom: 0 },
+  left: { pan: -0.5, tilt: 0, zoom: 0 },
+  right: { pan: 0.5, tilt: 0, zoom: 0 },
+  in: { pan: 0, tilt: 0, zoom: 0.5 },
+  out: { pan: 0, tilt: 0, zoom: -0.5 },
 } as const;
 
-export type JogDirection = keyof typeof JOG_AXES;
+export type JogDirection = keyof typeof CONTINUOUS_AXES;
 
 /** Raised when a command cannot even be attempted. Never a fake success. */
 export class PtzUnavailableError extends Error {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatZoom, useZoomReadout } from "@/lib/useZoomReadout";
+import { getClient } from "@/lib/api/client";
 import { captureFrame, downloadBlob, snapshotFilename } from "@/lib/snapshot";
 import type { TileControl } from "@/components/ControlStack";
 import type { CameraFeed } from "@/lib/types";
@@ -49,6 +50,11 @@ export function maxPan(scale: number) {
 
 const clamp = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
+
+/* How often to check the tilt limit while a tilt is held. The tower is the real
+   guard (it halts tilt at the stop); this poll is only so the button reflects it
+   and stops pushing. A real round trip to the camera, so no faster than needed. */
+const TILT_LIMIT_POLL_MS = 400;
 
 /**
  * A tile's actuators, and the eight controls that drive them.
@@ -177,7 +183,7 @@ export function useTileControls({
     setView(HOME);
     /* A feed that drops takes its actuators with it — and a held move must be
        ENDED rather than merely forgotten, or the head keeps turning until the
-       daemon's deadman catches it. */
+       (now tight ~1s) deadman catches it. */
     const held = holdRef.current;
     holdRef.current = null;
     if (held) void held.stop().catch(() => {});
@@ -288,6 +294,21 @@ export function useTileControls({
     active: zooming,
   });
 
+  /* TILT LIMIT — feedback only; the TOWER enforces the physical stop (it halts
+     tilt at PTZ_TILT_MIN/MAX and keeps pan rotating). "max" = the up-stop, "min"
+     = the down-stop, null = free. PAN IS NEVER LIMITED, so this only ever gates
+     the up/down arrows. While a tilt is held we poll status; when the tower
+     reports the tilt at the limit we are pushing toward, we stop pushing and
+     mark the button. The mark persists until the operator tilts the other way
+     (moving away clears it). */
+  const [tiltLimit, setTiltLimit] = useState<"max" | "min" | null>(null);
+  const [tiltHeld, setTiltHeld] = useState<"up" | "down" | null>(null);
+  const tiltHeldRef = useRef<"up" | "down" | null>(null);
+  tiltHeldRef.current = tiltHeld;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const sessionId = typeof session === "string" ? session : session?.session_id;
+
   const jogStart = useCallback(
     (dir: JogDirection) => {
       setPtzError(null);
@@ -300,13 +321,24 @@ export function useTileControls({
         setZoomSide(dir === "in" ? "zoom-in" : "zoom-out");
         setZooming(true);
       }
+      if (dir === "up" || dir === "down") {
+        // Moving AWAY from a limit is always allowed and clears the mark.
+        if ((dir === "down" && tiltLimit === "max") || (dir === "up" && tiltLimit === "min")) {
+          setTiltLimit(null);
+        } else if ((dir === "up" && tiltLimit === "max") || (dir === "down" && tiltLimit === "min")) {
+          // Already at this tilt limit — do not push into the stop. The button is
+          // disabled too; this guards an edge/programmatic call. Pan is never here.
+          return;
+        }
+        setTiltHeld(dir);
+      }
       void (async () => {
         try {
-          /* CONTINUOUS, unbounded: a direction+speed with no `seconds`, so the
-             move runs until release. The SDK's ptzHold keepalive refreshes the
-             daemon's deadman while held, and jogEnd's stop ends it — this is the
-             hold-to-move path. `move_continuous` reaches the mount's physical
-             range, where `move_absolute` clamped short (see CONTINUOUS_AXES). */
+          /* CONTINUOUS hold: ONE ContinuousMove, kept alive by the SDK's
+             keepalive (which only refreshes the tower's tight ~1s deadman — no
+             per-tick movement, so nothing piles up at any latency). Release
+             sends a prompt Stop (jogEnd), and the deadman backs it up if the
+             link drops, so the coast is bounded to ~1 deadman interval. */
           const held = await beginHold(feed, session, {
             mode: "continuous",
             ...CONTINUOUS_AXES[dir],
@@ -324,7 +356,7 @@ export function useTileControls({
         }
       })();
     },
-    [feed, localNudge, realPtz, session],
+    [feed, localNudge, realPtz, session, tiltLimit],
   );
 
   /**
@@ -342,6 +374,7 @@ export function useTileControls({
     /* Before the `realPtz` guard: the readout's tail must end even on a tile
        that cannot move a lens, or a stray press would leave it polling. */
     setZooming(false);
+    setTiltHeld(null);        // stop polling tilt; the mark (if any) persists
     if (!realPtz) return;
     const heldFor = Date.now() - pressedAt.current;
     pressedAt.current = 0;
@@ -352,9 +385,12 @@ export function useTileControls({
       holdRef.current = null;
       void (async () => {
         try {
-          /* Either path issues a real stop. The second exists for the case
-             where the hold never registered — a failure, or a release that beat
-             the round trip — because the tower may still have started moving. */
+          /* THE PROMPT STOP. `held.stop()` sends an explicit Stop that the tower
+             expedites (it preempts the queue), stopping the head as fast as the
+             link allows; the tight deadman is the backstop if the link dropped.
+             The second path covers a hold that never registered — a failure, or
+             a release that beat the round trip — because the tower may still
+             have started moving. Either way, always a real stop. */
           if (held) await held.stop();
           else await stopOrHome(feed, session, false);
         } catch (err) {
@@ -364,6 +400,42 @@ export function useTileControls({
       })();
     }, wait);
   }, [feed, realPtz, session]);
+
+  /* Poll status WHILE a tilt is held and stop pushing into the stop the moment
+     the tower reports the tilt at the limit we are driving toward. Only runs
+     during a held up/down (never for pan or zoom), and only on a real head. */
+  useEffect(() => {
+    if (!realPtz || !tiltHeld || feed.index === undefined || !sessionId) return;
+    const cam = feed.index;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const ref = sessionRef.current;
+        if (!ref) return;
+        const res = await getClient().ptzStatus(ref, cam);
+        if (cancelled) return;
+        const lim = res.result?.["tilt_limit"];
+        const held = tiltHeldRef.current;
+        if ((held === "up" && lim === "max") || (held === "down" && lim === "min")) {
+          setTiltLimit(lim as "max" | "min");
+          jogEnd();     // the tower already halted tilt; stop pushing + mark it
+        }
+      } catch {
+        /* A failed status is not a limit — keep holding, do not falsely stop. */
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, TILT_LIMIT_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [realPtz, tiltHeld, feed.index, sessionId, jogEnd]);
 
   const goHome = useCallback(() => {
     setPtzError(null);
@@ -562,6 +634,9 @@ export function useTileControls({
     jogEnd,
     goHome,
     realPtz,
+    /** Which tilt end the head is at, or null. "max" = up-stop, "min" = down-stop.
+        Pan is never limited, so this only marks the up/down arrows. */
+    tiltLimit,
     /** The camera's measured magnification, or null when nothing measured it. */
     zoomRatio,
     ptzError,

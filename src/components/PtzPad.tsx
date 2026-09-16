@@ -20,24 +20,14 @@ const BUTTONS: {
  * Pointing the camera head.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  PRESS AND RELEASE. NOT A REPEATING TICK.
+ *  PRESS AND RELEASE. THIS FILE HOLDS NO TIMER.
  * ══════════════════════════════════════════════════════════════════════
  *
- * This used to fire a step on pointerdown and then repeat it every 125ms — 8
- * commands a second at a CGI endpoint — because it was driving a local CSS
- * transform, where a repeat is how you get continuous movement out of a
- * discrete nudge. That is also why it "only moved a little": each tick shifted
- * the ON-SCREEN IMAGE by 2.5%, clamped so the frame's own edge never showed.
- * The camera never moved at all.
- *
- * A real head jogs. One command starts it, one stops it, and the tower keeps it
- * alive in between. So: `onJogStart` on pointerdown, `onJogEnd` on pointerup,
- * leave and cancel. The repeat is gone, and with it the stream of SUPERSEDED
- * results a rapid tick produces when each move displaces the last.
- *
- * ⚠ THERE IS NO TIMER IN THIS FILE, and there must never be one. The keepalive
- * belongs to the SDK's `ptzHold` (~1.5s, inside the daemon's 4s deadman) and a
- * second one here would be two timers racing to refresh one move.
+ * The pad only reports intent: `onJogStart` on pointerdown, `onJogEnd` on
+ * pointerup/leave/cancel. The HOLD itself — one continuous move kept alive by a
+ * keepalive while held, and a prompt stop on release — lives in useTileControls
+ * and the SDK's `ptzHold`, which own the one timer. A second timer here would be
+ * two loops racing to move one head, so there must never be one.
  *
  * ⚠ EVERY WAY A PRESS CAN END CALLS `onJogEnd`. pointerup, pointerleave and
  * pointercancel — the last because a touch device fires it when the system
@@ -49,12 +39,20 @@ export function PtzPad({
   onJogEnd,
   onHome,
   disabled = false,
+  tiltLimit = null,
 }: {
   onJogStart?: (dir: JogDirection) => void;
   onJogEnd?: () => void;
   onHome?: () => void;
   disabled?: boolean;
+  /** Which TILT end the head is at, or null. "max" marks the UP arrow, "min" the
+      DOWN arrow. PAN (left/right) is never limited — the camera rotates 360. */
+  tiltLimit?: "max" | "min" | null;
 }) {
+  /* Only the tilt arm pushing INTO its stop is at the limit. Down (and pan) stay
+     free while at the up-stop, so the operator can always tilt back. */
+  const atLimit = (dir: JogDirection): boolean =>
+    (dir === "up" && tiltLimit === "max") || (dir === "down" && tiltLimit === "min");
   /* Guards a release arriving without a press — a pointerup after the pad has
      been disabled mid-gesture, say. Sending a stop for a move we never started
      is harmless on the tower but would muddy the failure reporting here. */
@@ -88,20 +86,27 @@ export function PtzPad({
       aria-label="Pan and tilt"
       className="relative size-[80px] rounded-full bg-black/45"
     >
-      {BUTTONS.map((b) => (
-        <button
-          key={b.dir}
-          type="button"
-          aria-label={b.label}
-          disabled={disabled}
-          {...press(b.dir)}
-          className={`absolute flex size-[24px] items-center justify-center text-[#e0dfdf]/85 transition-[color,transform] hover:text-white active:scale-90 disabled:opacity-40 ${b.position}`}
-        >
-          {/* Rotation must sit on the glyph, not a wrapper — MaskIcon renders
-              display:block, and transforms are ignored on inline elements. */}
-          <MaskIcon src="/icons/ptz-arrow.svg" size={24} className={b.rotate} />
-        </button>
-      ))}
+      {BUTTONS.map((b) => {
+        const limited = atLimit(b.dir);
+        return (
+          <button
+            key={b.dir}
+            type="button"
+            aria-label={limited ? `${b.label} (at tilt limit)` : b.label}
+            aria-disabled={limited || undefined}
+            title={limited ? "At tilt limit" : undefined}
+            disabled={disabled || limited}
+            {...press(b.dir)}
+            className={`absolute flex size-[24px] items-center justify-center transition-[color,transform] hover:text-white active:scale-90 disabled:opacity-40 ${
+              limited ? "text-amber-400/90" : "text-[#e0dfdf]/85"
+            } ${b.position}`}
+          >
+            {/* Rotation must sit on the glyph, not a wrapper — MaskIcon renders
+                display:block, and transforms are ignored on inline elements. */}
+            <MaskIcon src="/icons/ptz-arrow.svg" size={24} className={b.rotate} />
+          </button>
+        );
+      })}
 
       {/* Home is a single command, not a hold: it is an absolute recall, and
           the tower decides how long it takes to arrive. */}

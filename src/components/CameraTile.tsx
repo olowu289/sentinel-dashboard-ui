@@ -117,6 +117,7 @@ export function CameraTile({
     jogEnd,
     goHome,
     realPtz,
+    tiltLimit,
     ptzError,
     flash,
     alarming,
@@ -613,9 +614,10 @@ export function CameraTile({
             onJogStart={jogStart}
             onJogEnd={jogEnd}
             onHome={goHome}
-            /* A real head is never "at limit" from here — the tower knows its
-               own travel. The old `atLimit` came from the local transform
-               running out of frame to crop, which is meaningless for optics. */
+            /* The head's TILT limit comes from the tower (it knows its own
+               travel and reports the at-limit state). Pan is never limited.
+               The `disabled` below is the fixed/no-travel case, unrelated. */
+            tiltLimit={realPtz ? tiltLimit : null}
             disabled={!realPtz && limit === 0}
           />
         </motion.div>

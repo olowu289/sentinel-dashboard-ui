@@ -11,15 +11,26 @@
  * vocabulary. A viewer knows about towers, cameras, sessions, PTZ and health.
  */
 /**
- * The daemon's safety deadman (§5.1): a held `jog` or unbounded `continuous`
- * must be refreshed more often than every 4 s or the mount stops itself.
+ * The daemon's safety deadman (§5.1): a PURE LINK-DEATH safety net. If no
+ * keepalive and no command reaches the tower for this long, the mount stops
+ * itself (tab closed, link dropped). It is NOT the stop-on-release path — an
+ * explicit Stop bounds the release coast to ~1 link-latency — so it is set
+ * GENEROUS so it never false-fires mid-hold when keepalives merely JITTER over a
+ * high-latency link (a 1s deadman fired during legit holds at ~1s latency,
+ * because keepalives sent every 0.5s can arrive ~1s apart). It must exceed the
+ * worst-case keepalive-ARRIVAL gap over the link. Mirrors the tower's
+ * `CONTINUOUS_SAFETY_TIMEOUT_SEC`; keep the two in step.
  */
-export const PTZ_DEADMAN_MS = 4000;
+export const PTZ_DEADMAN_MS = 3000;
 /**
- * Recommended keepalive cadence (§5.1): "the viewer SHOULD send at ~1.5 s
- * intervals", because over a WAN the 4 s budget includes round-trip time.
+ * Keepalive cadence while a continuous move is held (§5.1). It only REFRESHES
+ * the deadman — the camera already moves continuously from one ContinuousMove,
+ * so this causes no per-tick movement and never piles up regardless of latency.
+ * Set WELL inside {@link PTZ_DEADMAN_MS} with generous headroom for round-trip
+ * time and jitter, so even several late/jittered keepalives in a row cannot let
+ * the deadman lapse during a genuine hold.
  */
-export const PTZ_KEEPALIVE_MS = 1500;
+export const PTZ_KEEPALIVE_MS = 600;
 /**
  * The longest slice a single request may ask for (§12.6), in seconds.
  *

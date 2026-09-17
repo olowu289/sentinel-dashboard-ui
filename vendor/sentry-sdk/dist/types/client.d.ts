@@ -392,11 +392,15 @@ export declare class SentryClient {
      * Start a held move and keep it alive until the returned function is called.
      *
      * This exists because getting it wrong is a *safety* bug, not a cosmetic one.
-     * §5.1: a held `jog` or unbounded `continuous` must be refreshed more often
-     * than every {@link PTZ_DEADMAN_MS}, and over a WAN that budget includes RTT,
-     * so the viewer should send at ~1.5 s. The returned `stop()` always issues a
-     * real `stop` (§5.3) even if the keepalives were failing — the one thing that
-     * must not be conditional.
+     * §5.1: an unbounded `continuous` move must be refreshed by a keepalive, or the
+     * tower's deadman ({@link PTZ_DEADMAN_MS}, a GENEROUS ~3s link-death net) stops
+     * it. The keepalive runs at {@link PTZ_KEEPALIVE_MS} (~0.6s), WELL inside the
+     * deadman with headroom for RTT and jitter, so a held move never false-stops
+     * over a high-latency link; it only refreshes the deadman (no per-tick
+     * movement, nothing piles up). The release coast is bounded not by the deadman
+     * but by the returned `stop()`, which issues a prompt, preempting `stop` (§5.3)
+     * — always, even if the keepalives were failing, the one thing that must not
+     * be conditional.
      *
      * ```ts
      * const held = await client.ptzHold(session, 1, { mode: "jog", pan: 0.5 });

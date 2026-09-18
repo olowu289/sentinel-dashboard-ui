@@ -10,8 +10,13 @@
         style-src  'self' + Google Fonts  the two typefaces in <link> below
         font-src   'self' + fonts.gstatic the files that stylesheet pulls
         img-src    'self' data: blob:     /icons, /media, and camera snapshots
-        media-src  'self' blob:           clip playback is a Blob URL; live
-                                          video is a MediaStream, no URL at all
+        media-src  'self' blob: https:    hub-archived playback is a <video>
+                                          src on the COORDINATION origin (the
+                                          segment stream); blob: keeps the older
+                                          Blob path; live video is a MediaStream,
+                                          no URL. Like connect-src, vite.config.ts
+                                          narrows the https: to the exact
+                                          coordination origin at BUILD.
         connect-src 'self' https:         fetch to coordination over HTTPS.
                                           vite.config.ts narrows this at BUILD
                                           to the exact VITE_COORDINATION_URL
@@ -21,7 +26,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <meta
       name="viewport"

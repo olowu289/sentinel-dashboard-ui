@@ -279,3 +279,81 @@ export function formatRelative(at: number, now: number = Date.now()) {
   const days = Math.floor(hours / 24);
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
+
+// ===========================================================================
+// LOCAL timezone — the PLAYBACK RECORDINGS LIST only.
+//
+// ⚠ DELIBERATELY THE VIEWER'S OWN ZONE, against this file's site-TZ rule above.
+// The recordings API returns UTC starts, and archived footage was looking
+// "missing" because operators reasoned about the date filter in their own zone
+// while the list showed another. For a browsable archive the useful frame is
+// "what time was it where I am", and the date filter and the row times must
+// agree with each other and with the calendar the operator picks from. So this
+// one screen renders in the local zone, LABELLED, rather than WAT. The live
+// wall, incidents and rosters keep site time — this is scoped to the archive.
+// ===========================================================================
+
+/** The viewer's local timezone abbreviation, e.g. `GMT+1`, `EST`. */
+export const LOCAL_TZ_LABEL: string =
+  new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
+    .formatToParts(Date.now())
+    .find((p) => p.type === "timeZoneName")?.value ?? "local";
+
+const localDayFmt = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric", month: "2-digit", day: "2-digit",
+});
+const localTimeFmt = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
+});
+
+/** Calendar day in the VIEWER's local zone, `YYYY-MM-DD` — the list's grouping key. */
+export function localDay(at: number): string {
+  return localDayFmt.format(at);
+}
+
+/** The viewer's local today, `YYYY-MM-DD` — the date filter's natural default. */
+export function localToday(at: number = Date.now()): string {
+  return localDay(at);
+}
+
+/** `2:33:12 PM` in local time — a recording row's start. */
+export function formatLocalTime(at: number): string {
+  return localTimeFmt.format(at);
+}
+
+/**
+ * A date header for the recordings list: `Today`, `Yesterday`, else
+ * `Thursday, September 18, 2026` — from a `YYYY-MM-DD` LOCAL day string.
+ */
+export function formatLocalDayHeader(isoLocalDay: string): string {
+  if (isoLocalDay === localToday()) return "Today";
+  const y0 = new Date(); y0.setDate(y0.getDate() - 1);
+  if (isoLocalDay === localDay(y0.getTime())) return "Yesterday";
+  const [y, m, d] = isoLocalDay.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    timeZone: "UTC",
+  }).format(Date.UTC(y, m - 1, d));
+}
+
+/** `15 min`, `20 sec`, `1 hr 5 min` — a recording's length, spelled for a list. */
+export function formatRecordingLength(sec: number): string {
+  const s = Math.round(sec);
+  if (s < 60) return `${s} sec`;
+  const mins = Math.floor(s / 60);
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem ? `${hrs} hr ${rem} min` : `${hrs} hr`;
+}
+
+/** `45.2 MB`, `900 KB` — a recording's size for a list, or `""` when unknown. */
+export function formatBytes(bytes: number): string {
+  if (!bytes || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}

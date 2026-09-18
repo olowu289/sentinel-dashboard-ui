@@ -1,36 +1,63 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import type { CameraFeed, Tower } from "@/lib/types";
-import { covered, useReviewPlayer } from "@/lib/useReviewPlayer";
-import { PlaybackTimeline } from "@/components/PlaybackTimeline";
-import { SITE_TZ_LABEL, formatSiteStamp } from "@/lib/time";
+import type { ArchivedSegment } from "@kallon/sentry-sdk";
+import { useHubRecordings } from "@/lib/useHubRecordings";
 import { segmentDownloadUrl } from "@/lib/api/recordings";
+import {
+  LOCAL_TZ_LABEL,
+  formatBytes,
+  formatLocalDayHeader,
+  formatLocalTime,
+  formatRecordingLength,
+  localDay,
+} from "@/lib/time";
 
 /**
- * Recorded footage, read from the HUB archive.
+ * Recorded footage from the HUB archive — a browsable LIST of segments.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  A SEPARATE SCREEN, AND THAT IS THE DESIGN, NOT THE LAYOUT.
+ *  LIST AND PLAY, NOT SCRUB.
  * ══════════════════════════════════════════════════════════════════════
  *
- * Review is not a mode on the live tile: a tile is a monitor, and an operator
- * watching four sites does not want one to stop being live because somebody
- * wanted to check what happened a minute ago. The wall is for what is happening;
- * this screen is for what happened.
+ * The hub stores complete ~15-minute segments; this screen lists them for the
+ * chosen tower·camera, grouped by day, and plays one when it is clicked. It is a
+ * separate screen from the wall on purpose: a tile is a monitor for what is
+ * happening, and drilling into what happened must not take a live feed down.
  *
  * ── WHAT IS HONEST HERE ────────────────────────────────────────────────
  *
- *   the window     is the segments the HUB actually holds in its storage backend,
- *                  not the retention setting. Archiving that was off, or a hub
- *                  that was down, means fewer — said plainly.
- *   a gap          says so. An instant no segment covers renders as a boundary,
- *                  not a fault.
- *   storage        is invisible. Each segment plays from a URL the hub returned;
- *                  whether that is a bucket or a local disk never reaches here.
- *   the clock      is the footage's own recorded time. The current segment's
- *                  start turns the video's own time into a quotable wall clock.
+ *   the list       is the segments the hub actually holds — not a retention
+ *                  promise. Archiving off says so; an empty day says so.
+ *   storage        is invisible. Each row plays from a URL the hub returned;
+ *                  bucket-presigned or local-ticketed never reaches here.
+ *   the clock      is the VIEWER's local time, labelled — so the date the
+ *                  operator picks and the times they read agree with the
+ *                  calendar in front of them. (See the note in lib/time.ts.)
  */
+
+interface DayGroup {
+  day: string;                 // local YYYY-MM-DD
+  segments: ArchivedSegment[]; // newest-first within the day
+}
+
+/** Newest-first, grouped by local day (newest day first). */
+function groupByDay(segments: ArchivedSegment[]): DayGroup[] {
+  const byDay = new Map<string, ArchivedSegment[]>();
+  for (const s of segments) {
+    const day = localDay(s.startEpoch * 1000);
+    const arr = byDay.get(day);
+    if (arr) arr.push(s);
+    else byDay.set(day, [s]);
+  }
+  return [...byDay.entries()]
+    .map(([day, segs]) => ({
+      day,
+      segments: segs.sort((a, b) => b.startEpoch - a.startEpoch),
+    }))
+    .sort((a, b) => (a.day < b.day ? 1 : -1));
+}
 
 export function PlaybackView({
   towers,
@@ -51,39 +78,47 @@ export function PlaybackView({
   const [camera, setCamera] = useState<number | null>(null);
   const chosen = camera ?? cameras[0]?.index ?? null;
 
-  const review = useReviewPlayer(towerId, chosen ?? null);
-  const { phase, spans, bounds, positionAt, current, currentStartAt } = review;
+  const { phase, segments, archiveEnabled, reload } = useHubRecordings(towerId, chosen ?? null);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
+  /** The day the list is filtered to (local YYYY-MM-DD), or null for all days. */
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  /** The segment key currently loaded in the player. */
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  /* ── keep the picture on the playhead ────────────────────────────────
-     The video seeks over HTTP Range within its segment, so a scrub is just a
-     `currentTime`. This corrects the element to the playhead ONLY when they are
-     far apart — a real seek — and ignores the sub-second drift of normal
-     playback, which reports its own position back through `seekQuiet` and must
-     not be fought frame by frame. On a new segment the element mounts at 0 and
-     this seeks it to the right offset. */
+  const groups = useMemo(() => groupByDay(segments), [segments]);
+  const daysWithFootage = useMemo(() => groups.map((g) => g.day), [groups]);
+
+  /* When a fresh list lands, default the filter to the most recent day that HAS
+     footage and cue its newest segment, so the screen opens on "what just
+     happened" rather than an empty player. Keyed on the list identity so it
+     re-defaults on every tower/camera switch, not on every render. */
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v || currentStartAt === null || positionAt === null) return;
-    const want = (positionAt - currentStartAt) / 1000;
-    if (want >= 0 && Math.abs(v.currentTime - want) > 1) {
-      try {
-        v.currentTime = want;
-      } catch {
-        /* Seeking before metadata is loaded throws; `onLoadedMetadata` retries. */
-      }
+    if (phase.kind !== "ready" || segments.length === 0) {
+      setSelectedDay(null);
+      setSelectedKey(null);
+      return;
     }
-  }, [positionAt, currentStartAt, current]);
+    const newestDay = groups[0];
+    setSelectedDay(newestDay.day);
+    setSelectedKey(newestDay.segments[0]?.key ?? null);
+  }, [segments, phase.kind, groups]);
 
-  /* SITE time, labelled — not the viewer's machine. Operators hand incidents off
-     by radio across shifts and regions, so a time that silently follows whoever
-     is looking is worse than none. This screen's whole output is "when did this
-     happen", so it is the last place to get that wrong. */
-  const stamp = positionAt !== null ? formatSiteStamp(positionAt) : null;
+  const selected = useMemo(
+    () => segments.find((s) => s.key === selectedKey) ?? null,
+    [segments, selectedKey],
+  );
+
+  const visibleGroups = useMemo(
+    () => (selectedDay ? groups.filter((g) => g.day === selectedDay) : groups),
+    [groups, selectedDay],
+  );
 
   const feed = cameras.find((f) => f.index === chosen);
   const tower = towers.find((t) => t.id === towerId);
+
+  const dateRange = daysWithFootage.length
+    ? { min: daysWithFootage[daysWithFootage.length - 1], max: daysWithFootage[0] }
+    : null;
 
   return (
     <div className="flex h-full min-h-0 w-full">
@@ -143,138 +178,141 @@ export function PlaybackView({
           )}
         </div>
 
-        {/* ── the picture ────────────────────────────────────────────── */}
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-[12px] bg-stage">
-          {current ? (
-            <video
-              /* Keyed on the segment URL so a segment change remounts the element
-                 cleanly; the seek effect above puts it on the playhead. */
-              key={current.url}
-              ref={videoRef}
-              src={current.url}
-              autoPlay
-              playsInline
-              controls
-              className="absolute inset-0 size-full object-contain"
-              onLoadedMetadata={(e) => {
-                if (currentStartAt === null || positionAt === null) return;
-                const want = (positionAt - currentStartAt) / 1000;
-                if (want > 0) e.currentTarget.currentTime = want;
-              }}
-              onTimeUpdate={(e) => {
-                /* WALL CLOCK, not segment offset. The segment knows when it
-                   starts, so the playhead is that plus the element's own time —
-                   which is what makes the readout quotable. */
-                if (currentStartAt === null) return;
-                review.seekQuiet(currentStartAt + e.currentTarget.currentTime * 1000);
-              }}
-              /* Playing off the end of a segment advances into the next one
-                 rather than stopping — the operator asked to watch, not to watch
-                 one segment. */
-              onEnded={review.advance}
-            />
-          ) : (
-            <div className="absolute inset-0 grid place-items-center px-[24px] text-center">
-              <Message phase={phase} hasCameras={cameras.length > 0}
-                       hasSpans={spans.length > 0} onRetry={review.retry} />
+        {/* ── player + list, side by side on wide screens ────────────── */}
+        <div className="flex min-h-0 flex-1 flex-col gap-[14px] lg:flex-row">
+          {/* the picture */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-[8px]">
+            <div className="relative min-h-[240px] flex-1 overflow-hidden rounded-[12px] bg-stage">
+              {selected ? (
+                <video
+                  key={selected.url}
+                  src={selected.url}
+                  autoPlay
+                  playsInline
+                  controls
+                  className="absolute inset-0 size-full object-contain"
+                />
+              ) : (
+                <div className="absolute inset-0 grid place-items-center px-[24px] text-center">
+                  <span className="text-[0.8125rem] leading-[20px] text-muted">
+                    {cameras.length === 0
+                      ? "Pick a site with cameras."
+                      : "Select a recording from the list to play it."}
+                  </span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* ── the scrubber, over what actually exists ────────────────── */}
-        {bounds && positionAt !== null && (
-          <div className="flex flex-col gap-[6px]">
-            <div className="flex items-baseline justify-between">
-              <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] tabular-nums text-white">
-                {stamp ? `${stamp.date} ${stamp.time}` : "—"}
-                <span className="ml-[6px] text-[0.75rem] text-muted">
-                  {SITE_TZ_LABEL}
+            {selected && (
+              <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[6px] rounded-[8px] bg-panel px-[12px] py-[10px]">
+                <span className="min-w-0 flex-1 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] tabular-nums text-white">
+                  {formatLocalTime(selected.startEpoch * 1000)}
+                  <span className="ml-[6px] text-[0.75rem] text-muted">{LOCAL_TZ_LABEL}</span>
+                  <span className="ml-[10px] text-[0.75rem] font-sans text-muted">
+                    {formatRecordingLength(selected.duration)}
+                    {feed?.name ? ` · ${feed.name}` : ""}
+                  </span>
                 </span>
+                {/* The URL sets its own Content-Disposition, so a plain navigation
+                    downloads the segment — no CORS, no bytes through this app. */}
+                <a
+                  href={segmentDownloadUrl(selected)}
+                  download
+                  className="flex h-[30px] shrink-0 items-center justify-center gap-[6px] rounded-[8px] bg-white px-[12px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
+                >
+                  <MaskIcon src="/icons/clip-download.svg" size={14} />
+                  Download
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* the list */}
+          <div className="flex min-h-0 w-full flex-col gap-[8px] rounded-[12px] bg-panel p-[12px] lg:w-[380px]">
+            <div className="flex items-center justify-between gap-[8px]">
+              <span className="font-display text-[0.8125rem] leading-[20px] tracking-[0.13px] uppercase text-white">
+                Recordings
+              </span>
+              <span className="text-[0.6875rem] leading-[16px] text-muted">
+                times in {LOCAL_TZ_LABEL}
               </span>
             </div>
 
-            <PlaybackTimeline
-              from={bounds.from}
-              to={bounds.to}
-              at={positionAt}
-              spans={spans}
-              onSeek={(t) => review.seek(t)}
-            />
-
-            {/* ── download ─────────────────────────────────────────────
-                A whole segment, not a trimmed clip: the archive stores complete
-                ~15-minute segments and the hub does no server-side cut, so the
-                honest offer is the segment under the playhead, in full, said
-                plainly rather than a trimmed file that quietly wasn't. */}
-            <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[8px] rounded-[8px] bg-panel px-[12px] py-[10px]">
-              {current ? (
-                <>
-                  <span className="min-w-0 flex-1 text-[0.8125rem] leading-[20px] text-muted">
-                    Save the segment under the playhead
-                    {feed?.name ? ` — ${feed.name}` : ""}
-                    {" "}({formatSegmentLength(current.duration)}).
-                  </span>
-                  <a
-                    href={segmentDownloadUrl(current)}
-                    download
-                    className="flex h-[32px] items-center justify-center gap-[8px] rounded-[8px] bg-white px-[14px] text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90"
-                  >
-                    Download segment
-                  </a>
-                </>
-              ) : (
-                <span className="text-[0.8125rem] leading-[20px] text-muted">
-                  Scrub to a moment the hub was recording to download it.
-                </span>
+            {/* date filter */}
+            <div className="flex items-center gap-[8px]">
+              <input
+                type="date"
+                aria-label="Filter by date"
+                value={selectedDay ?? ""}
+                min={dateRange?.min}
+                max={dateRange?.max}
+                onChange={(e) => setSelectedDay(e.target.value || null)}
+                className="h-[32px] flex-1 rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white [color-scheme:dark] transition-colors hover:bg-card-hover"
+              />
+              {selectedDay && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDay(null)}
+                  className="h-[32px] shrink-0 rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-card-hover"
+                >
+                  All dates
+                </button>
               )}
             </div>
 
-            <div className="flex flex-wrap justify-between gap-x-[12px] text-[0.75rem] leading-[16px] text-muted">
-              {/* THE ARCHIVED BOUNDARY. The left edge is where the hub's archive
-                  begins. An operator who scrubs into nothing deserves to know it
-                  was never kept rather than wonder whether the screen is broken. */}
-              <span>{tower?.site ?? towerId ?? "This tower"} — hub archive</span>
-              {!covered(spans, positionAt) && (
-                <span className="text-warn">
-                  No footage at this moment — the hub was not recording then.
-                </span>
-              )}
+            {/* body: loading / error / archive-off / empty / the rows */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <ListBody
+                phase={phase}
+                archiveEnabled={archiveEnabled}
+                hasCameras={cameras.length > 0}
+                totalSegments={segments.length}
+                groups={visibleGroups}
+                selectedKey={selectedKey}
+                selectedDay={selectedDay}
+                site={tower?.site ?? towerId ?? "this camera"}
+                onPick={(s) => setSelectedKey(s.key)}
+                onRetry={reload}
+              />
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
 }
 
-/** `1m 30s`, `45s`, `15m` — the length of the segment being offered. */
-function formatSegmentLength(sec: number): string {
-  const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return rem ? `${m}m ${rem}s` : `${m}m`;
-}
-
-function Message({
-  phase, hasCameras, hasSpans, onRetry,
+function ListBody({
+  phase, archiveEnabled, hasCameras, totalSegments, groups, selectedKey,
+  selectedDay, site, onPick, onRetry,
 }: {
-  phase: ReturnType<typeof useReviewPlayer>["phase"];
+  phase: ReturnType<typeof useHubRecordings>["phase"];
+  archiveEnabled: boolean;
   hasCameras: boolean;
-  hasSpans: boolean;
+  totalSegments: number;
+  groups: DayGroup[];
+  selectedKey: string | null;
+  selectedDay: string | null;
+  site: string;
+  onPick: (s: ArchivedSegment) => void;
   onRetry: () => void;
 }) {
-  if (!hasCameras) {
-    return <p className="text-[0.8125rem] leading-[20px] text-muted">Pick a site with cameras.</p>;
-  }
-  if (phase.kind === "opening") {
+  const note = (text: string) => (
+    <p className="px-[4px] py-[16px] text-[0.8125rem] leading-[20px] text-muted">{text}</p>
+  );
+
+  if (!hasCameras) return note("Pick a site with cameras.");
+  if (phase.kind === "idle" || phase.kind === "loading") {
     return (
-      <p className="text-[0.8125rem] leading-[20px] text-muted">Asking the hub what it holds…</p>
+      <div className="flex items-center gap-[8px] px-[4px] py-[16px] text-[0.8125rem] leading-[20px] text-muted">
+        <span className="size-[14px] animate-spin rounded-full border-2 border-white/30 border-t-white" />
+        Listing recordings…
+      </div>
     );
   }
   if (phase.kind === "error") {
     return (
-      <div className="flex flex-col items-center gap-[10px]">
+      <div className="flex flex-col items-start gap-[10px] px-[4px] py-[16px]">
         <p className="font-display text-[0.8125rem] leading-[20px] tracking-[0.13px] text-critical">
           {phase.message}
         </p>
@@ -288,20 +326,81 @@ function Message({
       </div>
     );
   }
-  if (phase.kind === "no_footage") {
-    return (
-      <p className="text-[0.8125rem] leading-[20px] text-muted">
-        No footage covers this moment. Scrub to a time the hub was recording.
-      </p>
+  // ready:
+  if (!archiveEnabled) {
+    return note(`Recording is not enabled for ${site}.`);
+  }
+  if (totalSegments === 0) {
+    return note("No recordings for this camera yet.");
+  }
+  if (groups.length === 0) {
+    // A day filter that landed on an empty day — an honest, specific empty.
+    return note(
+      selectedDay
+        ? `No recordings on ${formatLocalDayHeader(selectedDay)} for this camera.`
+        : "No recordings for this selection.",
     );
   }
-  if (!hasSpans) {
-    /* An empty window is a real answer, not an empty state to dress up: the hub
-       holds nothing for this camera. Archiving may be off, or the hub may be
-       new. Either way there is nothing to scrub. */
-    return (
-      <p className="text-[0.8125rem] leading-[20px] text-muted">No archived footage for this camera yet.</p>
-    );
-  }
-  return <p className="text-[0.8125rem] leading-[20px] text-muted">Loading footage…</p>;
+
+  return (
+    <ul className="flex flex-col gap-[10px]">
+      {groups.map((g) => (
+        <li key={g.day}>
+          <div className="sticky top-0 z-[1] bg-panel/95 px-[4px] pb-[4px] pt-[2px] text-[0.6875rem] font-medium uppercase leading-[16px] tracking-[0.5px] text-muted backdrop-blur">
+            {formatLocalDayHeader(g.day)}
+            <span className="ml-[6px] normal-case tracking-normal text-muted/70">
+              {g.segments.length} {g.segments.length === 1 ? "clip" : "clips"}
+            </span>
+          </div>
+          <ul className="flex flex-col gap-[4px]">
+            {g.segments.map((s) => {
+              const on = s.key === selectedKey;
+              return (
+                <li
+                  key={s.key}
+                  /* A ROW, not a button-in-a-button: the play area and the
+                     download are separate interactive children (nesting an <a>
+                     inside a <button> is invalid and breaks the DOM). */
+                  className={`flex items-center gap-[10px] rounded-[8px] pr-[8px] transition-colors ${
+                    on ? "bg-white text-black" : "bg-card text-white hover:bg-card-hover"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onPick(s)}
+                    aria-pressed={on}
+                    className="flex min-w-0 flex-1 items-center gap-[10px] rounded-[8px] px-[10px] py-[8px] text-left"
+                  >
+                    <MaskIcon src={on ? "/icons/clip-pause.svg" : "/icons/clip-play.svg"} size={14} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-display text-[0.8125rem] leading-[18px] tabular-nums">
+                        {formatLocalTime(s.startEpoch * 1000)}
+                      </span>
+                      <span
+                        className={`block text-[0.6875rem] leading-[14px] ${on ? "text-black/60" : "text-muted"}`}
+                      >
+                        {formatRecordingLength(s.duration)}
+                        {formatBytes(s.size) ? ` · ${formatBytes(s.size)}` : ""}
+                      </span>
+                    </span>
+                  </button>
+                  <a
+                    href={segmentDownloadUrl(s)}
+                    download
+                    aria-label="Download segment"
+                    title="Download segment"
+                    className={`flex size-[26px] shrink-0 items-center justify-center rounded-[6px] transition-colors ${
+                      on ? "hover:bg-black/10" : "hover:bg-white/12"
+                    }`}
+                  >
+                    <MaskIcon src="/icons/clip-download.svg" size={14} />
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
 }

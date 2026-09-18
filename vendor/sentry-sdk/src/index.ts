@@ -103,6 +103,8 @@ export type {
   PtzSetHomeResult,
   RecordingSpan,
   RecordingWindow,
+  ArchivedSegment,
+  ArchivedRecordingList,
   PtzStatusResult,
   HomeSource,
   PtzStopParams,

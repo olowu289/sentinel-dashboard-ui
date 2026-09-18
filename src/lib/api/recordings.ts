@@ -1,32 +1,37 @@
-import type { RecordingWindow, ViewerSession } from "@kallon/sentry-sdk";
+import type { ArchivedRecordingList, ArchivedSegment } from "@kallon/sentry-sdk";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
 
 /**
- * Recent recorded footage, from the tower's own disk.
+ * Recorded footage, read back through the HUB.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  THIS OPENS A SESSION AND NEVER POSTS AN OFFER. THAT IS THE POINT.
+ *  THE HUB IS THE ARCHIVE, AND THE HUB IS STORAGE-AGNOSTIC.
  * ══════════════════════════════════════════════════════════════════════
  *
- * A session is two things in this protocol: an authorization, and the thing an
- * SDP offer is posted to. Review needs the first and not the second. So this
- * creates a session for the chosen camera and stops there — no peer
- * connection, no WHEP, no second RTSP pull off the camera. The session exists
- * only so coordination can answer "may this viewer see this camera" at the
- * same choke point live media and PTZ use.
+ * Playback used to talk to the tower directly: open a session, and pull 5-second
+ * slices off the tower's own disk up its uplink. That still exists on the tower
+ * as a 7-day safety ring, but it is no longer where this screen reads from. The
+ * hub receives every tower's stream and archives it long-term through a pluggable
+ * storage backend (local disk, or an S3-compatible bucket), and playback reads
+ * from that SAME backend — one config drives write and read.
  *
- * The cost of getting that wrong would be real: negotiating a WebRTC peer here
- * would put a second consumer on a camera that is already serving the live
- * wall, on a tower whose documented limit is one main and one sub per camera.
+ * ── WHY THIS SIDE KNOWS NOTHING ABOUT STORAGE ──────────────────────────
  *
- * ── WHY A SEPARATE SESSION AT ALL ──────────────────────────────────────
+ * Each segment the hub returns carries a `url` that is ready to play and carries
+ * its OWN authorization: a presigned URL straight to the bucket, or a coordination
+ * stream URL with a short-lived signed ticket for local disk. This module — and
+ * the player above it — never inspects which. Switching the hub's STORAGE_BACKEND
+ * moves the footage and these URLs together, with no change here. That is the
+ * whole point: the frontend is storage-agnostic by construction, not by branching.
  *
- * Reusing the live tile's session would couple review to whatever the wall is
- * doing: the shell tears live sessions down and rebuilds them when the
- * operator drills into a site, and a review player holding one of those would
- * lose its footage mid-scrub because somebody clicked a different screen.
- * Its own session is what makes review independent of the wall.
+ * ── NO SESSION ─────────────────────────────────────────────────────────
+ *
+ * Browsing an archive negotiates no live media, so it opens no viewing session.
+ * The call is account-scoped: coordination authorizes it by the login the app
+ * already holds, plus ownership of the tower and the `recordings` permission. A
+ * viewer who cannot see the tower is told the tower does not exist — the same
+ * indistinguishable answer the fleet routes give.
  */
 
 /** Raised when review cannot even be attempted. Never a fake success. */
@@ -40,47 +45,23 @@ export class RecordingUnavailableError extends Error {
 }
 
 /**
- * Open a review session for one camera.
+ * The archived segments the hub holds for one tower·camera.
  *
- * Deliberately NOT `openPlayback` from `./media` — that one negotiates a peer.
+ * ⚠ THE STORE, NOT THE POLICY. These are the segments actually written to the
+ * configured backend — a hub that was down, or archiving that was off, means
+ * fewer than retention claims. `archiveEnabled: false` is the honest "this hub
+ * does not archive", to be shown as that rather than as an empty scrubber.
+ *
+ * @param camera the storage camera name (e.g. `cam1`).
+ * @param range optional epoch-SECONDS window; segments overlapping it are returned.
  */
-export async function openReviewSession(
+export async function listHubRecordings(
   deviceId: string,
-  camera: number,
-): Promise<ViewerSession> {
+  camera: string,
+  range: { from?: number; to?: number } = {},
+): Promise<ArchivedRecordingList> {
   try {
-    return await getClient().createSession({ device_id: deviceId, camera });
-  } catch (err) {
-    endSessionIfUnauthorized(err);
-    throw err;
-  }
-}
-
-export async function closeReviewSession(session: ViewerSession): Promise<void> {
-  try {
-    // `viewer_left` is the truth: the operator navigated away or picked a
-    // different camera. There is no "done" in the protocol's reason set, and
-    // inventing one would put a word in an audit log that nothing else uses.
-    await getClient().closeSession(session, { reason: "viewer_left" });
-  } catch {
-    /* A session that cannot be closed expires on its own with the grant. The
-       operator has already left the screen, and an error about tidying up is
-       not something they can act on. */
-  }
-}
-
-/**
- * Which stretches of footage the tower actually holds for this camera.
- *
- * ⚠ THE DISK, NOT THE POLICY. Retention says what the tower MEANS to keep; a
- * power cut, a full disk or an agent that was down all say otherwise. This is
- * also where the "older is archived" boundary comes from — the start of the
- * earliest span is the edge of what this tower can show, and everything before
- * it is a question for a bucket that does not exist yet.
- */
-export async function listRecordings(session: ViewerSession): Promise<RecordingWindow> {
-  try {
-    return await getClient().listRecordings(session);
+    return await getClient().listArchivedRecordings(deviceId, camera, range);
   } catch (err) {
     endSessionIfUnauthorized(err);
     throw err;
@@ -88,152 +69,44 @@ export async function listRecordings(session: ViewerSession): Promise<RecordingW
 }
 
 /**
- * One bounded slice, as an object URL a `<video>` can play.
+ * Save one archived segment as a file.
  *
- * The caller MUST revoke the URL when it is done with it — an object URL holds
- * its blob alive for the life of the document, and a scrubbing operator
- * generates one per slice. `useReviewPlayer` owns that.
+ * ⚠ A WHOLE SEGMENT, NOT A TRIMMED CLIP. The archive stores complete segments
+ * (~15 min each); cutting a precise sub-range out of one would need a server-side
+ * transcode the hub does not do. So this offers the segment the operator is
+ * looking at, in full, and the UI says so — an honest file rather than a trimmed
+ * one that quietly wasn't. The URL sets its own Content-Disposition, so a
+ * navigation downloads it with no CORS dance and no bytes proxied through this app.
  */
-/**
- * How long the browser waits for one playback slice.
- *
- * ⚠ THIS USED TO BE THE SDK'S 10-SECOND DEFAULT, and that is what "PLAYBACK
- * FAILED — REQUEST_TIMEOUT" was: not the tower failing, the browser giving up
- * on a relay that was still delivering. Slow is not failed.
- *
- * Fifty seconds is deliberately a little LONGER than coordination's own bound
- * for a slice (45s, `RECORDING_SLICE_HTTP_TIMEOUT_SEC`), so that when a relay
- * genuinely runs out of time it is the SERVER'S answer that arrives — a 504
- * that says the footage did not come through in time — rather than this
- * side's generic timeout racing it. Still bounded: a dead relay is reported,
- * never waited on for ever.
- */
-const PLAYBACK_FETCH_TIMEOUT_MS = 50_000;
-
-export async function fetchSliceUrl(
-  session: ViewerSession,
-  start: string,
-  durationSec: number,
-): Promise<string> {
-  try {
-    const bytes = await getClient().fetchRecordingSlice(session, start, durationSec, {
-      timeoutMs: PLAYBACK_FETCH_TIMEOUT_MS,
-    });
-    return URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
-  } catch (err) {
-    endSessionIfUnauthorized(err);
-    throw err;
-  }
+export function segmentDownloadUrl(segment: ArchivedSegment): string {
+  return segment.downloadUrl;
 }
 
 /**
- * Fetch one continuous range as a file the operator keeps.
+ * Turn a recording failure into a line an operator can act on.
  *
- * ⚠ THE RETURNED CLIP MAY BE SHORTER THAN ASKED FOR, and that is the honest
- * case rather than a fault. MediaMTX truncates at a recording discontinuity
- * instead of welding two sides of a gap together, so a range crossing a period
- * when the tower was down comes back covering only the real footage. The
- * caller compares what arrived against what it asked for and says so — a file
- * that hid a gap would be evidence of something that never happened
- * continuously.
- */
-/**
- * What an operator is told when a clip cannot be made.
- *
- * ⚠ THE ENDPOINT NEVER REACHES A SCREEN. The SDK's transport errors read
- * `GET /v1/viewer/sessions/ses_.../clip failed: …`, which is exactly right in a
- * console and exactly wrong on a monitoring wall: an internal path is not
- * something an operator can act on, cannot be repeated over a radio, and
- * teaches them that this app talks in a language they do not speak. It is
- * translated HERE, at the boundary, rather than masked in the view — the same
- * place `fleet.ts` turns a 404 into `TowerUnavailableError`, and for the same
- * reason: a view that has to remember to sanitise is a view that will forget.
- *
- * Each line names a cause and, where there is one, what to do about it.
- */
-function describeClipFailure(err: unknown): string {
-  const status = (err as { status?: unknown } | null)?.status;
-  const code = (err as { code?: unknown } | null)?.code;
-
-  if (status === 404 || code === "not_found") {
-    return "That moment is no longer on the tower's disk.";
-  }
-  if (status === 401 || status === 403) {
-    return "This review session ended. Reopen the camera to try again.";
-  }
-  if (status === 413 || code === "clip_too_long") {
-    return "That range is longer than the tower will send in one clip.";
-  }
-  if (status === 0 || code === "network_error") {
-    return "Couldn't reach the tower to prepare the clip.";
-  }
-  if (typeof status === "number" && status >= 500) {
-    return "The tower couldn't prepare that clip. It may be busy recording.";
-  }
-  /* Deliberately not `err.message`: that is where the path lives. An unknown
-     failure says so plainly rather than leaking the one thing it must not. */
-  return "Couldn't prepare the clip.";
-}
-
-/**
- * Fetch a clip, or fail in words an operator can use.
- *
- * The thrown error carries ONLY the sentence above — the caller renders it
- * straight into `MutationError` and there is nothing left to sanitise.
- */
-export async function fetchClipBlob(
-  session: ViewerSession,
-  start: string,
-  durationSec: number,
-): Promise<Blob> {
-  try {
-    const bytes = await getClient().fetchClip(session, start, durationSec);
-    return new Blob([bytes], { type: "video/mp4" });
-  } catch (err) {
-    endSessionIfUnauthorized(err);
-    throw new RecordingUnavailableError(describeClipFailure(err));
-  }
-}
-
-/**
- * Turn a recording failure into a line an operator can act on, or `null`.
- *
- * ⚠ `no_recording` IS NOT A FAULT. It is the tower answering that nothing
- * covers that moment — the operator scrubbed into a gap, or past the edge of
- * what the disk holds. Rendering it as an error would teach them to distrust a
- * screen that is working correctly, so it gets its own words and the caller
- * shows it as a boundary rather than a failure.
+ * The hub's failures are few and account-shaped: not permitted, tower gone, or a
+ * misconfigured/absent archive. Each names a cause; none leaks an endpoint.
  */
 export function describeRecordingFailure(err: unknown): string {
   if (err instanceof RecordingUnavailableError) return err.reason;
-  if (err && typeof err === "object" && "code" in err) {
-    const code = String((err as { code: unknown }).code);
-    if (code === "no_recording") return "NO FOOTAGE FOR THIS MOMENT";
-    if (code === "recording_unsupported") {
-      return "THIS TOWER'S AGENT IS TOO OLD FOR PLAYBACK";
-    }
-    if (code === "too_many_relays") return "THE TOWER IS ALREADY SENDING FOOTAGE — TRY AGAIN";
-    if (code === "slice_too_long") return "THAT WINDOW IS TOO LONG TO FETCH";
-    if (code === "tower_offline") return "TOWER OFFLINE — NO FOOTAGE UNTIL IT RECONNECTS";
-    if (code === "tower_timeout") return "THE TOWER DID NOT ANSWER";
-    /* Both of these are the footage being SLOW, which is a different fact from
-       the tower not answering — it answered, and was still sending. Saying
-       "did not answer" would send somebody to check a tower that is fine. */
-    if (code === "relay_timeout" || code === "request_timeout") {
-      return "FOOTAGE DID NOT ARRIVE IN TIME — THE TOWER'S LINK IS SLOW";
-    }
-    if (code === "grant_permission" || code === "not_authorized") {
-      return "NOT PERMITTED TO REVIEW THIS CAMERA";
-    }
-    return `PLAYBACK FAILED — ${code.toUpperCase()}`;
+  const status = (err as { status?: unknown } | null)?.status;
+  const code = (err as { code?: unknown } | null)?.code;
+  if (status === 401 || status === 403 || code === "forbidden" || code === "unauthorized") {
+    return "NOT PERMITTED TO REVIEW THIS CAMERA";
   }
+  if (status === 404 || code === "tower_unknown" || code === "not_found") {
+    return "THIS TOWER IS NOT AVAILABLE FOR PLAYBACK";
+  }
+  if (code === "archive_misconfigured" || status === 501) {
+    return "THE HUB'S ARCHIVE IS NOT CONFIGURED";
+  }
+  if (status === 0 || code === "network_error") {
+    return "COULDN'T REACH THE HUB FOR FOOTAGE";
+  }
+  if (typeof status === "number" && status >= 500) {
+    return "THE HUB COULDN'T SERVE THAT FOOTAGE";
+  }
+  if (code) return `PLAYBACK FAILED — ${String(code).toUpperCase()}`;
   return "PLAYBACK FAILED";
-}
-
-/** Whether a failure is the honest "nothing here", not a fault. */
-export function isNoFootage(err: unknown): boolean {
-  return Boolean(
-    err && typeof err === "object" && "code" in err &&
-    String((err as { code: unknown }).code) === "no_recording",
-  );
 }

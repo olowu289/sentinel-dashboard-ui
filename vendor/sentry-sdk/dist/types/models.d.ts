@@ -358,6 +358,51 @@ export interface RecordingWindow {
     spans: RecordingSpan[];
 }
 /**
+ * One archived segment held on the HUB, as {@link SentryClient.listArchivedRecordings}
+ * returns it — the long-term store, read back through the same pluggable
+ * StorageBackend the hub archiver writes to.
+ *
+ * ⚠ STORAGE-AGNOSTIC BY DESIGN. `url` is ready to play in a `<video src>` and
+ * carries its own authorization: for a bucket backend it is a presigned URL the
+ * browser fetches directly from the object store; for a local-disk backend it is
+ * a coordination stream URL carrying a short-lived signed ticket. The frontend
+ * MUST NOT care which — it never inspects the URL's shape, only plays it.
+ */
+export interface ArchivedSegment {
+    /** The backend object key. Opaque to the UI — identity for caching only. */
+    key: string;
+    /** The storage camera name (e.g. `cam1`). */
+    camera: string;
+    /** The tower this segment belongs to. */
+    deviceId: string;
+    /** RFC 3339. When the segment's footage BEGINS (from the segment name, not mtime). */
+    start: Timestamp;
+    /** Epoch seconds of {@link start}, so a timeline needs no date parsing. */
+    startEpoch: number;
+    /** Seconds. The stretch this segment covers on the timeline. */
+    duration: number;
+    /** Bytes. */
+    size: number;
+    /** A ready-to-play URL — presigned (bucket) or ticketed coordination stream
+     *  (local). Absolute and directly usable as a `<video src>`. */
+    url: string;
+    /** The same segment as a downloadable file (Content-Disposition attachment).
+     *  Navigate to it to save the segment; no CORS or fetch needed. */
+    downloadUrl: string;
+}
+/** Archived segments for one tower·camera, as {@link SentryClient.listArchivedRecordings} returns them. */
+export interface ArchivedRecordingList {
+    deviceId: string;
+    /** The camera asked for, or `null` when the whole tower was listed. */
+    camera: string | null;
+    /** Whether the hub has archiving turned on. `false` → `segments` is empty by
+     *  fact, not by chance: the honest "no archive configured", never a fabricated
+     *  timeline. */
+    archiveEnabled: boolean;
+    /** Ordered oldest-first. */
+    segments: ArchivedSegment[];
+}
+/**
  * The longest slice a single request may ask for (§12.6), in seconds.
  *
  * Coordination refuses more with `slice_too_long`, and the reason is the link:

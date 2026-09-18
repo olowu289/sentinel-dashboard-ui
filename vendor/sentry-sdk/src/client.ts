@@ -48,6 +48,8 @@ import {
   type PtzResult,
   type PtzStopParams,
   type RecordingWindow,
+  type ArchivedSegment,
+  type ArchivedRecordingList,
   type SessionCloseReason,
   type SessionId,
   type TowerDetail,
@@ -641,6 +643,72 @@ export class SentryClient {
         .map((sp) => ({
           start: String(sp.start),
           duration: Number(sp.duration ?? 0),
+        })),
+    };
+  }
+
+  /**
+   * List HUB-ARCHIVED footage for a tower·camera — `GET /v1/viewer/recordings`.
+   *
+   * This is the LONG-TERM store, distinct from {@link listRecordings} (the
+   * tower's own on-disk ring, session-scoped). It is ACCOUNT-scoped: the caller
+   * is authorized by its login (the same Bearer every viewer route uses) plus
+   * ownership of the tower and the `recordings` permission — no viewing session
+   * is opened, because browsing an archive negotiates no media.
+   *
+   * ⚠ STORAGE-AGNOSTIC. Each segment's `url` is ready to play and self-authorizing
+   * (presigned bucket URL, or a ticketed coordination stream for local disk); the
+   * caller plays it and never learns where the footage lives. Switching the hub's
+   * STORAGE_BACKEND moves the footage AND these URLs with no change here.
+   *
+   * `archiveEnabled: false` with an empty `segments` is the honest "this hub does
+   * not archive", not a transient empty — render it as such, never as a scrubber.
+   *
+   * @param deviceId the tower.
+   * @param camera the storage camera name (e.g. `cam1`), or omit for the whole tower.
+   * @param range optional `from`/`to` as epoch SECONDS — segments overlapping the
+   *   window are returned, so a window landing mid-segment still sees its segment.
+   */
+  async listArchivedRecordings(
+    deviceId: DeviceId,
+    camera?: string | null,
+    range: { from?: number; to?: number } & RequestOptions = {},
+  ): Promise<ArchivedRecordingList> {
+    const { from, to, ...opts } = range;
+    // Hand-built query (no URLSearchParams dependency, matching the rest of this
+    // file). Only the parameters that are set are sent.
+    const parts = [`device_id=${encodeURIComponent(deviceId)}`];
+    if (camera) parts.push(`camera=${encodeURIComponent(camera)}`);
+    if (from !== undefined) parts.push(`from=${encodeURIComponent(String(from))}`);
+    if (to !== undefined) parts.push(`to=${encodeURIComponent(String(to))}`);
+    const { body } = await this.http.send({
+      method: "GET",
+      path: `/v1/viewer/recordings?${parts.join("&")}`,
+      accept: "json",
+      ...pick(opts),
+    });
+    const raw = (body ?? {}) as Record<string, unknown>;
+    const segs = Array.isArray(raw.segments) ? raw.segments : [];
+    return {
+      deviceId: String(raw.device_id ?? deviceId),
+      camera: raw.camera == null ? null : String(raw.camera),
+      archiveEnabled: Boolean(raw.archive_enabled),
+      segments: segs
+        .map((s) => s as Record<string, unknown>)
+        .filter((s) => typeof s.start === "string" && typeof s.url === "string")
+        .map((s): ArchivedSegment => ({
+          key: String(s.key ?? ""),
+          camera: String(s.camera ?? camera ?? ""),
+          deviceId: String(s.device_id ?? deviceId),
+          start: String(s.start),
+          startEpoch: Number(s.start_epoch ?? 0),
+          duration: Number(s.duration ?? 0),
+          size: Number(s.size ?? 0),
+          // Resolve to absolute against the coordination base: a relative local
+          // stream path becomes a full coordination URL; an absolute presigned
+          // bucket URL passes through untouched. Either is a valid <video src>.
+          url: this.http.url(String(s.url)),
+          downloadUrl: this.http.url(String(s.download_url ?? s.url)),
         })),
     };
   }

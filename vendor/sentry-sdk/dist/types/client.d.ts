@@ -30,7 +30,7 @@
  * ```
  */
 import type { HttpOptions, RequestOptions } from "./http.js";
-import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
+import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type ArchivedRecordingList, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
 export type SessionRef = SessionId | Pick<ViewerSession, "session_id" | "offer_url" | "ice_url">;
 export interface SentryClientOptions extends HttpOptions {
@@ -337,6 +337,32 @@ export declare class SentryClient {
      * @throws {ApiError} `503 tower_offline` — the tower is not connected.
      */
     listRecordings(ref: SessionRef, opts?: RequestOptions): Promise<RecordingWindow>;
+    /**
+     * List HUB-ARCHIVED footage for a tower·camera — `GET /v1/viewer/recordings`.
+     *
+     * This is the LONG-TERM store, distinct from {@link listRecordings} (the
+     * tower's own on-disk ring, session-scoped). It is ACCOUNT-scoped: the caller
+     * is authorized by its login (the same Bearer every viewer route uses) plus
+     * ownership of the tower and the `recordings` permission — no viewing session
+     * is opened, because browsing an archive negotiates no media.
+     *
+     * ⚠ STORAGE-AGNOSTIC. Each segment's `url` is ready to play and self-authorizing
+     * (presigned bucket URL, or a ticketed coordination stream for local disk); the
+     * caller plays it and never learns where the footage lives. Switching the hub's
+     * STORAGE_BACKEND moves the footage AND these URLs with no change here.
+     *
+     * `archiveEnabled: false` with an empty `segments` is the honest "this hub does
+     * not archive", not a transient empty — render it as such, never as a scrubber.
+     *
+     * @param deviceId the tower.
+     * @param camera the storage camera name (e.g. `cam1`), or omit for the whole tower.
+     * @param range optional `from`/`to` as epoch SECONDS — segments overlapping the
+     *   window are returned, so a window landing mid-segment still sees its segment.
+     */
+    listArchivedRecordings(deviceId: DeviceId, camera?: string | null, range?: {
+        from?: number;
+        to?: number;
+    } & RequestOptions): Promise<ArchivedRecordingList>;
     /**
      * One bounded slice of recorded video, as bytes a `<video>` can play (§12.6).
      *

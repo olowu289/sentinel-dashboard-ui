@@ -371,8 +371,10 @@ export interface RecordingWindow {
 export interface ArchivedSegment {
     /** The backend object key. Opaque to the UI — identity for caching only. */
     key: string;
-    /** The storage camera name (e.g. `cam1`). */
-    camera: string;
+    /** The camera, as the NUMBER the rest of the system uses (e.g. `1`) — the hub
+     *  maps its stored `camN` path back to this. A non-`camN` custom name falls
+     *  back to the raw string. */
+    camera: number | string;
     /** The tower this segment belongs to. */
     deviceId: string;
     /** RFC 3339. When the segment's footage BEGINS (from the segment name, not mtime). */
@@ -393,8 +395,9 @@ export interface ArchivedSegment {
 /** Archived segments for one tower·camera, as {@link SentryClient.listArchivedRecordings} returns them. */
 export interface ArchivedRecordingList {
     deviceId: string;
-    /** The camera asked for, or `null` when the whole tower was listed. */
-    camera: string | null;
+    /** The camera asked for as its NUMBER (e.g. `1`), or `null` when the whole
+     *  tower was listed. */
+    camera: number | string | null;
     /** Whether the hub has archiving turned on. `false` → `segments` is empty by
      *  fact, not by chance: the honest "no archive configured", never a fabricated
      *  timeline. */

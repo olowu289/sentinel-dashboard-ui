@@ -139,7 +139,9 @@ export function useReviewPlayer(
     setPositionAt(null);
     void (async () => {
       try {
-        const list = await listHubRecordings(dev, `cam${cam}`);
+        // Pass the camera by NUMBER — this app's convention everywhere (live,
+        // PTZ, sessions). The hub maps it to the stored `camN` path.
+        const list = await listHubRecordings(dev, String(cam));
         if (gen !== generation.current) return;
         setArchiveEnabled(list.archiveEnabled);
         const segs = list.segments;

@@ -583,16 +583,26 @@ class SentryClient {
         });
         const raw = (body ?? {});
         const segs = Array.isArray(raw.segments) ? raw.segments : [];
+        // The hub returns the camera as a NUMBER (its stored `camN` mapped back to the
+        // number the rest of the app uses); keep it numeric when it is, else the raw
+        // string for a non-`camN` custom name.
+        const coerceCamera = (v) => {
+            if (typeof v === "number")
+                return v;
+            const s = String(v ?? "");
+            const n = Number(s);
+            return s !== "" && Number.isFinite(n) ? n : s;
+        };
         return {
             deviceId: String(raw.device_id ?? deviceId),
-            camera: raw.camera == null ? null : String(raw.camera),
+            camera: raw.camera == null ? null : coerceCamera(raw.camera),
             archiveEnabled: Boolean(raw.archive_enabled),
             segments: segs
                 .map((s) => s)
                 .filter((s) => typeof s.start === "string" && typeof s.url === "string")
                 .map((s) => ({
                 key: String(s.key ?? ""),
-                camera: String(s.camera ?? camera ?? ""),
+                camera: coerceCamera(s.camera ?? camera ?? ""),
                 deviceId: String(s.device_id ?? deviceId),
                 start: String(s.start),
                 startEpoch: Number(s.start_epoch ?? 0),

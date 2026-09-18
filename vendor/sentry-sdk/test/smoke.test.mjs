@@ -651,28 +651,32 @@ test("a non-envelope error body still produces a typed error", async () => {
 
 test("listArchivedRecordings requests the account-scoped hub route with the range", async () => {
   const f = fakeFetch(() => json({
-    device_id: "kln_lab_000002", camera: "cam1", archive_enabled: true,
+    device_id: "kln_lab_000002", camera: 1, archive_enabled: true,
     segments: [
       { key: "recordings/kln_lab_000002/cam1/2026-09-18/2026-09-18_14-00-00-000000.mp4",
-        camera: "cam1", device_id: "kln_lab_000002",
+        camera: 1, device_id: "kln_lab_000002",
         start: "2026-09-18T14:00:00.000Z", start_epoch: 1758204000, duration: 900, size: 300,
         url: "/v1/viewer/recordings/segment?key=recordings%2F...&exp=1&sig=aa",
         download_url: "/v1/viewer/recordings/segment?key=recordings%2F...&exp=1&sig=aa&dl=1" },
     ],
   }));
-  const out = await client(f).listArchivedRecordings("kln_lab_000002", "cam1", { from: 100, to: 200 });
+  // The frontend passes the camera by NUMBER (its convention); the SDK forwards
+  // it and the hub maps it to the stored camN.
+  const out = await client(f).listArchivedRecordings("kln_lab_000002", "1", { from: 100, to: 200 });
 
   const url = new URL(f.calls[0].url);
   assert.equal(url.pathname, "/v1/viewer/recordings");
   assert.equal(url.searchParams.get("device_id"), "kln_lab_000002");
-  assert.equal(url.searchParams.get("camera"), "cam1");
+  assert.equal(url.searchParams.get("camera"), "1");
   assert.equal(url.searchParams.get("from"), "100");
   assert.equal(url.searchParams.get("to"), "200");
   assert.equal(f.calls[0].headers.Authorization, "Bearer vt_abc");
 
   assert.equal(out.archiveEnabled, true);
+  assert.equal(out.camera, 1);            // number form preserved, not "1"
   assert.equal(out.segments.length, 1);
   const seg = out.segments[0];
+  assert.equal(seg.camera, 1);
   assert.equal(seg.startEpoch, 1758204000);
   assert.equal(seg.duration, 900);
   // A relative local stream URL is resolved to an absolute coordination URL —
@@ -687,7 +691,7 @@ test("listArchivedRecordings leaves an absolute presigned bucket URL untouched",
     device_id: "d", camera: null, archive_enabled: true,
     segments: [
       { key: "recordings/d/cam1/2026-09-18/2026-09-18_14-00-00-000000.mp4",
-        camera: "cam1", device_id: "d",
+        camera: 1, device_id: "d",
         start: "2026-09-18T14:00:00.000Z", start_epoch: 1758204000, duration: 900, size: 5,
         url: presigned, download_url: presigned + "&response-content-disposition=attachment" },
     ],
@@ -703,7 +707,7 @@ test("listArchivedRecordings leaves an absolute presigned bucket URL untouched",
 
 test("listArchivedRecordings reports an honest empty archive", async () => {
   const f = fakeFetch(() => json({
-    device_id: "d", camera: "cam1", archive_enabled: false, segments: [],
+    device_id: "d", camera: 1, archive_enabled: false, segments: [],
   }));
   const out = await client(f).listArchivedRecordings("d", "cam1");
   assert.equal(out.archiveEnabled, false);

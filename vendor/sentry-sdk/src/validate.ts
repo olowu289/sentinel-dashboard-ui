@@ -341,6 +341,12 @@ export function parseSessionStatus(raw: unknown, ctx: ValidateContext = {}): Vie
     expires_at: c.str("expires_at", o["expires_at"]),
     status: o["status"] === "ended" ? "ended" : "active",
   };
+  // Optional: fresh ICE servers re-issued each poll. Absent on older servers and
+  // direct-only deployments, so a missing/empty field is not an error.
+  if (Array.isArray(o["ice_servers"])) {
+    value.ice_servers = o["ice_servers"].map((s, i) =>
+      iceServer(c, `ice_servers[${i}]`, s));
+  }
   return c.done(value, "session status", ctx);
 }
 

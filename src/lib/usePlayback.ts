@@ -664,12 +664,12 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
           const poll = async () => {
             if (entry.disposed) return;
             try {
-              const expiresAt = await readSessionExpiry(
+              const status = await readSessionExpiry(
                 opened.session,
                 entry.controller.signal,
               );
               if (entry.disposed) return;
-              if (expiresAt === null) {
+              if (status === null) {
                 /* DEFINITIVE: coordination no longer holds this session.
                    Renewal was refused, or it lapsed. Never blame the network
                    for an access ending. */
@@ -677,9 +677,22 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
                 return;
               }
               misses = 0;
-              const next = Date.parse(expiresAt);
+              const next = Date.parse(status.expiresAt);
               // Only ever move the deadline the way the SERVER moved it.
               if (Number.isFinite(next)) deadline = next;
+              /* Apply the freshly-minted ICE credentials coordination re-issues
+                 each poll, so a relayed (TURN) session's creds never reach their
+                 expiry mid-view. Best-effort and non-negotiating: setConfiguration
+                 refreshes the creds used for future ICE without disturbing the
+                 media already flowing. Empty on direct-only deployments. */
+              if (status.iceServers.length) {
+                try {
+                  opened.pc.setConfiguration({ iceServers: status.iceServers });
+                } catch {
+                  /* Some engines reject setConfiguration mid-session; harmless —
+                     the raised server-side TTL still carries the allocation. */
+                }
+              }
             } catch {
               if (entry.disposed) return;
               /* NOT an authorization answer. Keep playing on the expiry we

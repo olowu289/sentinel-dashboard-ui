@@ -148,6 +148,14 @@ export interface ViewerSessionStatus {
    * that another account's session exists.
    */
   status: "active" | "ended";
+  /**
+   * Freshly-minted ICE servers, re-issued on every status poll (§7.4). Optional
+   * — absent on older coordination and on direct-only (no-TURN) deployments. The
+   * viewer applies these so a long-lived relayed session's TURN credentials never
+   * expire mid-view; the session-open `ice_servers` on {@link ViewerSession} is
+   * the initial set.
+   */
+  ice_servers?: IceServer[];
 }
 
 /* ------------------------------------------------------------------ *

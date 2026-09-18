@@ -713,3 +713,28 @@ test("listArchivedRecordings reports an honest empty archive", async () => {
   assert.equal(out.archiveEnabled, false);
   assert.deepEqual(out.segments, []);
 });
+
+test("getSessionStatus surfaces fresh ice_servers when present, tolerates absence", async () => {
+  const withIce = fakeFetch(() => json({
+    session_id: "ses_01K3F9QW7YB2X4", camera: 1,
+    expires_at: "2026-08-26T05:00:00Z", status: "active",
+    ice_servers: [
+      { urls: ["stun:stun.example.com:3478"] },
+      { urls: "turn:relay.example:3478", username: "1756-x", credential: "abc" },
+    ],
+  }));
+  const s = await client(withIce).getSessionStatus("ses_01K3F9QW7YB2X4");
+  assert.equal(s.status, "active");
+  assert.equal(s.ice_servers.length, 2);
+  assert.equal(s.ice_servers[1].username, "1756-x");
+  assert.equal(s.ice_servers[1].credential, "abc");
+
+  // Older coordination (no ice_servers) still parses — the field is optional.
+  const noIce = fakeFetch(() => json({
+    session_id: "ses_01K3F9QW7YB2X4", camera: 1,
+    expires_at: "2026-08-26T05:00:00Z", status: "active",
+  }));
+  const s2 = await client(noIce).getSessionStatus("ses_01K3F9QW7YB2X4");
+  assert.equal(s2.status, "active");
+  assert.equal(s2.ice_servers, undefined);
+});

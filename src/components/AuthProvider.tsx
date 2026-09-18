@@ -10,11 +10,13 @@ import {
 } from "react";
 import {
   clearSession,
+  endSessionIfUnauthorized,
   getSession,
   loadSession,
   login as loginCall,
   logout as logoutCall,
   operatorName,
+  refreshSession,
   resolveSession,
   saveSession,
   subscribeToSession,
@@ -185,6 +187,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     [],
   );
+
+  /**
+   * KEEPALIVE — slide the login session forward while it is actively in use, so
+   * an operator on a long watch never hits coordination's hard TTL wall and gets
+   * kicked to login mid-shift.
+   *
+   * Runs only while authenticated. It checks every few minutes and refreshes only
+   * once the expiry is within a lead window, so it is nearly free (a handful of
+   * calls a day) rather than a chatty poll. A refresh that comes back 401 means
+   * the session is genuinely dead — `endSessionIfUnauthorized` ends it and the
+   * gate drops to login; a transient failure is ignored and retried next tick, so
+   * a coordination blip never logs anyone out. The server caps how far a session
+   * can be slid (absolute lifetime from issue), so a truly idle tab still lapses.
+   */
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const REFRESH_LEAD_MS = 2 * 60 * 60 * 1000;  // refresh once <2h to expiry
+    const CHECK_MS = 5 * 60 * 1000;              // re-check every 5 min
+    let cancelled = false;
+    const controller = new AbortController();
+    const tick = async () => {
+      const s = getSession();
+      if (!s || cancelled) return;
+      // Unknown expiry → refresh now to learn one; otherwise wait for the lead.
+      const msLeft = s.expiresAt ? Date.parse(s.expiresAt) - Date.now() : 0;
+      if (Number.isFinite(msLeft) && msLeft > REFRESH_LEAD_MS) return;
+      try {
+        const expiresAt = await refreshSession(s.ref, controller.signal);
+        if (cancelled) return;
+        const cur = getSession();
+        if (cur && cur.ref === s.ref) saveSession({ ...cur, expiresAt });
+      } catch (err) {
+        if (cancelled) return;
+        // Dead session (401) ends here; anything transient is left alone.
+        endSessionIfUnauthorized(err);
+      }
+    };
+    const id = window.setInterval(() => void tick(), CHECK_MS);
+    void tick();  // check immediately on (re)authentication
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearInterval(id);
+    };
+  }, [status]);
 
   /**
    * Attempt a sign-in.

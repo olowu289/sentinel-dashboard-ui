@@ -738,3 +738,15 @@ test("getSessionStatus surfaces fresh ice_servers when present, tolerates absenc
   assert.equal(s2.status, "active");
   assert.equal(s2.ice_servers, undefined);
 });
+
+test("parseTowerInfo forwards ota_channel (for firmware classification)", async () => {
+  const withChannel = { ...PROJECTED, agent_version: "v1.0.0", ota_channel: "beta" };
+  const f = fakeFetch(() => json({ towers: [withChannel] }));
+  const [t] = await client(f).listTowers();
+  assert.equal(t.agent_version, "v1.0.0");
+  assert.equal(t.ota_channel, "beta");
+  // Absent channel -> undefined, so the dashboard treats it as unknown.
+  const f2 = fakeFetch(() => json({ towers: [{ ...PROJECTED, agent_version: "v1.0.0" }] }));
+  const [t2] = await client(f2).listTowers();
+  assert.equal(t2.ota_channel, undefined);
+});

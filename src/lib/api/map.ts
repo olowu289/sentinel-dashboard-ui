@@ -319,6 +319,7 @@ export function toTower(raw: TowerInfo | TowerDetail, now?: number): {
        connection and serial are still absent, and still must not be invented
        here. See the note on `Tower`. */
     ...(raw.agent_version ? { firmware: raw.agent_version } : {}),
+    ...(raw.ota_channel ? { firmwareChannel: raw.ota_channel } : {}),
     /* Real, and one of the very few things on the settings panel's Network
        section that is. Omitted rather than nulled when the tower is offline —
        `Tower.connectedAt` documents why absence is the honest answer. */

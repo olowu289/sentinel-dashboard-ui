@@ -608,6 +608,9 @@ function towerInfo(c, path, raw) {
     const agent = c.optStr(`${p}agent_version`, o["agent_version"]);
     if (agent !== undefined)
         value.agent_version = agent;
+    const channel = c.optStr(`${p}ota_channel`, o["ota_channel"]);
+    if (channel !== undefined)
+        value.ota_channel = channel;
     if (o["last_seen"] !== undefined) {
         value.last_seen = o["last_seen"] === null ? null : c.str(`${p}last_seen`, o["last_seen"]);
     }

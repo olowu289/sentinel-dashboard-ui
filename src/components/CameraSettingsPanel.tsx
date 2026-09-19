@@ -12,6 +12,7 @@ import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
 import { storageTone } from "@/lib/storage";
+import { classifyFirmware } from "@/lib/firmware";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import { useNow } from "@/lib/useNow";
 import {
@@ -366,6 +367,9 @@ export function CameraSettingsPanel({
     tower.solar !== undefined
       ? solarState({ solar: tower.solar, batteryPct: tower.batteryPct })
       : undefined;
+  /* The firmware release, colour-coded by channel/type in one place: green
+     stable, amber beta, grey dev/unknown. See lib/firmware.ts. */
+  const firmware = classifyFirmware(tower.firmware, tower.firmwareChannel);
   /* FREE space, and `undefined` when the tower has not reported any.
      The old form defaulted the missing case to `0 / 1` and rounded it to 0%
      used — an unmeasured disk reading as an empty one, which is the same class
@@ -874,16 +878,15 @@ export function CameraSettingsPanel({
             <RowReading label="Model Name" value={tower.model ?? ""} />
             <RowReading label="Serial Number" value={tower.serial ?? ""} />
             <RowReading label="Cameras" value={`${feeds.length}`} />
-            {/* The frame puts an action beside the version. It is the only
-                thing on this panel that reaches the hardware, so it is its own
-                target rather than a row you can land on by accident. */}
+            {/* The tower's reported RELEASE (agent_version -> firmware via the
+                projection), colour-coded by channel: green (stable), amber (beta),
+                grey (dev/unknown). No "Update Firmware" action — firmware moves via
+                OTA/releases, not from this panel; a control that cannot act does
+                not belong here. Honest "Unknown" when the tower reported none. */}
             <RowReading
               label="Firmware"
-              /* The tower's reported RELEASE (agent_version -> firmware via the
-                 projection). Honest "Unknown" when the tower has not reported one,
-                 never a fabricated version. */
-              value={tower.firmware ?? "Unknown"}
-              action="Update Firmware"
+              value={firmware.label}
+              tone={firmware.tone}
               last
             />
           </Group>

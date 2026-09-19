@@ -646,6 +646,9 @@ export interface TowerInfo {
      * with no consumer is a field that ossifies. Read them if they are there.
      */
     agent_version?: string;
+    /** The OTA release channel the tower is on (e.g. `stable`, `beta`), for
+     *  classifying the reported version. Optional — absent when unreported. */
+    ota_channel?: string;
     capabilities?: string[];
     last_seen?: Timestamp | null;
     health?: TowerHealth;

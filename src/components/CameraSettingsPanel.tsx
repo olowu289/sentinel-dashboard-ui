@@ -879,7 +879,10 @@ export function CameraSettingsPanel({
                 target rather than a row you can land on by accident. */}
             <RowReading
               label="Firmware"
-              value={tower.firmware ?? ""}
+              /* The tower's reported RELEASE (agent_version -> firmware via the
+                 projection). Honest "Unknown" when the tower has not reported one,
+                 never a fabricated version. */
+              value={tower.firmware ?? "Unknown"}
               action="Update Firmware"
               last
             />

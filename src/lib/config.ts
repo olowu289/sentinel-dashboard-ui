@@ -32,7 +32,25 @@ export class NotConfiguredError extends Error {
 /** What is wrong with the environment, or `null` when nothing is. */
 export type ConfigProblem = string | null;
 
-const RAW = import.meta.env.VITE_COORDINATION_URL;
+/**
+ * LOCAL-FIRST DEFAULT. When no coordination URL is baked into the build, talk to
+ * the ORIGIN THAT SERVED THIS PAGE. The hub serves this dashboard from its own
+ * coordination (same origin: the viewer API is HTTP-only and the hub proxies
+ * WHEP through coordination), so a same-origin default means ONE static build
+ * works on any hub — offline, on any LAN IP, with no per-hub config and no CORS.
+ *
+ * An explicit `VITE_COORDINATION_URL` still wins — that is the CLOUD / remote
+ * layer (sentri.watch), or a cross-origin dev server. It is optional and
+ * additive; on-site viewing never depends on it. So: cloud build sets the var,
+ * hub build leaves it unset and inherits the origin it is served from.
+ */
+const EXPLICIT = import.meta.env.VITE_COORDINATION_URL;
+const SAME_ORIGIN =
+  typeof window !== "undefined" && window.location && /^https?:$/.test(window.location.protocol)
+    ? window.location.origin
+    : undefined;
+const RAW =
+  typeof EXPLICIT === "string" && EXPLICIT.trim() !== "" ? EXPLICIT : SAME_ORIGIN;
 
 /**
  * Validate the origin.
@@ -45,7 +63,10 @@ const RAW = import.meta.env.VITE_COORDINATION_URL;
  */
 function validate(raw: unknown): ConfigProblem {
   if (typeof raw !== "string" || raw.trim() === "") {
-    return "VITE_COORDINATION_URL is unset. Copy .env.example to .env.local and point it at a coordination service.";
+    // Only reachable off-browser (no window to inherit an origin from) with no
+    // explicit URL — e.g. a non-DOM test context. In a browser the same-origin
+    // default applies, so the served build is always configured.
+    return "No coordination origin: set VITE_COORDINATION_URL, or serve the dashboard from the hub's coordination (it inherits that origin).";
   }
   const value = raw.trim();
 

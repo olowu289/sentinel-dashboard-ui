@@ -217,27 +217,22 @@ export function UnknownFallback({ since }: { since?: string }) {
 /**
  * The path dropped and is being rebuilt.
  *
- * ⚠ NOT `AwaitingMediaFallback`, and the difference is what the operator is
- * owed. Awaiting is a feed that has never played; this one was playing a moment
- * ago and they expect it back. Saying which attempt it is on is the honest part:
- * "2 of 5" is the difference between "give it a second" and "this is not coming
- * back", which is exactly the judgement somebody is trying to make while they
- * watch a still frame.
+ * ⚠ JUST A LOADING SPINNER — NO ATTEMPT COUNT, NO "CONNECTION DROPPED". The
+ * retry machinery underneath is unchanged (`usePlayback`: five attempts over
+ * ~30s, then a terminal failure), but exposing "Attempt 4 of 5" was noisy and
+ * worrying — it read like a countdown to giving up. During the attempts the
+ * operator only needs to see it is loading, so this is an indeterminate circular
+ * spinner with a calm caption. If every attempt fails, the tile falls through to
+ * `ErrorFallback` ("Stream unavailable … Retry") — the honest place to say it is
+ * not coming back. Reconnecting is a WAIT, and a wait is a spinner.
  */
-export function ReconnectingFallback({
-  attempt,
-  of,
-}: {
-  attempt: number;
-  of: number;
-}) {
+export function ReconnectingFallback() {
   return (
-    <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-white/35">
-      <CameraOffGlyph />
-      <p className="text-[0.8125rem] font-medium text-white/70">Reconnecting\u2026</p>
-      <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-white/35">
-        The connection dropped. Attempt {attempt} of {of}.
-      </p>
+    <div className="flex flex-col items-center gap-[12px]">
+      <span className="text-white/50">
+        <Spinner />
+      </span>
+      <p className="text-[0.8125rem] font-medium text-white/75">Connecting…</p>
     </div>
   );
 }
@@ -280,9 +275,9 @@ export function AwaitingMediaFallback({ name }: { name: string }) {
       <span className="text-white/50">
         <Spinner />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/75">Waiting for video…</p>
+      <p className="text-[0.8125rem] font-medium text-white/75">Connecting…</p>
       <p className="-mt-[6px] text-[0.75rem] text-white/35">
-        Negotiating a direct stream · {name}
+        Live view · {name}
       </p>
     </div>
   );

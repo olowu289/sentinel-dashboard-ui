@@ -1,5 +1,5 @@
 import type { Alert } from "./types";
-import { SITE_TZ, formatDayLabel, isSameSiteDay } from "./time";
+import { formatDayLabel, isSameSiteDay, siteTz } from "./time";
 
 export type RangeId = "all" | "1h" | "today" | "24h" | "7d" | "custom";
 
@@ -46,7 +46,7 @@ function inRange(at: number, f: DateFilter, now: number) {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
-        timeZone: SITE_TZ,
+        timeZone: siteTz(),
       }).format(at);
       if (f.from && day < f.from) return false;
       if (f.to && day > f.to) return false;

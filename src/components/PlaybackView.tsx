@@ -217,7 +217,11 @@ export function PlaybackView({
                     downloads the segment — no CORS, no bytes through this app. */}
                 <a
                   href={segmentDownloadUrl(selected)}
-                  download
+                  // The hub's name, not one built here: it is the same string the
+                  // response carries as Content-Disposition, and it gives the browser
+                  // a good name even when a response fails BEFORE its headers arrive,
+                  // which is how a download came to be saved as "segment".
+                  download={selected.filename}
                   className="flex h-[30px] shrink-0 items-center justify-center gap-[6px] rounded-[8px] bg-white px-[12px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
                 >
                   <MaskIcon src="/icons/clip-download.svg" size={14} />
@@ -386,7 +390,7 @@ function ListBody({
                   </button>
                   <a
                     href={segmentDownloadUrl(s)}
-                    download
+                    download={s.filename}
                     aria-label="Download segment"
                     title="Download segment"
                     className={`flex size-[26px] shrink-0 items-center justify-center rounded-[6px] transition-colors ${

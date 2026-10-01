@@ -613,6 +613,10 @@ class SentryClient {
                 // bucket URL passes through untouched. Either is a valid <video src>.
                 url: this.http.url(String(s.url)),
                 downloadUrl: this.http.url(String(s.download_url ?? s.url)),
+                // The readable name, from the hub. The fallback is the key's last
+                // component rather than a name built here: one implementation, and an
+                // older hub that does not send it still yields something usable.
+                filename: String(s.filename ?? String(s.key ?? "").split("/").pop() ?? "segment"),
             })),
         };
     }

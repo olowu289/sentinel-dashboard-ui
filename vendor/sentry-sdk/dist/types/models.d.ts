@@ -399,6 +399,16 @@ export interface ArchivedSegment {
     /** The same segment as a downloadable file (Content-Disposition attachment).
      *  Navigate to it to save the segment; no CORS or fetch needed. */
     downloadUrl: string;
+    /** The name a person reads, e.g. `tower1_cam1_2026-10-01_05-04-12_WAT.mp4`.
+     *
+     *  BUILT BY THE HUB, NOT HERE. It needs the tower's enrolment label and the
+     *  site timezone, and the hub already sends the same string as the response's
+     *  Content-Disposition, so rebuilding it in the browser would be a second
+     *  implementation that could disagree with the header. Set it as the `download`
+     *  attribute of the anchor: that also gives the browser a good name when a
+     *  response fails BEFORE its headers arrive, which is how a download came to be
+     *  saved as `segment` with no extension. */
+    filename: string;
 }
 /** Archived segments for one tower·camera, as {@link SentryClient.listArchivedRecordings} returns them. */
 export interface ArchivedRecordingList {

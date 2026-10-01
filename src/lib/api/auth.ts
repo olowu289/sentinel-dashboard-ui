@@ -160,6 +160,7 @@ export class AuthUnreachableError extends Error {
 
 const LOGIN_PATH = "/v1/auth/login";
 const LOGOUT_PATH = "/v1/auth/logout";
+const REFRESH_PATH = "/v1/auth/refresh";
 
 function requireBaseUrl(): string {
   const base = getCoordinationBaseUrl();
@@ -287,6 +288,38 @@ export async function logout(ref: string, signal?: AbortSignal): Promise<boolean
 }
 
 /**
+ * Slide the login session's expiry forward — the client half of the keepalive
+ * that stops an actively-used dashboard hitting coordination's hard TTL wall.
+ *
+ * Returns the session's NEW `expires_at` on success (same ref — the caller just
+ * records the later expiry). Distinguishes two failures for the caller:
+ *   • a genuinely dead session (**401**) → thrown with `status: 401`, so the
+ *     caller's `isUnauthorized` guard ends the session and drops to login. A
+ *     refresh NEVER resurrects a dead session — that is the server's rule too.
+ *   • transient (network, 5xx, missing endpoint) → thrown as
+ *     `AuthUnreachableError`, which is NOT `isUnauthorized`, so the caller keeps
+ *     the session and simply tries again on the next tick.
+ */
+export async function refreshSession(ref: string, signal?: AbortSignal): Promise<string> {
+  const response = await webFetch(requireBaseUrl() + REFRESH_PATH, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${ref}` },
+    ...(signal ? { signal } : {}),
+  });
+  if (response.status === 401) {
+    /* Dead session. Tagged 401 so `isUnauthorized(err)` recognises it and the
+       caller ends the session cleanly — the same path a real 401 takes. */
+    throw Object.assign(new Error("session is not refreshable"), { status: 401 });
+  }
+  if (!response.ok) {
+    /* 5xx / 404 / 405 — not an auth verdict. Keep the session; retry later. */
+    throw new AuthUnreachableError("server_error", `HTTP ${response.status}`);
+  }
+  const parsed = (await response.json().catch(() => ({}))) as { expires_at?: unknown };
+  return typeof parsed.expires_at === "string" ? parsed.expires_at : "";
+}
+
+/**
  * Does the stored session still authenticate?
  *
  * Uses `GET /v1/viewer/towers` through the SDK — a real, already-served,
@@ -313,27 +346,43 @@ export async function resolveSession(signal?: AbortSignal): Promise<boolean> {
 }
 
 /**
- * True when an error from any coordination call means "not authenticated".
+ * True when an error from any coordination call means "NOT AUTHENTICATED" — the
+ * login session itself is gone (expired, revoked, or never valid). This is 401
+ * ONLY.
+ *
+ * ⚠ 403 IS DELIBERATELY EXCLUDED. 401 (unauthenticated) and 403 (forbidden) are
+ * different facts: 401 says "we don't know who you are" — the whole session is
+ * dead and the app must return to login; 403 says "we know who you are, and you
+ * may not have THIS one thing" — a per-resource refusal (one camera's grant, a
+ * PTZ permission) that must fail that resource and leave the session intact.
+ * Folding 403 in here meant a single camera's `not_permitted` logged the ENTIRE
+ * app out. Now a 403 is surfaced by the caller's own classifier (e.g. media.ts
+ * `classify` → a per-tile "no access" error) and the session survives.
  *
  * Reads the status structurally rather than instance-checking the SDK's
- * `AuthError`, so it stays correct if the SDK renames a class.
+ * `AuthError`, so it stays correct if the SDK renames a class. The SDK folds 401
+ * and 403 into one `AuthError`, so STATUS — not the class or a shared code — is
+ * what distinguishes them; `unauthorized` is coordination's own 401 code and is
+ * accepted as the belt-and-suspenders case when a status did not survive.
  */
 export function isUnauthorized(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const status = (err as { status?: unknown }).status;
-  if (status === 401 || status === 403) return true;
+  if (status === 401) return true;
+  if (status === 403) return false;   // forbidden is resource-level, not a dead session
   const code = (err as { code?: unknown }).code;
-  return code === "unauthorized" || code === "not_authorized";
+  return code === "unauthorized";
 }
 
 /**
- * THE single 401 guard, for every authenticated call in the app.
+ * THE single un-AUTHENTICATED guard, for every authenticated call in the app.
  *
- * A 401/403 on any coordination call means the session is gone — expired,
+ * A 401 on any coordination call means the login session is gone — expired,
  * revoked, or never valid. Handled in one place so the whole app drops to login
  * in one move rather than leaving a half-authenticated screen or an endless
  * spinner, and so a second call site cannot grow a subtly different expiry
- * behaviour.
+ * behaviour. A 403 does NOT reach here (see `isUnauthorized`): it is the
+ * caller's to surface as a per-resource failure.
  *
  * Does NOT swallow: the caller still failed, and still has to stop.
  * Every `api/*` module that talks to coordination calls this in its catch.

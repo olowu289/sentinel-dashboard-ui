@@ -211,6 +211,9 @@ export interface Tower {
   serial?: string;
   /** Running firmware. `agent_version` is the nearest real field. */
   firmware?: string;
+  /** The OTA release channel (stable/beta) the tower reports, for classifying the
+   *  firmware version. Absent when the tower did not report one. */
+  firmwareChannel?: string;
   /**
    * When the CURRENT link came up, from coordination's `connected_at`.
    *

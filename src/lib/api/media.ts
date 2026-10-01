@@ -530,9 +530,16 @@ export async function openPlayback(
 export async function readSessionExpiry(
   session: ViewerSession,
   signal?: AbortSignal,
-): Promise<string | null> {
+): Promise<{ expiresAt: string; iceServers: RTCIceServer[] } | null> {
   const status = await getClient().getSessionStatus(session, signal ? { signal } : {});
-  return status.status === "active" ? status.expires_at : null;
+  if (status.status !== "active") return null;
+  return {
+    expiresAt: status.expires_at,
+    // Fresh TURN/STUN creds re-minted by coordination each poll; may be absent on
+    // direct-only deployments. The caller applies them so a relayed session's
+    // credentials never expire mid-view.
+    iceServers: (status.ice_servers ?? []) as RTCIceServer[],
+  };
 }
 
 /** Milliseconds until the grant expires. `expires_at` is a wall clock, not a hint. */

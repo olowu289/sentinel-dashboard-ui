@@ -115,10 +115,13 @@ function watchLinkedSdk(): Plugin {
  *
  *   AT BUILD, the coordination origin is known: `VITE_COORDINATION_URL` is
  *   inlined into the bundle, so the one host this app fetches from can be
- *   named in `connect-src` instead of the `https:` that stands in for it in
- *   the static text. The edge header stays at `https:` (Vercel cannot read the
- *   build env into a header); the browser enforces the INTERSECTION of the
- *   two, so the effective policy is the narrow one.
+ *   named in `connect-src` — and in `media-src`, since a <video> plays archived
+ *   segments from the coordination origin's segment stream — instead of the
+ *   `https:` that stands in for it in the static text. (`VITE_MEDIA_ORIGINS`
+ *   adds the bucket host for the presigned-URL backend.) The edge header stays
+ *   at `https:` (Vercel cannot read the build env into a header); the browser
+ *   enforces the INTERSECTION of the two, so the effective policy is the narrow
+ *   one.
  *
  * What is NOT here: WebRTC. The live tiles are `MediaStream`s and the ICE/TURN
  * traffic is not governed by CSP at all, so no directive is needed for video
@@ -128,6 +131,12 @@ function watchLinkedSdk(): Plugin {
 function contentSecurityPolicy(): Plugin {
   let serve = false;
   let coordinationOrigin: string | undefined;
+  // Extra media origins for the BUCKET backend: a `<video>` playing an archived
+  // segment loads it from the presigned URL's origin (an S3/B2 host), which is
+  // not the coordination origin. `VITE_MEDIA_ORIGINS` (space/comma-separated)
+  // names them so media-src stays narrow rather than falling back to `https:`.
+  // Empty for the local-disk backend, where the segment stream IS coordination.
+  let extraMediaOrigins: string[] = [];
 
   const META = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"\s*\/?>/;
 
@@ -149,8 +158,19 @@ function contentSecurityPolicy(): Plugin {
          current browsers; `ws:` for the ones where it does not), and a dev
          box may point at any coordination, TLS or not. */
       add("connect-src", "ws:", "wss:", "http:", "https:");
+      /* A dev box may serve recordings from any coordination (http or https);
+         keep media-src open enough that <video> plays there. */
+      add("media-src", "http:", "https:", "blob:");
     } else if (coordinationOrigin) {
       directives.set("connect-src", `'self' ${coordinationOrigin}`);
+      /* Recordings play from a <video> src on the coordination origin (the
+         local-disk segment stream) — narrow media-src to it, exactly as
+         connect-src is narrowed, plus any bucket media origins for the
+         presigned-URL backend. Keep 'self' and blob: (the older Blob path). */
+      directives.set(
+        "media-src",
+        ["'self'", "blob:", coordinationOrigin, ...extraMediaOrigins].join(" "),
+      );
     }
     return [...directives].map(([k, v]) => (v ? `${k} ${v}` : k)).join("; ");
   };
@@ -162,6 +182,14 @@ function contentSecurityPolicy(): Plugin {
     },
     configResolved(config) {
       const env = loadEnv(config.mode, config.envDir ?? config.root, "VITE_");
+      // Optional bucket/media origins (space- or comma-separated), each reduced
+      // to its origin; anything unparseable is dropped rather than poisoning the
+      // policy. Unset for the local-disk backend.
+      extraMediaOrigins = (env.VITE_MEDIA_ORIGINS ?? "")
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map((o) => { try { return new URL(o).origin; } catch { return ""; } })
+        .filter(Boolean);
       const raw = env.VITE_COORDINATION_URL;
       if (!raw) return;
       try {

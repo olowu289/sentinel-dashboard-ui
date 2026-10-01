@@ -12,19 +12,25 @@ import { getClient } from "./client";
  * Pointing a camera.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  THE KEEPALIVE IS THE SDK'S. DO NOT ADD A TIMER TO THIS FILE.
+ *  HOLD-TO-MOVE IS CONTINUOUS. RELEASE STOPS VIA AN EXPLICIT STOP, NOT THE DEADMAN.
  * ══════════════════════════════════════════════════════════════════════
  *
- * A held jog must be refreshed more often than the daemon's 4-second deadman or
- * the mount stops itself, and over a WAN that budget includes round-trip time.
- * `client.ptzHold` owns that cadence at ~1.5s and nothing here does any timing
- * of its own.
+ * The tower runs ONE ContinuousMove while it is fed keepalives. This is LATENCY-
+ * INDEPENDENT: "moves while held, stops when released" holds whether commands
+ * take 10ms, 1s or 3s — latency only shifts when start/stop happen.
  *
- * This is a SAFETY rule, not a tidiness one. A hand-rolled keepalive that drifts
- * or outlives its move is a camera that keeps turning after the operator let
- * go — and the deadman exists precisely because that is the failure worth
- * engineering against. Two timers racing to refresh one move is worse than one
- * timer owned by the layer that knows the protocol.
+ * TWO SEPARATE ROLES, decoupled after a false-stop bug:
+ *   - RELEASE is bounded by the EXPLICIT Stop, which the tower expedites (it
+ *     preempts the queue): release → Stop → head stops in ~1 link-latency,
+ *     independent of the deadman.
+ *   - The DEADMAN ({@link PTZ_DEADMAN_MS}) is ONLY a link-death safety net — tab
+ *     closed, link dropped. It is GENEROUS (~3s) on purpose: a tight 1s deadman
+ *     false-fired mid-hold at ~1s latency because keepalives sent every 0.5s
+ *     ARRIVE ~1s apart under jitter, so it must exceed the worst-case keepalive-
+ *     arrival gap over the link.
+ * The keepalive ({@link PTZ_KEEPALIVE_MS}, ~0.6s) sits WELL inside the deadman
+ * and only refreshes it — NOT per-tick movement, so nothing piles up at any
+ * latency. `client.ptzHold` owns that one timer; this file holds none.
  *
  * ── STOP IS UNCONDITIONAL ──────────────────────────────────────────────
  *
@@ -40,31 +46,36 @@ import { getClient } from "./client";
 /**
  * Minimum press before a hold is released.
  *
- * The SDK owns the keepalive cadence; this is purely the press FEEL, so a 60ms
- * tap does not fire move-then-stop back to back and queue a stop behind an
- * un-dispatched move.
+ * Purely press FEEL: a very short tap still starts the move before the release's
+ * stop lands, so a quick nudge is never swallowed by a stop that beat it.
  */
 export const MIN_PRESS_MS = 260;
 
 /**
- * The axes, exactly as the reference dashboard sends them.
+ * The manual pad's directional velocities, spread into `{ mode: "continuous",
+ * ...axis }`. CONTINUOUS is right and latency-independent: the tower runs ONE
+ * ContinuousMove while keepalives arrive and stops when they cease or an explicit
+ * Stop lands — "moves while held, stops when released" holds at 10ms, 1s or 3s
+ * alike; latency only shifts WHEN start/stop happen. The coast on release is
+ * bounded by the tower's TIGHT deadman (~1s) plus the prompt Stop, not the old
+ * ~4s. (A fixed-cadence relative-step scheme was tried and rejected: it piles up
+ * at high latency and feels sluggish at low latency — this does neither.)
  *
- * Always spread into `{ mode: "jog", ...axis }`. `jog` rather than `continuous`
- * for a recorded reason: the tower routes `continuous` to ONVIF and `jog` to
- * the camera's own CGI path, and the ONVIF route failed on this hardware with
- * `invalid_request` from camera clock skew. Pan and tilt worked throughout
- * because they were already jogging; zoom simply had never been asked.
+ * ⚠ ALL THREE AXES ARE ALWAYS PRESENT. The tower's continuous branch requires
+ * `pan`, `tilt` AND `zoom` together (a missing one is `invalid_request`), so an
+ * idle axis is an explicit `0`. `+tilt` is up, `+pan` is right, `+zoom` is tele
+ * (in), signed rates in -1…1.
  */
-export const JOG_AXES = {
-  up: { tilt: 0.5 },
-  down: { tilt: -0.5 },
-  left: { pan: -0.5 },
-  right: { pan: 0.5 },
-  in: { zoom: 0.5 },
-  out: { zoom: -0.5 },
+export const CONTINUOUS_AXES = {
+  up: { pan: 0, tilt: 0.5, zoom: 0 },
+  down: { pan: 0, tilt: -0.5, zoom: 0 },
+  left: { pan: -0.5, tilt: 0, zoom: 0 },
+  right: { pan: 0.5, tilt: 0, zoom: 0 },
+  in: { pan: 0, tilt: 0, zoom: 0.5 },
+  out: { pan: 0, tilt: 0, zoom: -0.5 },
 } as const;
 
-export type JogDirection = keyof typeof JOG_AXES;
+export type JogDirection = keyof typeof CONTINUOUS_AXES;
 
 /** Raised when a command cannot even be attempted. Never a fake success. */
 export class PtzUnavailableError extends Error {
@@ -108,9 +119,15 @@ function requireSession(session: SessionRef | null | undefined): SessionRef {
 }
 
 /**
- * Start a held move, keeping it alive until `stop()`.
+ * Start a held CONTINUOUS move, kept alive until `stop()`.
  *
- * Delegates entirely to `client.ptzHold` — see the header. Do not add a timer.
+ * Delegates to `client.ptzHold`: ONE ContinuousMove, then a keepalive every
+ * {@link PTZ_KEEPALIVE_MS} that only REFRESHES the tower's deadman (no per-tick
+ * movement, so nothing piles up at any latency). `stop()` sends an explicit Stop,
+ * which the tower expedites (it preempts the queue), and the tight deadman backs
+ * it up if the link drops. `action:"move"` → the unchanged grant-on-command
+ * auth path (coordination attaches the grant and checks `ptz`; the tower
+ * authorizes from it), so a view-only session is refused exactly as before.
  */
 export async function beginHold(
   feed: { index?: number; ptz?: boolean; state: string },

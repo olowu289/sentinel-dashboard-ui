@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SITE_TZ_LABEL, formatSiteStamp } from "@/lib/time";
+import { formatSiteStamp, siteTzLabel } from "@/lib/time";
 
 /**
  * The fleet wall's running site clock.
@@ -28,7 +28,7 @@ export function SiteClock({ className = "" }: { className?: string }) {
       {/* One tone across the whole stamp, per the frame. The date used to sit
           muted beside a white time; on a header that now also carries a bell,
           two weights of the same reading read as two readings. */}
-      {date}, {time} {SITE_TZ_LABEL}
+      {date}, {time} {siteTzLabel()}
     </p>
   );
 }

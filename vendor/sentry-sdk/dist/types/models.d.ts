@@ -132,6 +132,14 @@ export interface ViewerSessionStatus {
      * that another account's session exists.
      */
     status: "active" | "ended";
+    /**
+     * Freshly-minted ICE servers, re-issued on every status poll (§7.4). Optional
+     * — absent on older coordination and on direct-only (no-TURN) deployments. The
+     * viewer applies these so a long-lived relayed session's TURN credentials never
+     * expire mid-view; the session-open `ice_servers` on {@link ViewerSession} is
+     * the initial set.
+     */
+    ice_servers?: IceServer[];
 }
 /**
  * A single ICE candidate, in the shape `RTCIceCandidateInit` uses (§4.5).
@@ -175,7 +183,8 @@ export type GrantRole = "viewer" | "operator";
  *
  * - `absolute`   — requires `pan` + `tilt`.
  * - `continuous` — requires `pan`, `tilt`, `zoom`; optional `seconds`
- *                  (omitted = unbounded hold, which must be kept alive).
+ *                  (omitted = unbounded hold, kept alive by a keepalive; this is
+ *                  the manual pad's hold-to-move).
  * - `jog`        — hold-to-move; takes the camera CGI path where available.
  */
 export type PtzMoveMode = "absolute" | "continuous" | "jog";
@@ -263,15 +272,26 @@ export interface PtzSetHomeResult {
     [key: string]: unknown;
 }
 /**
- * The daemon's safety deadman (§5.1): a held `jog` or unbounded `continuous`
- * must be refreshed more often than every 4 s or the mount stops itself.
+ * The daemon's safety deadman (§5.1): a PURE LINK-DEATH safety net. If no
+ * keepalive and no command reaches the tower for this long, the mount stops
+ * itself (tab closed, link dropped). It is NOT the stop-on-release path — an
+ * explicit Stop bounds the release coast to ~1 link-latency — so it is set
+ * GENEROUS so it never false-fires mid-hold when keepalives merely JITTER over a
+ * high-latency link (a 1s deadman fired during legit holds at ~1s latency,
+ * because keepalives sent every 0.5s can arrive ~1s apart). It must exceed the
+ * worst-case keepalive-ARRIVAL gap over the link. Mirrors the tower's
+ * `CONTINUOUS_SAFETY_TIMEOUT_SEC`; keep the two in step.
  */
-export declare const PTZ_DEADMAN_MS = 4000;
+export declare const PTZ_DEADMAN_MS = 3000;
 /**
- * Recommended keepalive cadence (§5.1): "the viewer SHOULD send at ~1.5 s
- * intervals", because over a WAN the 4 s budget includes round-trip time.
+ * Keepalive cadence while a continuous move is held (§5.1). It only REFRESHES
+ * the deadman — the camera already moves continuously from one ContinuousMove,
+ * so this causes no per-tick movement and never piles up regardless of latency.
+ * Set WELL inside {@link PTZ_DEADMAN_MS} with generous headroom for round-trip
+ * time and jitter, so even several late/jittered keepalives in a row cannot let
+ * the deadman lapse during a genuine hold.
  */
-export declare const PTZ_KEEPALIVE_MS = 1500;
+export declare const PTZ_KEEPALIVE_MS = 600;
 /**
  * Result body of a PTZ command — the `ptz.result` payload (§5.2), relayed to
  * the viewer.
@@ -344,6 +364,64 @@ export interface RecordingWindow {
      *  honest answer that a UI must render as "no recordings" rather than as an
      *  empty timeline the operator will try to scrub. */
     spans: RecordingSpan[];
+}
+/**
+ * One archived segment held on the HUB, as {@link SentryClient.listArchivedRecordings}
+ * returns it — the long-term store, read back through the same pluggable
+ * StorageBackend the hub archiver writes to.
+ *
+ * ⚠ STORAGE-AGNOSTIC BY DESIGN. `url` is ready to play in a `<video src>` and
+ * carries its own authorization: for a bucket backend it is a presigned URL the
+ * browser fetches directly from the object store; for a local-disk backend it is
+ * a coordination stream URL carrying a short-lived signed ticket. The frontend
+ * MUST NOT care which — it never inspects the URL's shape, only plays it.
+ */
+export interface ArchivedSegment {
+    /** The backend object key. Opaque to the UI — identity for caching only. */
+    key: string;
+    /** The camera, as the NUMBER the rest of the system uses (e.g. `1`) — the hub
+     *  maps its stored `camN` path back to this. A non-`camN` custom name falls
+     *  back to the raw string. */
+    camera: number | string;
+    /** The tower this segment belongs to. */
+    deviceId: string;
+    /** RFC 3339. When the segment's footage BEGINS (from the segment name, not mtime). */
+    start: Timestamp;
+    /** Epoch seconds of {@link start}, so a timeline needs no date parsing. */
+    startEpoch: number;
+    /** Seconds. The stretch this segment covers on the timeline. */
+    duration: number;
+    /** Bytes. */
+    size: number;
+    /** A ready-to-play URL — presigned (bucket) or ticketed coordination stream
+     *  (local). Absolute and directly usable as a `<video src>`. */
+    url: string;
+    /** The same segment as a downloadable file (Content-Disposition attachment).
+     *  Navigate to it to save the segment; no CORS or fetch needed. */
+    downloadUrl: string;
+    /** The name a person reads, e.g. `tower1_cam1_2026-10-01_05-04-12_WAT.mp4`.
+     *
+     *  BUILT BY THE HUB, NOT HERE. It needs the tower's enrolment label and the
+     *  site timezone, and the hub already sends the same string as the response's
+     *  Content-Disposition, so rebuilding it in the browser would be a second
+     *  implementation that could disagree with the header. Set it as the `download`
+     *  attribute of the anchor: that also gives the browser a good name when a
+     *  response fails BEFORE its headers arrive, which is how a download came to be
+     *  saved as `segment` with no extension. */
+    filename: string;
+}
+/** Archived segments for one tower·camera, as {@link SentryClient.listArchivedRecordings} returns them. */
+export interface ArchivedRecordingList {
+    deviceId: string;
+    /** The camera asked for as its NUMBER (e.g. `1`), or `null` when the whole
+     *  tower was listed. */
+    camera: number | string | null;
+    /** Whether the hub has archiving turned on. `false` → `segments` is empty by
+     *  fact, not by chance: the honest "no archive configured", never a fabricated
+     *  timeline. */
+    archiveEnabled: boolean;
+    /** Ordered oldest-first. */
+    segments: ArchivedSegment[];
 }
 /**
  * The longest slice a single request may ask for (§12.6), in seconds.
@@ -578,6 +656,9 @@ export interface TowerInfo {
      * with no consumer is a field that ossifies. Read them if they are there.
      */
     agent_version?: string;
+    /** The OTA release channel the tower is on (e.g. `stable`, `beta`), for
+     *  classifying the reported version. Optional — absent when unreported. */
+    ota_channel?: string;
     capabilities?: string[];
     last_seen?: Timestamp | null;
     health?: TowerHealth;

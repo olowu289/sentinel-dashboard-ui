@@ -829,3 +829,64 @@ test("getSegmentUrl surfaces a 404 as the typed error, so the caller can fall ba
   const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
   await assert.rejects(() => c.getSegmentUrl("d", 1, "k"), NotFoundError);
 });
+
+
+// ---------------------------------------------------------------------------
+// listReviewableTowers: an OFFLINE tower is still reviewable
+// ---------------------------------------------------------------------------
+//
+// listTowers projects the live fleet, so an offline tower arrives with no cameras
+// and a review screen built from it offers nothing to click for the tower an
+// operator most often wants. These pin that `online` is carried for a badge and
+// never used to filter, which was the whole bug.
+
+test("listReviewableTowers keeps an offline tower, with its cameras", async () => {
+  const fetch = fakeFetch(() =>
+    json({
+      towers: [
+        { device_id: "kln_lab_000002", label: "Tower 1", online: false,
+          cameras: [1, 2], has_recordings: true },
+        { device_id: "kln_lab_000003", label: "Tower 2", online: true,
+          cameras: [1], has_recordings: false, hub_id: "hub-kln-lab" },
+      ],
+    }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+
+  assert.equal(got.length, 2, "an offline tower must not be dropped");
+  assert.equal(got[0].deviceId, "kln_lab_000002");
+  assert.equal(got[0].online, false);
+  assert.deepEqual(got[0].cameras, [1, 2], "the cameras are what was missing");
+  assert.equal(got[0].hasRecordings, true);
+  assert.equal(got[0].hubId, undefined, "a hub-local tower carries no hub id");
+  assert.equal(got[1].hubId, "hub-kln-lab");
+  assert.equal(new URL(fetch.calls[0].url).pathname, "/v1/viewer/recordings/towers");
+});
+
+test("listReviewableTowers falls back to the device id rather than a blank label", async () => {
+  // Footage from a tower that was unenrolled or replaced has no registry row, and a
+  // selector entry reading "" is worse than one reading the raw id.
+  const fetch = fakeFetch(() =>
+    json({ towers: [{ device_id: "kln_lab_000002", online: false, cameras: [1] }] }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+  assert.equal(got[0].label, "kln_lab_000002");
+  assert.equal(got[0].hasRecordings, false);
+});
+
+test("listReviewableTowers keeps a non-camN camera name as a string", async () => {
+  const fetch = fakeFetch(() =>
+    json({ towers: [{ device_id: "d", label: "T", online: true,
+                      cameras: [1, "frontgate"] }] }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+  assert.deepEqual(got[0].cameras, [1, "frontgate"]);
+});
+
+test("listReviewableTowers drops a row with no device id instead of rendering it", async () => {
+  const fetch = fakeFetch(() =>
+    json({ towers: [{ label: "nameless" }, { device_id: "d", cameras: [] }] }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+  assert.deepEqual(got.map((t) => t.deviceId), ["d"]);
+});

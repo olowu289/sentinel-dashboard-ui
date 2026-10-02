@@ -539,6 +539,38 @@ class SentryClient {
      * @throws {ApiError} `404` -- no such tower, or the key is not this tower's.
      * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
      */
+    /**
+     * The towers that have footage to review -- `GET /v1/viewer/recordings/towers`.
+     *
+     * NOT {@link listTowers}. That one projects the live fleet, so an offline tower
+     * arrives with no cameras and a review screen built from it offers nothing to
+     * click for the tower an operator most often wants. This is the union of the
+     * account's enrolled towers and whatever the archive actually holds, with
+     * `online` reported for a badge rather than used to filter.
+     *
+     * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
+     */
+    async listReviewableTowers(opts = {}) {
+        const { body } = await this.http.send({
+            method: "GET",
+            path: "/v1/viewer/recordings/towers",
+            accept: "json",
+            ...pick(opts),
+        });
+        const raw = (body ?? {});
+        const rows = Array.isArray(raw.towers) ? raw.towers : [];
+        return rows
+            .map((t) => t)
+            .filter((t) => typeof t.device_id === "string" && t.device_id)
+            .map((t) => ({
+            deviceId: String(t.device_id),
+            label: String(t.label ?? "") || String(t.device_id),
+            online: t.online === true,
+            cameras: (Array.isArray(t.cameras) ? t.cameras : []).map((c) => typeof c === "number" ? c : String(c)),
+            hasRecordings: t.has_recordings === true,
+            ...(typeof t.hub_id === "string" && t.hub_id ? { hubId: t.hub_id } : {}),
+        }));
+    }
     async getSegmentUrl(deviceId, camera, key, opts = {}) {
         const q = new URLSearchParams({
             device_id: deviceId,

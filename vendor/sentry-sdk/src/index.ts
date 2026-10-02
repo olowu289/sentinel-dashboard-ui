@@ -105,6 +105,7 @@ export type {
   RecordingWindow,
   ArchivedSegment,
   FreshSegmentUrl,
+  ReviewableTower,
   ArchivedRecordingList,
   PtzStatusResult,
   HomeSource,

@@ -418,6 +418,53 @@ export interface RecordingWindow {
  * a coordination stream URL carrying a short-lived signed ticket. The frontend
  * MUST NOT care which — it never inspects the URL's shape, only plays it.
  */
+/**
+ * A tower as the REVIEW screen sees it: what there is footage for, online or not.
+ *
+ * Deliberately not the live fleet. `GET /v1/viewer/towers` projects each tower from
+ * its live hello, so an OFFLINE tower comes back with an empty `cameras` list and a
+ * review screen built from it has nothing to offer for the tower an operator most
+ * often wants: the one that just went down. This comes from the archive instead.
+ */
+export interface ReviewableTower {
+  deviceId: string;
+  /** From the registry, falling back to the device id rather than a blank. */
+  label: string;
+  /** For a badge. NEVER for filtering: an offline tower is still reviewable. */
+  online: boolean;
+  /** Camera numbers that have footage, plus any non-`camN` name as a string. */
+  cameras: Array<number | string>;
+  /** False for a tower enrolled but not yet recording. */
+  hasRecordings: boolean;
+  /** Which hub holds it. Only present on the data centre. */
+  hubId?: string;
+}
+
+/**
+ * A freshly minted pair of URLs for ONE archived segment.
+ *
+ * WHY THIS EXISTS. {@link SentryClient.listArchivedRecordings} mints a URL for every
+ * segment it returns, and for a bucket backend those are presigned: their lifetime
+ * starts when the LIST was built, not when somebody clicks. An operator who loads a
+ * day, scans it for ten minutes and then opens a clip is handed a URL with a fraction
+ * of its life left, and it expires MID-PLAYBACK. The browser simply stops, which is
+ * indistinguishable from a slow start.
+ *
+ * So the player asks for a URL when it needs one. `expiresIn` lets a long session
+ * refresh BEFORE it is surprised, rather than discovering the expiry as a stall.
+ */
+export interface FreshSegmentUrl {
+  key: string;
+  /** Plays inline in a `<video>`. */
+  url: string;
+  /** Same object, served as an attachment. */
+  downloadUrl: string;
+  /** The readable name the response carries as Content-Disposition. */
+  filename: string;
+  /** Seconds the URLs are good for. 0 when the backend does not expire them. */
+  expiresIn: number;
+}
+
 export interface ArchivedSegment {
   /** The backend object key. Opaque to the UI — identity for caching only. */
   key: string;
@@ -441,6 +488,16 @@ export interface ArchivedSegment {
   /** The same segment as a downloadable file (Content-Disposition attachment).
    *  Navigate to it to save the segment; no CORS or fetch needed. */
   downloadUrl: string;
+  /** The name a person reads, e.g. `tower1_cam1_2026-10-01_05-04-12_WAT.mp4`.
+   *
+   *  BUILT BY THE HUB, NOT HERE. It needs the tower's enrolment label and the
+   *  site timezone, and the hub already sends the same string as the response's
+   *  Content-Disposition, so rebuilding it in the browser would be a second
+   *  implementation that could disagree with the header. Set it as the `download`
+   *  attribute of the anchor: that also gives the browser a good name when a
+   *  response fails BEFORE its headers arrive, which is how a download came to be
+   *  saved as `segment` with no extension. */
+  filename: string;
 }
 
 /** Archived segments for one tower·camera, as {@link SentryClient.listArchivedRecordings} returns them. */

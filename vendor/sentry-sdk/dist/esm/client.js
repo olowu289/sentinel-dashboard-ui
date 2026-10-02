@@ -516,6 +516,85 @@ export class SentryClient {
      *   correctly rejects these messages, and coordination declines to provoke it.
      * @throws {ApiError} `503 tower_offline` — the tower is not connected.
      */
+    /**
+     * A FRESH pair of URLs for one archived segment, minted now.
+     *
+     * `GET /v1/viewer/recordings/segment-url?device_id=&camera=&key=`
+     *
+     * The list's URLs start ageing when the list is BUILT. On a bucket backend they
+     * are presigned and they expire, so a clip opened some minutes after the list was
+     * loaded can stop part-way through with no error of any kind: the browser simply
+     * stalls, which looks exactly like a slow start. Call this when a segment is
+     * actually opened, and again if the media element reports an error.
+     *
+     * AUTHORIZATION IS THE LIST'S, not a weaker one. Same account, same owner-derived
+     * `recordings` permission, same tower ownership, and the key must belong to the
+     * tower named. A key for another tower or another site is a `404`, the same answer
+     * an unknown segment gets, so this cannot be used to probe what exists.
+     *
+     * @throws {ApiError} `404` -- no such tower, or the key is not this tower's.
+     * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
+     */
+    /**
+     * The towers that have footage to review -- `GET /v1/viewer/recordings/towers`.
+     *
+     * NOT {@link listTowers}. That one projects the live fleet, so an offline tower
+     * arrives with no cameras and a review screen built from it offers nothing to
+     * click for the tower an operator most often wants. This is the union of the
+     * account's enrolled towers and whatever the archive actually holds, with
+     * `online` reported for a badge rather than used to filter.
+     *
+     * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
+     */
+    async listReviewableTowers(opts = {}) {
+        const { body } = await this.http.send({
+            method: "GET",
+            path: "/v1/viewer/recordings/towers",
+            accept: "json",
+            ...pick(opts),
+        });
+        const raw = (body ?? {});
+        const rows = Array.isArray(raw.towers) ? raw.towers : [];
+        return rows
+            .map((t) => t)
+            .filter((t) => typeof t.device_id === "string" && t.device_id)
+            .map((t) => ({
+            deviceId: String(t.device_id),
+            label: String(t.label ?? "") || String(t.device_id),
+            online: t.online === true,
+            cameras: (Array.isArray(t.cameras) ? t.cameras : []).map((c) => typeof c === "number" ? c : String(c)),
+            hasRecordings: t.has_recordings === true,
+            ...(typeof t.hub_id === "string" && t.hub_id ? { hubId: t.hub_id } : {}),
+        }));
+    }
+    async getSegmentUrl(deviceId, camera, key, opts = {}) {
+        const q = new URLSearchParams({
+            device_id: deviceId,
+            camera: String(camera),
+            key,
+        });
+        const { body } = await this.http.send({
+            method: "GET",
+            path: `/v1/viewer/recordings/segment-url?${q.toString()}`,
+            accept: "json",
+            ...pick(opts),
+        });
+        const raw = (body ?? {});
+        const url = String(raw.url ?? "");
+        if (!url) {
+            throw new SentryError("segment-url returned no url", {
+                code: "invalid_response",
+                path: "/v1/viewer/recordings/segment-url",
+            });
+        }
+        return {
+            key: String(raw.key ?? key),
+            url: this.http.url(url),
+            downloadUrl: this.http.url(String(raw.download_url ?? url)),
+            filename: String(raw.filename ?? ""),
+            expiresIn: Number(raw.expires_in ?? 0),
+        };
+    }
     async listRecordings(ref, opts = {}) {
         const id = encodeURIComponent(refId(ref));
         const path = `/v1/viewer/sessions/${id}/recordings`;
@@ -609,6 +688,10 @@ export class SentryClient {
                 // bucket URL passes through untouched. Either is a valid <video src>.
                 url: this.http.url(String(s.url)),
                 downloadUrl: this.http.url(String(s.download_url ?? s.url)),
+                // The readable name, from the hub. The fallback is the key's last
+                // component rather than a name built here: one implementation, and an
+                // older hub that does not send it still yields something usable.
+                filename: String(s.filename ?? String(s.key ?? "").split("/").pop() ?? "segment"),
             })),
         };
     }

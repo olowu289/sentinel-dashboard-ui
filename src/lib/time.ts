@@ -3,37 +3,105 @@
  * it. Operators hand incidents off by radio across shifts and regions; a time
  * that silently follows the viewer's machine is worse than no time at all.
  */
-export const SITE_TZ = "Africa/Lagos";
-export const SITE_TZ_LABEL = "WAT";
+/**
+ * ── THE ZONE COMES FROM THE HUB, AND FROM NOWHERE ELSE ────────────────────
+ *
+ * This file used to hold `export const SITE_TZ = "Africa/Lagos"`, which made the
+ * frontend a SECOND source of truth about what time a recording was made. The hub
+ * knows its own zone (SITE_TZ in device.env, served on /healthz as `site.tz`), and
+ * it is the box that names the files, so it wins.
+ *
+ * Africa/Lagos stays here as the FALLBACK ONLY, for the window before /healthz has
+ * answered and for a hub too old to send it. `setSiteTz` is called once at boot.
+ *
+ * The formatters are therefore built LAZILY and cached per zone: they used to be
+ * module-level constants, which would have frozen whatever the fallback was at
+ * import time and ignored the hub entirely.
+ */
+const FALLBACK_SITE_TZ = "Africa/Lagos";
 
-const clock = new Intl.DateTimeFormat("en-US", {
+let siteTzName: string = FALLBACK_SITE_TZ;
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+
+/** A cached formatter in the CURRENT site zone. */
+function fmt(locale: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${siteTzName}|${locale}|${JSON.stringify(opts)}`;
+  let f = fmtCache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone: siteTzName });
+    fmtCache.set(key, f);
+  }
+  return f;
+}
+
+/** The site zone in force. */
+export function siteTz(): string {
+  return siteTzName;
+}
+
+/**
+ * Adopt the hub's zone. Called once at boot with `site.tz` from /healthz.
+ *
+ * An unusable zone is REJECTED rather than adopted: Intl would throw on every
+ * format afterwards and every timestamp in the app would disappear. Returns
+ * whether it took, so a caller can log that it is still on the fallback.
+ */
+export function setSiteTz(tz: string | null | undefined): boolean {
+  const next = (tz ?? "").trim();
+  if (!next || next === siteTzName) return next === siteTzName;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: next }).format(0);
+  } catch {
+    return false;
+  }
+  siteTzName = next;
+  fmtCache.clear();
+  return true;
+}
+
+/**
+ * The abbreviation to label a time with ("WAT"), derived rather than declared.
+ *
+ * It was a hardcoded "WAT" beside a hardcoded zone, so changing one left the other
+ * lying. Derived per call from the current zone AND the instant, because an
+ * abbreviation can differ across the year.
+ */
+export function siteTzLabel(at: number = Date.now()): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: siteTzName,
+      timeZoneName: "short",
+    }).formatToParts(at);
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? siteTzName;
+  } catch {
+    return siteTzName;
+  }
+}
+
+const clock = () => fmt("en-US", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
   hour12: true,
-  timeZone: SITE_TZ,
 });
 
-const clockShort = new Intl.DateTimeFormat("en-US", {
+const clockShort = () => fmt("en-US", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: true,
-  timeZone: SITE_TZ,
 });
 
-const dayMonth = new Intl.DateTimeFormat("en-US", {
+const dayMonth = () => fmt("en-US", {
   month: "short",
   day: "numeric",
-  timeZone: SITE_TZ,
 });
 
 /** Calendar day in site time, e.g. "2026-07-25" — used for same-day tests. */
 function siteDay(at: number) {
-  return new Intl.DateTimeFormat("en-CA", {
+  return fmt("en-CA", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    timeZone: SITE_TZ,
   }).format(at);
 }
 
@@ -65,40 +133,37 @@ export function formatDayLabel(isoDay: string) {
 
 /** `11:10:11 PM WAT` */
 export function formatClock(at: number) {
-  return `${clock.format(at)} ${SITE_TZ_LABEL}`;
+  return `${clock().format(at)} ${siteTzLabel(at)}`;
 }
 
-const clock24 = new Intl.DateTimeFormat("en-GB", {
+const clock24 = () => fmt("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-  timeZone: SITE_TZ,
 });
 
 /** `23:10` — the timeline gutter, where 24h reads faster than AM/PM. */
 export function formatClock24(at: number) {
-  return clock24.format(at);
+  return clock24().format(at);
 }
 
 /** `Jul 25` — the timeline's date heading. */
 export function formatSiteDate(at: number) {
-  return dayMonth.format(at);
+  return dayMonth().format(at);
 }
 
-const stampDate = new Intl.DateTimeFormat("en-GB", {
+const stampDate = () => fmt("en-GB", {
   weekday: "short",
   day: "numeric",
   month: "short",
   year: "2-digit",
-  timeZone: SITE_TZ,
 });
 
-const stampTime = new Intl.DateTimeFormat("en-GB", {
+const stampTime = () => fmt("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
   hour12: false,
-  timeZone: SITE_TZ,
 });
 
 /**
@@ -116,8 +181,8 @@ const stampTime = new Intl.DateTimeFormat("en-GB", {
 export function formatSiteStamp(at: number) {
   return {
     // en-GB emits "Tue, 4 Nov 25"; the design carries no comma there.
-    date: stampDate.format(at).replace(",", "").toUpperCase(),
-    time: stampTime.format(at),
+    date: stampDate().format(at).replace(",", "").toUpperCase(),
+    time: stampTime().format(at),
   };
 }
 
@@ -156,7 +221,7 @@ export function formatDuration(sec: number) {
  * of noise in the middle of a name and a place.
  */
 export function formatClockShort(at: number) {
-  return `${clockShort.format(at)} ${SITE_TZ_LABEL}`;
+  return `${clockShort().format(at)} ${siteTzLabel(at)}`;
 }
 
 /**
@@ -192,7 +257,7 @@ export function formatEventTime(at: number, now: number = siteNow()) {
   if (isSameSiteDay(at, now)) {
     return formatClock(at);
   }
-  return `${dayMonth.format(at)}, ${clockShort.format(at)} ${SITE_TZ_LABEL}`;
+  return `${dayMonth().format(at)}, ${clockShort().format(at)} ${siteTzLabel(at)}`;
 }
 
 /**
@@ -247,7 +312,7 @@ export function siteFileStamp(at: number = Date.now()): string {
     minute: "2-digit",
     second: "2-digit",
     hourCycle: "h23",
-    timeZone: SITE_TZ,
+    timeZone: siteTzName,
   }).formatToParts(at);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
   return `${get("year")}-${get("month")}-${get("day")}_${get("hour")}-${get("minute")}-${get("second")}`;

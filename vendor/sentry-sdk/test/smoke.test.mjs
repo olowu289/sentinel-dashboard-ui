@@ -750,3 +750,143 @@ test("parseTowerInfo forwards ota_channel (for firmware classification)", async 
   const [t2] = await client(f2).listTowers();
   assert.equal(t2.ota_channel, undefined);
 });
+
+
+// ---------------------------------------------------------------------------
+// getSegmentUrl: a fresh presigned pair, asked for when a clip is OPENED
+// ---------------------------------------------------------------------------
+//
+// The list mints a URL for every segment and, on a bucket backend, those are
+// presigned: their lifetime starts when the LIST was built. A clip opened ten
+// minutes later can stop part-way through with nothing in the console, because an
+// expired presigned URL just stops serving range requests. These cover the request
+// that is actually put on the wire and the mapping of the answer.
+
+test("getSegmentUrl asks for one key and maps both urls", async () => {
+  const fetch = fakeFetch(() =>
+    json({
+      key: "hub-kln-lab/recordings/kln_lab_000001/cam1/2026-10-01/x.mp4",
+      url: "https://s3.us-east-005.backblazeb2.com/b/k?X-Amz-Expires=3600",
+      download_url: "https://s3.us-east-005.backblazeb2.com/b/k?dl=1",
+      filename: "tower1_cam1_2026-10-01_05-04-12_WAT.mp4",
+      expires_in: 3600,
+    }),
+  );
+  const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
+
+  const got = await c.getSegmentUrl(
+    "kln_lab_000001", 1,
+    "hub-kln-lab/recordings/kln_lab_000001/cam1/2026-10-01/x.mp4",
+  );
+
+  assert.equal(got.url, "https://s3.us-east-005.backblazeb2.com/b/k?X-Amz-Expires=3600");
+  assert.equal(got.downloadUrl, "https://s3.us-east-005.backblazeb2.com/b/k?dl=1");
+  assert.equal(got.filename, "tower1_cam1_2026-10-01_05-04-12_WAT.mp4");
+  assert.equal(got.expiresIn, 3600);
+
+  // The request names the tower, the camera and the key: all three are what the
+  // server authorizes against, and omitting any of them would make the endpoint
+  // either unusable or an oracle.
+  const url = new URL(fetch.calls[0].url);
+  assert.equal(url.pathname, "/v1/viewer/recordings/segment-url");
+  assert.equal(url.searchParams.get("device_id"), "kln_lab_000001");
+  assert.equal(url.searchParams.get("camera"), "1");
+  assert.equal(
+    url.searchParams.get("key"),
+    "hub-kln-lab/recordings/kln_lab_000001/cam1/2026-10-01/x.mp4",
+  );
+  assert.equal(fetch.calls[0].method, "GET");
+});
+
+test("getSegmentUrl keeps a relative url relative to coordination", async () => {
+  // The LOCAL-disk backend answers with a ticketed coordination path, not an
+  // absolute bucket URL. It has to resolve against the API origin exactly as the
+  // list's urls do, or the hub's own Playback screen breaks.
+  const fetch = fakeFetch(() =>
+    json({ key: "k", url: "/v1/viewer/recordings/segment?key=k&exp=1&sig=s" }),
+  );
+  const c = new SentryClient({ baseUrl: "https://hub.local:9081", fetch });
+  const got = await c.getSegmentUrl("kln_lab_000001", 1, "k");
+  assert.equal(
+    got.url,
+    "https://hub.local:9081/v1/viewer/recordings/segment?key=k&exp=1&sig=s",
+  );
+  // No download_url in the answer: it falls back to the playable one rather than
+  // producing an empty href.
+  assert.equal(got.downloadUrl, got.url);
+});
+
+test("getSegmentUrl refuses an answer with no url instead of returning an empty src", async () => {
+  const fetch = fakeFetch(() => json({ key: "k", filename: "x.mp4" }));
+  const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
+  await assert.rejects(() => c.getSegmentUrl("d", 1, "k"), /no url/);
+});
+
+test("getSegmentUrl surfaces a 404 as the typed error, so the caller can fall back", async () => {
+  const fetch = fakeFetch(() =>
+    json({ error: { code: "not_found", message: "no such segment" } }, 404),
+  );
+  const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
+  await assert.rejects(() => c.getSegmentUrl("d", 1, "k"), NotFoundError);
+});
+
+
+// ---------------------------------------------------------------------------
+// listReviewableTowers: an OFFLINE tower is still reviewable
+// ---------------------------------------------------------------------------
+//
+// listTowers projects the live fleet, so an offline tower arrives with no cameras
+// and a review screen built from it offers nothing to click for the tower an
+// operator most often wants. These pin that `online` is carried for a badge and
+// never used to filter, which was the whole bug.
+
+test("listReviewableTowers keeps an offline tower, with its cameras", async () => {
+  const fetch = fakeFetch(() =>
+    json({
+      towers: [
+        { device_id: "kln_lab_000002", label: "Tower 1", online: false,
+          cameras: [1, 2], has_recordings: true },
+        { device_id: "kln_lab_000003", label: "Tower 2", online: true,
+          cameras: [1], has_recordings: false, hub_id: "hub-kln-lab" },
+      ],
+    }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+
+  assert.equal(got.length, 2, "an offline tower must not be dropped");
+  assert.equal(got[0].deviceId, "kln_lab_000002");
+  assert.equal(got[0].online, false);
+  assert.deepEqual(got[0].cameras, [1, 2], "the cameras are what was missing");
+  assert.equal(got[0].hasRecordings, true);
+  assert.equal(got[0].hubId, undefined, "a hub-local tower carries no hub id");
+  assert.equal(got[1].hubId, "hub-kln-lab");
+  assert.equal(new URL(fetch.calls[0].url).pathname, "/v1/viewer/recordings/towers");
+});
+
+test("listReviewableTowers falls back to the device id rather than a blank label", async () => {
+  // Footage from a tower that was unenrolled or replaced has no registry row, and a
+  // selector entry reading "" is worse than one reading the raw id.
+  const fetch = fakeFetch(() =>
+    json({ towers: [{ device_id: "kln_lab_000002", online: false, cameras: [1] }] }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+  assert.equal(got[0].label, "kln_lab_000002");
+  assert.equal(got[0].hasRecordings, false);
+});
+
+test("listReviewableTowers keeps a non-camN camera name as a string", async () => {
+  const fetch = fakeFetch(() =>
+    json({ towers: [{ device_id: "d", label: "T", online: true,
+                      cameras: [1, "frontgate"] }] }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+  assert.deepEqual(got[0].cameras, [1, "frontgate"]);
+});
+
+test("listReviewableTowers drops a row with no device id instead of rendering it", async () => {
+  const fetch = fakeFetch(() =>
+    json({ towers: [{ label: "nameless" }, { device_id: "d", cameras: [] }] }),
+  );
+  const got = await client(fetch).listReviewableTowers();
+  assert.deepEqual(got.map((t) => t.deviceId), ["d"]);
+});

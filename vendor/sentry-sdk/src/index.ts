@@ -104,6 +104,8 @@ export type {
   RecordingSpan,
   RecordingWindow,
   ArchivedSegment,
+  FreshSegmentUrl,
+  ReviewableTower,
   ArchivedRecordingList,
   PtzStatusResult,
   HomeSource,

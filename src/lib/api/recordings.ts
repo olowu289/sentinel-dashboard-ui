@@ -1,4 +1,8 @@
-import type { ArchivedRecordingList, ArchivedSegment } from "@kallon/sentry-sdk";
+import type {
+  ArchivedRecordingList,
+  ArchivedSegment,
+  FreshSegmentUrl,
+} from "@kallon/sentry-sdk";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
 
@@ -80,6 +84,28 @@ export async function listHubRecordings(
  */
 export function segmentDownloadUrl(segment: ArchivedSegment): string {
   return segment.downloadUrl;
+}
+
+/**
+ * A freshly minted pair of URLs for ONE segment, asked for when it is opened.
+ *
+ * The list's URLs are presigned on a bucket backend and their lifetime starts when
+ * the LIST was built, so a clip opened some minutes later can stop part-way through
+ * with nothing in the console. Callers fall back to the list's URL when this fails:
+ * an older hub does not serve the endpoint, and a failed refresh is not a reason to
+ * refuse to play something that may well still work.
+ */
+export async function freshSegmentUrl(
+  deviceId: string,
+  camera: number,
+  key: string,
+): Promise<FreshSegmentUrl> {
+  try {
+    return await getClient().getSegmentUrl(deviceId, camera, key);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
 }
 
 /**

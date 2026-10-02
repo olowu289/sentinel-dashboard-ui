@@ -5,6 +5,7 @@ import type { CameraFeed, Tower } from "@/lib/types";
 import type { ArchivedSegment } from "@kallon/sentry-sdk";
 import { useHubRecordings } from "@/lib/useHubRecordings";
 import { segmentDownloadUrl } from "@/lib/api/recordings";
+import { useFreshSegmentUrl } from "@/lib/useFreshSegmentUrl";
 import {
   LOCAL_TZ_LABEL,
   formatBytes,
@@ -107,6 +108,14 @@ export function PlaybackView({
     () => segments.find((s) => s.key === selectedKey) ?? null,
     [segments, selectedKey],
   );
+  // Mint a URL when the clip is OPENED. The list's URLs started ageing when the
+  // list was built; see useFreshSegmentUrl for why that matters on the DC.
+  const {
+    url: playUrl,
+    downloadUrl,
+    filename: freshFilename,
+    refresh: refreshSegmentUrl,
+  } = useFreshSegmentUrl(towerId, chosen, selected);
 
   const visibleGroups = useMemo(
     () => (selectedDay ? groups.filter((g) => g.day === selectedDay) : groups),
@@ -185,11 +194,18 @@ export function PlaybackView({
             <div className="relative min-h-[240px] flex-1 overflow-hidden rounded-[12px] bg-stage">
               {selected ? (
                 <video
-                  key={selected.url}
-                  src={selected.url}
+                  // Keyed on the SEGMENT, not the URL: a refreshed URL for the same
+                  // clip must swap the source in place, not tear the element down
+                  // and lose the playhead.
+                  key={selected.key}
+                  src={playUrl}
                   autoPlay
                   playsInline
                   controls
+                  // A presigned URL that expired mid-clip surfaces here and nowhere
+                  // else: no console error, no status, just a stall. One refresh per
+                  // segment, then the browser's own error handling takes over.
+                  onError={refreshSegmentUrl}
                   className="absolute inset-0 size-full object-contain"
                 />
               ) : (
@@ -216,12 +232,12 @@ export function PlaybackView({
                 {/* The URL sets its own Content-Disposition, so a plain navigation
                     downloads the segment — no CORS, no bytes through this app. */}
                 <a
-                  href={segmentDownloadUrl(selected)}
+                  href={downloadUrl}
                   // The hub's name, not one built here: it is the same string the
                   // response carries as Content-Disposition, and it gives the browser
                   // a good name even when a response fails BEFORE its headers arrive,
                   // which is how a download came to be saved as "segment".
-                  download={selected.filename}
+                  download={freshFilename}
                   className="flex h-[30px] shrink-0 items-center justify-center gap-[6px] rounded-[8px] bg-white px-[12px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
                 >
                   <MaskIcon src="/icons/clip-download.svg" size={14} />

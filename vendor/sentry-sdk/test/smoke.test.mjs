@@ -750,3 +750,82 @@ test("parseTowerInfo forwards ota_channel (for firmware classification)", async 
   const [t2] = await client(f2).listTowers();
   assert.equal(t2.ota_channel, undefined);
 });
+
+
+// ---------------------------------------------------------------------------
+// getSegmentUrl: a fresh presigned pair, asked for when a clip is OPENED
+// ---------------------------------------------------------------------------
+//
+// The list mints a URL for every segment and, on a bucket backend, those are
+// presigned: their lifetime starts when the LIST was built. A clip opened ten
+// minutes later can stop part-way through with nothing in the console, because an
+// expired presigned URL just stops serving range requests. These cover the request
+// that is actually put on the wire and the mapping of the answer.
+
+test("getSegmentUrl asks for one key and maps both urls", async () => {
+  const fetch = fakeFetch(() =>
+    json({
+      key: "hub-kln-lab/recordings/kln_lab_000001/cam1/2026-10-01/x.mp4",
+      url: "https://s3.us-east-005.backblazeb2.com/b/k?X-Amz-Expires=3600",
+      download_url: "https://s3.us-east-005.backblazeb2.com/b/k?dl=1",
+      filename: "tower1_cam1_2026-10-01_05-04-12_WAT.mp4",
+      expires_in: 3600,
+    }),
+  );
+  const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
+
+  const got = await c.getSegmentUrl(
+    "kln_lab_000001", 1,
+    "hub-kln-lab/recordings/kln_lab_000001/cam1/2026-10-01/x.mp4",
+  );
+
+  assert.equal(got.url, "https://s3.us-east-005.backblazeb2.com/b/k?X-Amz-Expires=3600");
+  assert.equal(got.downloadUrl, "https://s3.us-east-005.backblazeb2.com/b/k?dl=1");
+  assert.equal(got.filename, "tower1_cam1_2026-10-01_05-04-12_WAT.mp4");
+  assert.equal(got.expiresIn, 3600);
+
+  // The request names the tower, the camera and the key: all three are what the
+  // server authorizes against, and omitting any of them would make the endpoint
+  // either unusable or an oracle.
+  const url = new URL(fetch.calls[0].url);
+  assert.equal(url.pathname, "/v1/viewer/recordings/segment-url");
+  assert.equal(url.searchParams.get("device_id"), "kln_lab_000001");
+  assert.equal(url.searchParams.get("camera"), "1");
+  assert.equal(
+    url.searchParams.get("key"),
+    "hub-kln-lab/recordings/kln_lab_000001/cam1/2026-10-01/x.mp4",
+  );
+  assert.equal(fetch.calls[0].method, "GET");
+});
+
+test("getSegmentUrl keeps a relative url relative to coordination", async () => {
+  // The LOCAL-disk backend answers with a ticketed coordination path, not an
+  // absolute bucket URL. It has to resolve against the API origin exactly as the
+  // list's urls do, or the hub's own Playback screen breaks.
+  const fetch = fakeFetch(() =>
+    json({ key: "k", url: "/v1/viewer/recordings/segment?key=k&exp=1&sig=s" }),
+  );
+  const c = new SentryClient({ baseUrl: "https://hub.local:9081", fetch });
+  const got = await c.getSegmentUrl("kln_lab_000001", 1, "k");
+  assert.equal(
+    got.url,
+    "https://hub.local:9081/v1/viewer/recordings/segment?key=k&exp=1&sig=s",
+  );
+  // No download_url in the answer: it falls back to the playable one rather than
+  // producing an empty href.
+  assert.equal(got.downloadUrl, got.url);
+});
+
+test("getSegmentUrl refuses an answer with no url instead of returning an empty src", async () => {
+  const fetch = fakeFetch(() => json({ key: "k", filename: "x.mp4" }));
+  const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
+  await assert.rejects(() => c.getSegmentUrl("d", 1, "k"), /no url/);
+});
+
+test("getSegmentUrl surfaces a 404 as the typed error, so the caller can fall back", async () => {
+  const fetch = fakeFetch(() =>
+    json({ error: { code: "not_found", message: "no such segment" } }, 404),
+  );
+  const c = new SentryClient({ baseUrl: "https://coord.example:9081", fetch });
+  await assert.rejects(() => c.getSegmentUrl("d", 1, "k"), NotFoundError);
+});

@@ -418,6 +418,31 @@ export interface RecordingWindow {
  * a coordination stream URL carrying a short-lived signed ticket. The frontend
  * MUST NOT care which — it never inspects the URL's shape, only plays it.
  */
+/**
+ * A freshly minted pair of URLs for ONE archived segment.
+ *
+ * WHY THIS EXISTS. {@link SentryClient.listArchivedRecordings} mints a URL for every
+ * segment it returns, and for a bucket backend those are presigned: their lifetime
+ * starts when the LIST was built, not when somebody clicks. An operator who loads a
+ * day, scans it for ten minutes and then opens a clip is handed a URL with a fraction
+ * of its life left, and it expires MID-PLAYBACK. The browser simply stops, which is
+ * indistinguishable from a slow start.
+ *
+ * So the player asks for a URL when it needs one. `expiresIn` lets a long session
+ * refresh BEFORE it is surprised, rather than discovering the expiry as a stall.
+ */
+export interface FreshSegmentUrl {
+  key: string;
+  /** Plays inline in a `<video>`. */
+  url: string;
+  /** Same object, served as an attachment. */
+  downloadUrl: string;
+  /** The readable name the response carries as Content-Disposition. */
+  filename: string;
+  /** Seconds the URLs are good for. 0 when the backend does not expire them. */
+  expiresIn: number;
+}
+
 export interface ArchivedSegment {
   /** The backend object key. Opaque to the UI — identity for caching only. */
   key: string;

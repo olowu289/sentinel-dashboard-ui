@@ -30,7 +30,7 @@
  * ```
  */
 import type { HttpOptions, RequestOptions } from "./http.js";
-import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type ArchivedRecordingList, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
+import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type ArchivedRecordingList, type FreshSegmentUrl, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
 export type SessionRef = SessionId | Pick<ViewerSession, "session_id" | "offer_url" | "ice_url">;
 export interface SentryClientOptions extends HttpOptions {
@@ -336,6 +336,26 @@ export declare class SentryClient {
      *   correctly rejects these messages, and coordination declines to provoke it.
      * @throws {ApiError} `503 tower_offline` — the tower is not connected.
      */
+    /**
+     * A FRESH pair of URLs for one archived segment, minted now.
+     *
+     * `GET /v1/viewer/recordings/segment-url?device_id=&camera=&key=`
+     *
+     * The list's URLs start ageing when the list is BUILT. On a bucket backend they
+     * are presigned and they expire, so a clip opened some minutes after the list was
+     * loaded can stop part-way through with no error of any kind: the browser simply
+     * stalls, which looks exactly like a slow start. Call this when a segment is
+     * actually opened, and again if the media element reports an error.
+     *
+     * AUTHORIZATION IS THE LIST'S, not a weaker one. Same account, same owner-derived
+     * `recordings` permission, same tower ownership, and the key must belong to the
+     * tower named. A key for another tower or another site is a `404`, the same answer
+     * an unknown segment gets, so this cannot be used to probe what exists.
+     *
+     * @throws {ApiError} `404` -- no such tower, or the key is not this tower's.
+     * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
+     */
+    getSegmentUrl(deviceId: string, camera: number | string, key: string, opts?: RequestOptions): Promise<FreshSegmentUrl>;
     listRecordings(ref: SessionRef, opts?: RequestOptions): Promise<RecordingWindow>;
     /**
      * List HUB-ARCHIVED footage for a tower·camera — `GET /v1/viewer/recordings`.

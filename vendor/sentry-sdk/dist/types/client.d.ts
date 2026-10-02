@@ -30,7 +30,7 @@
  * ```
  */
 import type { HttpOptions, RequestOptions } from "./http.js";
-import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type ArchivedRecordingList, type FreshSegmentUrl, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
+import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
 export type SessionRef = SessionId | Pick<ViewerSession, "session_id" | "offer_url" | "ice_url">;
 export interface SentryClientOptions extends HttpOptions {
@@ -355,6 +355,18 @@ export declare class SentryClient {
      * @throws {ApiError} `404` -- no such tower, or the key is not this tower's.
      * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
      */
+    /**
+     * The towers that have footage to review -- `GET /v1/viewer/recordings/towers`.
+     *
+     * NOT {@link listTowers}. That one projects the live fleet, so an offline tower
+     * arrives with no cameras and a review screen built from it offers nothing to
+     * click for the tower an operator most often wants. This is the union of the
+     * account's enrolled towers and whatever the archive actually holds, with
+     * `online` reported for a badge rather than used to filter.
+     *
+     * @throws {ApiError} `403 forbidden` -- the account may not view recordings.
+     */
+    listReviewableTowers(opts?: RequestOptions): Promise<ReviewableTower[]>;
     getSegmentUrl(deviceId: string, camera: number | string, key: string, opts?: RequestOptions): Promise<FreshSegmentUrl>;
     listRecordings(ref: SessionRef, opts?: RequestOptions): Promise<RecordingWindow>;
     /**

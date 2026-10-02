@@ -2,6 +2,7 @@ import type {
   ArchivedRecordingList,
   ArchivedSegment,
   FreshSegmentUrl,
+  ReviewableTower,
 } from "@kallon/sentry-sdk";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
@@ -82,6 +83,25 @@ export async function listHubRecordings(
  * one that quietly wasn't. The URL sets its own Content-Disposition, so a
  * navigation downloads it with no CORS dance and no bytes proxied through this app.
  */
+/**
+ * The towers that have footage to review, online or not.
+ *
+ * NOT the live fleet. `listFleet` projects each tower from its live hello, so an
+ * OFFLINE tower arrives with an empty camera list and Playback had nothing to offer
+ * for it: 270 segments on the hub's disk with no way to ask for them. This asks the
+ * archive instead, and reports `online` for a badge rather than as a filter.
+ */
+export async function listReviewableTowers(
+  signal?: AbortSignal,
+): Promise<ReviewableTower[]> {
+  try {
+    return await getClient().listReviewableTowers(signal ? { signal } : {});
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
 export function segmentDownloadUrl(segment: ArchivedSegment): string {
   return segment.downloadUrl;
 }

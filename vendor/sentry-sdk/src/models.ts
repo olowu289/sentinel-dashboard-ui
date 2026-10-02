@@ -419,6 +419,28 @@ export interface RecordingWindow {
  * MUST NOT care which — it never inspects the URL's shape, only plays it.
  */
 /**
+ * A tower as the REVIEW screen sees it: what there is footage for, online or not.
+ *
+ * Deliberately not the live fleet. `GET /v1/viewer/towers` projects each tower from
+ * its live hello, so an OFFLINE tower comes back with an empty `cameras` list and a
+ * review screen built from it has nothing to offer for the tower an operator most
+ * often wants: the one that just went down. This comes from the archive instead.
+ */
+export interface ReviewableTower {
+  deviceId: string;
+  /** From the registry, falling back to the device id rather than a blank. */
+  label: string;
+  /** For a badge. NEVER for filtering: an offline tower is still reviewable. */
+  online: boolean;
+  /** Camera numbers that have footage, plus any non-`camN` name as a string. */
+  cameras: Array<number | string>;
+  /** False for a tower enrolled but not yet recording. */
+  hasRecordings: boolean;
+  /** Which hub holds it. Only present on the data centre. */
+  hubId?: string;
+}
+
+/**
  * A freshly minted pair of URLs for ONE archived segment.
  *
  * WHY THIS EXISTS. {@link SentryClient.listArchivedRecordings} mints a URL for every

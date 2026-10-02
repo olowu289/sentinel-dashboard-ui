@@ -5,6 +5,7 @@ import type { CameraFeed, Tower } from "@/lib/types";
 import type { ArchivedSegment } from "@kallon/sentry-sdk";
 import { useHubRecordings } from "@/lib/useHubRecordings";
 import { segmentDownloadUrl } from "@/lib/api/recordings";
+import { useReviewableTowers } from "@/lib/useReviewableTowers";
 import { useFreshSegmentUrl } from "@/lib/useFreshSegmentUrl";
 import {
   LOCAL_TZ_LABEL,
@@ -71,15 +72,42 @@ export function PlaybackView({
   onNavigate: (id: string) => void;
   onBack: () => void;
 }) {
-  const [towerId, setTowerId] = useState<string | null>(towers[0]?.id ?? null);
-  const cameras = useMemo(
-    () => feeds.filter((f) => f.towerId === towerId && f.index !== undefined),
-    [feeds, towerId],
-  );
-  const [camera, setCamera] = useState<number | null>(null);
-  const chosen = camera ?? cameras[0]?.index ?? null;
+  /* WHAT CAN BE REVIEWED, which is not what is online. The live fleet projects an
+     offline tower with NO cameras (there is no hello to project), so a selector
+     built from `feeds` offered nothing to click for a tower whose link was down,
+     while its footage sat on the hub's disk. See useReviewableTowers. */
+  const review = useReviewableTowers();
 
-  const { phase, segments, archiveEnabled, reload } = useHubRecordings(towerId, chosen ?? null);
+  /* The live fleet remains the fallback for a hub too old to serve the archive
+     listing, so this screen degrades to exactly what it did before rather than to
+     an empty one. */
+  const options = useMemo(() => {
+    if (review.kind === "ready") {
+      return review.towers.map((t) => ({
+        id: t.deviceId,
+        label: t.label,
+        online: t.online,
+        cameras: t.cameras.filter((c): c is number => typeof c === "number"),
+      }));
+    }
+    return towers.map((t) => ({
+      id: t.id,
+      label: t.site || t.id,
+      online: true,
+      cameras: feeds
+        .filter((f) => f.towerId === t.id && f.index !== undefined)
+        .map((f) => f.index as number),
+    }));
+  }, [review, towers, feeds]);
+
+  const [towerId, setTowerId] = useState<string | null>(null);
+  const chosenTower = options.find((o) => o.id === towerId) ?? options[0] ?? null;
+  const cameraNumbers = chosenTower?.cameras ?? [];
+  const [camera, setCamera] = useState<number | null>(null);
+  const chosen = camera ?? cameraNumbers[0] ?? null;
+
+  const effectiveTowerId = chosenTower?.id ?? null;
+  const { phase, segments, archiveEnabled, reload } = useHubRecordings(effectiveTowerId, chosen ?? null);
 
   /** The day the list is filtered to (local YYYY-MM-DD), or null for all days. */
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -115,15 +143,15 @@ export function PlaybackView({
     downloadUrl,
     filename: freshFilename,
     refresh: refreshSegmentUrl,
-  } = useFreshSegmentUrl(towerId, chosen, selected);
+  } = useFreshSegmentUrl(effectiveTowerId, chosen, selected);
 
   const visibleGroups = useMemo(
     () => (selectedDay ? groups.filter((g) => g.day === selectedDay) : groups),
     [groups, selectedDay],
   );
 
-  const feed = cameras.find((f) => f.index === chosen);
-  const tower = towers.find((t) => t.id === towerId);
+  const feed = feeds.find((f) => f.towerId === effectiveTowerId && f.index === chosen);
+  const tower = towers.find((t) => t.id === effectiveTowerId);
 
   const dateRange = daysWithFootage.length
     ? { min: daysWithFootage[daysWithFootage.length - 1], max: daysWithFootage[0] }
@@ -155,33 +183,48 @@ export function PlaybackView({
         <div className="flex flex-wrap items-center gap-[8px]">
           <select
             aria-label="Site"
-            value={towerId ?? ""}
+            value={chosenTower?.id ?? ""}
             onChange={(e) => { setTowerId(e.target.value); setCamera(null); }}
             className="h-[34px] rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-card-hover"
           >
-            {towers.map((t) => (
-              <option key={t.id} value={t.id}>{t.site || t.id}</option>
+            {options.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+                {t.online ? "" : " (offline)"}
+              </option>
             ))}
           </select>
 
-          {cameras.length === 0 ? (
+          {chosenTower && !chosenTower.online && (
+            /* Reported, never used to filter: the footage is on the disk whatever
+               the link is doing, and this screen's job is to reach it. */
+            <span className="flex h-[34px] shrink-0 items-center rounded-[8px] bg-card px-[10px] text-[0.75rem] font-medium text-muted">
+              Offline
+            </span>
+          )}
+
+          {cameraNumbers.length === 0 ? (
             <span className="text-[0.8125rem] leading-[20px] text-muted">
-              This site has no cameras to review.
+              This site has no recordings to review.
             </span>
           ) : (
-            cameras.map((f) => (
+            cameraNumbers.map((index) => (
               <button
-                key={f.id}
+                key={index}
                 type="button"
-                onClick={() => setCamera(f.index ?? null)}
-                aria-pressed={chosen === f.index}
+                onClick={() => setCamera(index)}
+                aria-pressed={chosen === index}
                 className={`h-[34px] truncate rounded-[8px] px-[12px] text-[0.8125rem] font-medium transition-colors ${
-                  chosen === f.index
+                  chosen === index
                     ? "bg-white text-black"
                     : "bg-card text-white hover:bg-card-hover"
                 }`}
               >
-                {f.name ?? f.id}
+                {/* The live feed's name when there is one, else the camera number.
+                    An offline tower has no feed, and "CAMERA 2" is still a better
+                    label than nothing. */}
+                {feeds.find((x) => x.towerId === chosenTower?.id && x.index === index)
+                  ?.name ?? `Camera ${index}`}
               </button>
             ))
           )}
@@ -211,8 +254,8 @@ export function PlaybackView({
               ) : (
                 <div className="absolute inset-0 grid place-items-center px-[24px] text-center">
                   <span className="text-[0.8125rem] leading-[20px] text-muted">
-                    {cameras.length === 0
-                      ? "Pick a site with cameras."
+                    {cameraNumbers.length === 0
+                      ? "Pick a site with recordings."
                       : "Select a recording from the list to play it."}
                   </span>
                 </div>
@@ -285,7 +328,7 @@ export function PlaybackView({
               <ListBody
                 phase={phase}
                 archiveEnabled={archiveEnabled}
-                hasCameras={cameras.length > 0}
+                hasCameras={cameraNumbers.length > 0}
                 totalSegments={segments.length}
                 groups={visibleGroups}
                 selectedKey={selectedKey}

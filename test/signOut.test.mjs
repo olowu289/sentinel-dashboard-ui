@@ -32,10 +32,12 @@
  *   npm test
  */
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { before, describe, test } from "node:test";
+import { build } from "esbuild";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src");
 const RAIL = join(SRC, "components", "IconRail.tsx");
@@ -57,6 +59,28 @@ async function tsxFiles(dir = SRC) {
     else if (/\.tsx?$/.test(entry.name)) out.push(full);
   }
   return out;
+}
+
+/** Bundle a source module through esbuild and import it, as the other suites
+ *  do — so the arithmetic under test is the SHIPPED arithmetic. */
+async function loadModule(entrySource) {
+  const dir = await mkdtemp(join(tmpdir(), "signout-test-"));
+  const entry = join(dir, "entry.ts");
+  await writeFile(entry, entrySource, "utf8");
+  const out = join(dir, "entry.mjs");
+  await build({
+    entryPoints: [entry],
+    outfile: out,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    alias: { "@": SRC },
+    define: {
+      "import.meta.env": JSON.stringify({ MODE: "test", DEV: false, PROD: true }),
+    },
+    logLevel: "silent",
+  });
+  return import(pathToFileURL(out).href);
 }
 
 let rail, dialog;
@@ -187,10 +211,15 @@ describe("the confirmation dialog", () => {
     assert.match(dialog, /removeEventListener\("keydown",\s*onKey,\s*true\)/);
   });
 
-  test("clicking outside cancels, and only the scrim itself counts", () => {
-    /* `e.target !== e.currentTarget` — so a click inside the panel never
-       bubbles out as a dismissal, and a drag ending outside does not either. */
-    assert.match(dialog, /onMouseDown=\{onScrim\}/);
+  test("clicking outside cancels, and only the catcher itself counts", () => {
+    /* A full-screen TRANSPARENT catcher, not a dim: this is a popover about one
+       small control, and dimming an entire video wall for it would read as a
+       much bigger interruption than it is. It still covers the screen, because
+       "click outside" has to mean anywhere outside.
+
+       `e.target !== e.currentTarget` — so a click inside the card never bubbles
+       out as a dismissal, and a drag ending outside does not either. */
+    assert.match(dialog, /onMouseDown=\{onOutside\}/);
     assert.match(dialog, /e\.target !== e\.currentTarget/);
   });
 
@@ -220,11 +249,12 @@ describe("the confirmation dialog", () => {
  * ================================================================== */
 
 describe("the dialog in Dark and Light", () => {
-  test("every colour is a theme token, except the scrim", async () => {
-    /* The scrim is `bg-black/60` on purpose and stays dark in both themes: it
-       is a scrim over the product, not a surface in it, and a light scrim over
-       a light page would not read as "what is behind is inert". Everything
-       else must be a token or the dialog is unreadable in one theme. */
+  test("every colour is a theme token", async () => {
+    /* There is no scrim colour any more — the catcher is transparent — so every
+       colour in here must be a token or the popover is unreadable in one of the
+       two themes. The `bg-black/NN` allowance below is kept for the day somebody
+       decides the popover should dim after all: a scrim is a layer over the
+       product rather than a surface in it, and stays dark in both. */
     const offenders = [];
     for (const m of dialog.matchAll(/className="([^"]*)"/g)) {
       for (const cls of m[1].split(/\s+/)) {
@@ -253,5 +283,143 @@ describe("the dialog in Dark and Light", () => {
     assert.ok(read(dark), "critical-ink must be declared in the dark palette");
     assert.equal(read(dark), read(light), "critical-ink must be the same in both");
     assert.match(dialog, /text-critical-ink/);
+  });
+});
+
+/* ================================================================== *
+ * WHERE THE POPOVER GOES — the bug, as arithmetic
+ * ================================================================== */
+
+describe("placePopover", () => {
+  /* THE RAIL AND THE BUTTON FROM THE BUG REPORT. The rail is 71px wide and the
+     sign-out glyph is a 34px square at its bottom, 24px up from the edge. The
+     screenshot was a 1913×1091 window. */
+  const RAIL_W = 71;
+  const BTN = { top: 1009, left: 27, right: 61, bottom: 1043 };
+  const VIEW = { width: 1913, height: 1091 };
+  const W = 320;
+  const H = 150;
+
+  let place, GAP, MARGIN;
+  before(async () => {
+    const m = await loadModule(`export * from "@/lib/popover";`);
+    place = m.placePopover;
+    GAP = m.POPOVER_GAP;
+    MARGIN = m.POPOVER_MARGIN;
+  });
+
+  test("it opens to the RIGHT of the rail, never inside it", async () => {
+    /* ⚠ THE BUG. The card drew inside the 71px rail, so the title wrapped one
+       word per line and both buttons were cut off. Whatever else changes, the
+       card's left edge must clear the rail. */
+    const { left } = place({ anchor: BTN, width: W, height: H, viewport: VIEW });
+    assert.ok(
+      left >= RAIL_W,
+      `the card must start right of the ${RAIL_W}px rail, got left=${left}`,
+    );
+    assert.equal(left, BTN.right + GAP);
+  });
+
+  test("the whole card fits on screen", async () => {
+    const { top, left } = place({ anchor: BTN, width: W, height: H, viewport: VIEW });
+    assert.ok(left >= MARGIN, "not off the left edge");
+    assert.ok(left + W <= VIEW.width - MARGIN, "not off the right edge");
+    assert.ok(top >= MARGIN, "not off the top");
+    assert.ok(top + H <= VIEW.height - MARGIN, "not off the bottom");
+  });
+
+  test("it FLIPS UP when there is no room below", async () => {
+    /* The real case: the button is 48px from the bottom and the card is 150px
+       tall, so opening downward would overflow. It flips so the card's bottom
+       aligns with the button's. */
+    const { top } = place({ anchor: BTN, width: W, height: H, viewport: VIEW });
+    assert.equal(top, BTN.bottom - H);
+    assert.ok(top < BTN.top, "flipped up, so it ends level with the button");
+  });
+
+  test("it opens DOWNWARD when there IS room below", async () => {
+    /* Not hypothetical: the rail's contents are conditional — the simulator
+       button comes and goes with a feature — so the anchor is not always at the
+       same height. */
+    const high = { top: 120, left: 27, right: 61, bottom: 154 };
+    const { top } = place({ anchor: high, width: W, height: H, viewport: VIEW });
+    assert.equal(top, high.top, "preferred direction is down");
+  });
+
+  test("it flips to the LEFT when the anchor is against the right edge", async () => {
+    const right = { top: 400, left: 1850, right: 1884, bottom: 434 };
+    const { left } = place({ anchor: right, width: W, height: H, viewport: VIEW });
+    assert.equal(left, right.left - GAP - W);
+    assert.ok(left + W <= VIEW.width - MARGIN);
+  });
+
+  test("a window narrower than the card still shows it", async () => {
+    /* Clamped rather than pushed off. There is nothing to scroll to on a fixed
+       popover, so off-screen is invisible, not merely awkward. */
+    const tiny = { width: 260, height: 600 };
+    const { left } = place({ anchor: BTN, width: W, height: H, viewport: tiny });
+    assert.equal(left, MARGIN, "pinned to the margin rather than hidden");
+  });
+
+  test("a card taller than the window is pinned to the top, not lost above it", async () => {
+    const shortWindow = { width: 1913, height: 200 };
+    const { top } = place({
+      anchor: BTN, width: W, height: 400, viewport: shortWindow,
+    });
+    assert.equal(top, MARGIN);
+    assert.ok(top >= 0, "never a negative top, which would be unreachable");
+  });
+
+  test("the anchor's own position is never covered horizontally", async () => {
+    /* A popover drawn over the button it belongs to hides the thing being
+       talked about, and swallows the click that would close it. */
+    const { left } = place({ anchor: BTN, width: W, height: H, viewport: VIEW });
+    assert.ok(left > BTN.right, "clear of the anchor");
+  });
+});
+
+/* ================================================================== *
+ * THE PORTAL — why the bug happened at all
+ * ================================================================== */
+
+describe("the popover escapes its parent", () => {
+  test("it is rendered through a portal into document.body", async () => {
+    /* ⚠ THE ROOT CAUSE. `position: fixed` resolves against the viewport ONLY
+       while no ancestor establishes a containing block — and a `transform`
+       does, which `motion` sets on everything it animates. So `inset-0` meant
+       "fill the rail", not "fill the screen". A portal moves the node out of
+       that subtree entirely; no width, overflow, transform or stacking context
+       of a parent can reach it. */
+    assert.match(dialog, /createPortal\(/);
+    assert.match(dialog, /document\.body,?\s*\)/);
+    assert.match(dialog, /from "react-dom"/);
+  });
+
+  test("it is placed from the anchor's measured rect", async () => {
+    assert.match(dialog, /anchorRef/);
+    assert.match(dialog, /getBoundingClientRect\(\)/);
+    assert.match(dialog, /placePopover\(/);
+  });
+
+  test("it measures BEFORE paint and stays hidden until placed", async () => {
+    /* The flip needs the card's real height, which needs it rendered. A first
+       paint at a guessed position would be a visible jump on every open. */
+    assert.match(dialog, /useLayoutEffect/);
+    assert.match(dialog, /visibility: at \? "visible" : "hidden"/);
+  });
+
+  test("it is re-placed when the window changes, not closed", async () => {
+    /* A resize, a rotated tablet, the kiosk's screen returning from blank.
+       Closing would be a confirmation dismissed by something nobody did. */
+    assert.match(dialog, /addEventListener\("resize"/);
+    assert.match(dialog, /addEventListener\("orientationchange"/);
+  });
+
+  test("the card is 320px and its buttons do not wrap", async () => {
+    /* The squeezed version wrapped the title one word per line and clipped
+       both buttons. */
+    assert.match(dialog, /const WIDTH = 320/);
+    assert.match(dialog, /whitespace-nowrap/);
+    assert.match(dialog, /justify-end/);
   });
 });

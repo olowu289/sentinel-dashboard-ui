@@ -1,60 +1,69 @@
 import { motion } from "motion/react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ENTER } from "@/lib/motion";
+import { placePopover } from "@/lib/popover";
 
 /**
- * "Sign out of Sentry?" — the one destructive control in the rail that had no
- * confirmation.
+ * "Sign out of Sentry?" — a popover beside the rail's sign-out button.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  WHY THIS EXISTS
+ *  WHY IT IS A PORTAL, AND IT IS NOT BELT-AND-BRACES
  * ══════════════════════════════════════════════════════════════════════
  *
- * The sign-out glyph is 34px, at the bottom of the rail, one pixel-accurate
- * click from the simulator button above it — and it ended the session on the
- * first click with nothing in between. On a control-room wall that is a
- * mis-click that blanks the screen somebody is watching, and on the hub's
- * kiosk monitor it is a mis-touch.
+ * The first version was `fixed inset-0`, centred, rendered where it sat in the
+ * tree — inside `IconRail`. It drew SQUEEZED INTO THE 71px RAIL: the title
+ * wrapped one word per line, Cancel was off-screen and the Sign out button was
+ * clipped.
  *
- * ⚠ ONLY THE PERSON'S OWN CLICK ASKS. An automatic sign-out — a session that
- * lapsed, or the forced one after a password change — must NOT show this. Those
- * paths go through `markSessionEnded` and `clearSession` in `api/auth.ts` and
- * never touch `signOut`, which is the only thing this dialog guards. That is
- * structural rather than a rule somebody has to remember: this component is
- * mounted by the BUTTON, so a programmatic session end cannot reach it. There
- * is a test asserting `signOut` has exactly one caller.
+ * `position: fixed` is resolved against the viewport ONLY while no ancestor
+ * establishes a containing block. A `transform`, `filter`, `perspective`,
+ * `backdrop-filter` or `will-change` on any ancestor takes that job — and this
+ * app animates with `motion`, which sets `transform` on the elements it
+ * animates. So `inset-0` meant "fill the rail", not "fill the screen", and no
+ * amount of z-index or width would have helped.
  *
- * ── THE DEFAULT IS CANCEL, AND IT IS FOCUSED ───────────────────────────
+ * `createPortal` into `document.body` is the fix rather than a workaround: the
+ * node leaves the transformed subtree entirely, so no parent's transform,
+ * width, overflow or stacking context can reach it. React keeps the event
+ * bubbling and the context, so `useSession` and the handlers behave as if it
+ * were still in the rail.
  *
- * Cancel takes focus on open, so Enter and Space — the two keys somebody
- * already mashing a 34px button is most likely to hit next — cancel rather
- * than confirm. The destructive action is reachable only by moving to it
- * deliberately.
+ * ── ANCHORED, NOT CENTRED ──────────────────────────────────────────────
  *
- * ── THE FOCUS TRAP IS NOT DECORATION ───────────────────────────────────
+ * It belongs beside the control it is about. Measured from the button's own
+ * rect each time it opens, and on resize: the rail is fixed-width but the
+ * window is not, and a popover that remembers where it was when the window was
+ * wider is a popover half off the screen.
  *
- * `aria-modal` promises a screen reader that the rest of the page is inert. If
- * Tab walks out into the wall behind it, that promise is false and somebody
- * using a keyboard is operating controls they cannot see the state of. Two
- * buttons make the trap four lines, so there is no excuse for omitting it.
+ * PREFERS DOWN, FLIPS UP, THEN CLAMPS. The button lives at the BOTTOM of the
+ * rail, so in practice it almost always flips up — but the rule is written in
+ * the order the layout is tried, not in the order it usually resolves, because
+ * the rail's contents are conditional (the simulator button comes and goes with
+ * a feature) and the button is not always at the same height.
  *
- * `ClipPlayer` and the fullscreen tile carry `aria-modal` without a trap. They
- * are full-screen takeovers where tabbing out is less consequential, and they
- * are not fixed here because widening this change into two other components is
- * not what it is for. Recorded rather than quietly diverged from.
+ * ── MEASURED BEFORE IT IS SEEN ─────────────────────────────────────────
  *
- * ── z-200, ABOVE THE PLAYER ────────────────────────────────────────────
- *
- * `IconRail` renders INSIDE `ClipPlayer`, which is `fixed inset-0 z-100`. So
- * this dialog can be opened from on top of the player, and at z-100 it would
- * have been painted underneath the thing it was launched from.
+ * `useLayoutEffect`, and hidden until placed. The flip needs the card's real
+ * height, which needs it rendered — so a first paint at a guessed position
+ * would be a visible jump on every open. It renders invisible, measures, places
+ * itself, and only then becomes visible, all before the browser paints.
  */
+
+/** The card's width. The geometry lives in `lib/popover.ts` so it is testable
+ *  with real numbers — see the note there on why placement does not belong
+ *  buried in a component. */
+const WIDTH = 320;
+
 export function SignOutConfirm({
+  anchorRef,
   account,
   busy = false,
   onCancel,
   onConfirm,
 }: {
+  /** The button this is about. Its rect is where the card is placed. */
+  anchorRef: React.RefObject<HTMLElement | null>;
   /** The organization being left. Named so a shared kiosk says whose session. */
   account?: string;
   /** True while the sign-out request is in flight. */
@@ -62,15 +71,58 @@ export function SignOutConfirm({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
 
-  /* Cancel takes focus on open — see the header. A ref rather than `autoFocus`
-     because `autoFocus` inside an animated subtree is applied before the
-     element is laid out and is silently dropped often enough not to rely on. */
+  /**
+   * Measure, then place. The arithmetic — which way it opens, when it flips,
+   * how it is clamped — is `placePopover`, which takes plain numbers and has a
+   * test carrying the exact rail-and-button rect from the bug report.
+   */
+  const place = useCallback(() => {
+    const anchor = anchorRef.current;
+    const card = cardRef.current;
+    if (!anchor || !card) return;
+
+    const a = anchor.getBoundingClientRect();
+    setAt(
+      placePopover({
+        anchor: { top: a.top, left: a.left, right: a.right, bottom: a.bottom },
+        width: WIDTH,
+        height: card.offsetHeight,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+      }),
+    );
+  }, [anchorRef]);
+
+  /* BEFORE PAINT, so the measure-then-place never shows as a jump. */
+  useLayoutEffect(() => {
+    place();
+  }, [place]);
+
+  /* The window can change under an open popover — a resize, a rotated tablet,
+     or the kiosk's screen coming back from a blank. Re-placed rather than
+     closed: closing would be a confirmation dismissed by something the person
+     did not do. */
   useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
+    const onChange = () => place();
+    window.addEventListener("resize", onChange);
+    window.addEventListener("orientationchange", onChange);
+    return () => {
+      window.removeEventListener("resize", onChange);
+      window.removeEventListener("orientationchange", onChange);
+    };
+  }, [place]);
+
+  /* Cancel takes focus on open. A ref rather than `autoFocus`, which inside an
+     animated subtree is applied before layout and is dropped often enough not
+     to rely on. Waits for placement so focus does not scroll the page to a card
+     that is still at 0,0. */
+  useEffect(() => {
+    if (at) cancelRef.current?.focus();
+  }, [at]);
 
   /**
    * Escape cancels, and Tab cannot leave.
@@ -78,8 +130,7 @@ export function SignOutConfirm({
    * CAPTURE PHASE, and it stops propagation for the keys it owns — the same
    * reasoning `ClipPlayer` documents: the alerts panel binds Escape on the
    * window to drop its selection, so a bubbling Escape here would close this
-   * dialog AND change the screen behind it. Capture runs first regardless of
-   * registration order.
+   * AND change the screen behind it.
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -101,10 +152,9 @@ export function SignOutConfirm({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [busy, onCancel]);
 
-  /* Clicking the scrim cancels. Guarded on the target being the scrim ITSELF so
-     a drag that starts on the panel and ends outside does not close it, and so
-     a click inside never bubbles out as a dismissal. */
-  const onScrim = useCallback(
+  /* Clicking anywhere outside cancels. Guarded on the target being the catcher
+     ITSELF, so a click inside the card never bubbles out as a dismissal. */
+  const onOutside = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (e.target !== e.currentTarget) return;
       if (!busy) onCancel();
@@ -112,52 +162,70 @@ export function SignOutConfirm({
     [busy, onCancel],
   );
 
-  return (
+  /* ⚠ PORTALLED TO document.body — see the header. Rendering this where it sits
+     in the tree put it inside the 71px rail. */
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      /* THE SCRIM STAYS DARK IN BOTH THEMES. It is a scrim over the product,
-         not a surface in it — the same rule the `bg-black/NN` overlays follow
-         after the theme sweep. A light scrim over a light page would not read
-         as "the thing behind is inert". */
-      className="fixed inset-0 z-200 flex items-center justify-center bg-black/60 p-[16px]"
-      onMouseDown={onScrim}
+      /* A transparent catcher, not a dim. This is a POPOVER about one small
+         control, and dimming an entire video wall for it would read as a much
+         bigger interruption than it is. It still covers the screen, because
+         "click outside" has to mean anywhere outside. */
+      className="fixed inset-0 z-200"
+      onMouseDown={onOutside}
     >
       <motion.div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="signout-title"
         aria-describedby="signout-body"
         initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
+        animate={{ opacity: at ? 1 : 0, scale: at ? 1 : 0.98 }}
         transition={ENTER}
-        className="flex w-[380px] max-w-full flex-col gap-[18px] rounded-[12px] border border-line bg-panel p-[22px] shadow-2xl"
+        style={{
+          /* `fixed` is safe HERE because the portal put this under <body>,
+             where nothing is transformed. */
+          position: "fixed",
+          width: WIDTH,
+          top: at?.top ?? 0,
+          left: at?.left ?? 0,
+          /* Hidden until measured, so the flip never shows as a jump. */
+          visibility: at ? "visible" : "hidden",
+        }}
+        className="flex flex-col gap-[16px] rounded-[12px] border border-line bg-panel p-[18px] shadow-2xl"
       >
         <div className="flex flex-col gap-[6px]">
           <h2
             id="signout-title"
-            className="font-display text-[1rem] leading-[22px] tracking-[0.16px] text-body-ink"
+            className="font-display text-[0.9375rem] leading-[20px] tracking-[0.15px] text-body-ink"
           >
             Sign out of Sentry?
           </h2>
+          {/* ONE LINE OF EXPLANATION, and it wraps normally. The squeezed
+              version broke one word per line because its container was 71px
+              wide; at 320px with no `break-words` this is ordinary text. */}
           <p
             id="signout-body"
-            className="text-[0.8125rem] leading-[20px] text-sub/80"
+            className="text-[0.8125rem] leading-[18px] text-sub/80"
           >
             {account
-              ? `You will be signed out of ${account} on this device and returned to the sign-in screen.`
+              ? `You will be signed out of ${account} on this device.`
               : "You will be returned to the sign-in screen."}
           </p>
         </div>
 
-        {/* Cancel FIRST in the DOM, so it is also first in the tab order and
-            the focused default. The destructive action sits to its right, which
-            is where this product's other confirmations put it. */}
-        <div className="flex justify-end gap-[10px]">
+        {/* SIDE BY SIDE, both fully visible. Cancel FIRST in the DOM, so it is
+            first in the tab order and the focused default; the destructive
+            action sits to its right. */}
+        <div className="flex items-center justify-end gap-[8px]">
           <button
             ref={cancelRef}
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="h-[44px] rounded-[8px] border border-stroke px-[18px] text-[0.875rem] text-sub transition-colors hover:bg-card-hover hover:text-body-ink disabled:cursor-not-allowed disabled:text-sub/40"
+            className="h-[38px] shrink-0 rounded-[8px] border border-stroke px-[14px] text-[0.8125rem] text-sub transition-colors hover:bg-card-hover hover:text-body-ink disabled:cursor-not-allowed disabled:text-sub/40"
           >
             Cancel
           </button>
@@ -167,14 +235,17 @@ export function SignOutConfirm({
             onClick={onConfirm}
             disabled={busy}
             aria-busy={busy || undefined}
-            /* `critical`, because it ends the session. The only saturated
-               colour in this dialog, so it is unmistakably the one that acts. */
-            className="h-[44px] rounded-[8px] bg-critical px-[18px] text-[0.875rem] font-medium text-critical-ink transition-colors hover:bg-critical/90 disabled:cursor-not-allowed disabled:bg-critical/40"
+            /* `critical`, because it ends the session — the only saturated
+               colour here, so it is unmistakably the one that acts. Its ink is
+               a token that does NOT invert: the red fill keeps its colour in
+               light mode, so white-on-red stays white-on-red. */
+            className="h-[38px] shrink-0 whitespace-nowrap rounded-[8px] bg-critical px-[14px] text-[0.8125rem] font-medium text-critical-ink transition-colors hover:bg-critical/90 disabled:cursor-not-allowed disabled:bg-critical/40"
           >
-            {busy ? "SIGNING OUT…" : "Sign out"}
+            {busy ? "Signing out…" : "Sign out"}
           </button>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }

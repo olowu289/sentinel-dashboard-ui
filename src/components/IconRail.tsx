@@ -200,6 +200,8 @@ function SignOutButton() {
      both read the same stale `false` and both call `signOut` — the same shape
      of bug `AuthProvider` documents on its sign-in path. */
   const inFlight = useRef(false);
+  /* The popover is placed from this button's own rect — see SignOutConfirm. */
+  const btnRef = useRef<HTMLButtonElement | null>(null);
 
   const confirm = useCallback(async () => {
     if (inFlight.current) return;
@@ -224,6 +226,7 @@ function SignOutButton() {
   return (
     <>
     <button
+      ref={btnRef}
       type="button"
       onClick={() => setAsking(true)}
       aria-haspopup="dialog"
@@ -252,6 +255,7 @@ function SignOutButton() {
 
       {asking && (
         <SignOutConfirm
+          anchorRef={btnRef}
           account={account?.login}
           busy={busy}
           onCancel={() => {

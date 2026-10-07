@@ -239,8 +239,16 @@ export function LoginView() {
                   onKeyDown={onKeyDown}
                   disabled={pending}
                   autoComplete="current-password"
+                  /* Words, not dots. See the note in `SettingsView`: a dotted
+                     placeholder in a password box cannot be told apart from a
+                     filled one, and on the sign-in screen that is the first
+                     thing anybody meets. */
+                  placeholder="Enter your password"
                   aria-invalid={rejected || undefined}
-                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
+                  /* `placeholder:` was missing here while the organization field
+                     above has it, so the two boxes would have styled their hints
+                     differently the moment this one had a hint. */
+                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />

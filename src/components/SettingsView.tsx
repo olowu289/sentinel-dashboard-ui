@@ -669,6 +669,13 @@ export function SettingsView({
                 onKeyDown={onEnter(() => canRename && void submitRename())}
                 disabled={renaming}
                 autoComplete="current-password"
+                /* ⚠ A PLAIN-TEXT HINT, NEVER A ROW OF DOTS. A dotted
+                   placeholder in a password box is indistinguishable from a
+                   filled one — the control renders real input as dots too — so
+                   it reads as "a password is already in here" and people either
+                   trust it or clear it before typing. Words cannot be mistaken
+                   for a value. */
+                placeholder="Enter your current password"
                 aria-invalid={renameFailure?.field === "current_password" || undefined}
                 className={`${INPUT} ${
                   renameFailure?.field === "current_password"
@@ -760,6 +767,7 @@ export function SettingsView({
                 disabled={saving}
                 autoFocus
                 autoComplete="current-password"
+                placeholder="Enter your current password"
                 aria-invalid={passwordFailure?.field === "current_password" || undefined}
                 className={`${INPUT} ${
                   passwordFailure?.field === "current_password"
@@ -785,6 +793,11 @@ export function SettingsView({
                 onKeyDown={onEnter(() => canSavePassword && void submitPassword())}
                 disabled={saving}
                 autoComplete="new-password"
+                /* The length comes from the SHARED constant, not a typed "12".
+                   The hint, the field note and the server's refusal all have to
+                   agree, and a hardcoded number here is the one that would be
+                   left behind when the policy moves. */
+                placeholder={`New password (at least ${PASSWORD_MIN_LEN} characters)`}
                 aria-invalid={
                   passwordFailure?.field === "new_password" || !!passwordProblem || undefined
                 }
@@ -819,6 +832,7 @@ export function SettingsView({
                 onKeyDown={onEnter(() => canSavePassword && void submitPassword())}
                 disabled={saving}
                 autoComplete="new-password"
+                placeholder="Type the new password again"
                 aria-invalid={mismatch || undefined}
                 className={`${INPUT} ${mismatch ? "ring-1 ring-critical" : ""}`}
               />

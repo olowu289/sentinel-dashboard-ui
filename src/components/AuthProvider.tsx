@@ -8,6 +8,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { featureSet, type Feature } from "@/lib/features";
+import { getAccount } from "@/lib/api/account";
+import { updateStoredAccount } from "@/lib/api/auth";
 import {
   clearSession,
   endSessionIfUnauthorized,
@@ -51,6 +54,15 @@ export type AuthStatus =
 export interface AuthContextValue {
   status: AuthStatus;
   account: AuthAccount | null;
+  /**
+   * Which features this account may see. Derived from `account`, so it updates
+   * the moment the stored account does — on sign-in, on a rename, and on the
+   * refresh below.
+   *
+   * A SET rather than an array because every consumer asks "is this allowed",
+   * and an array invites `.includes()` in a render loop over 40 components.
+   */
+  features: ReadonlySet<Feature>;
   /** Why the last session ended, when it ended on its own rather than by request. */
   endedReason: SessionEndReason | null;
   /** True while a sign-in is in flight. Drives the pending state. */
@@ -80,6 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<AuthAccount | null>(null);
   const [endedReason, setEndedReason] = useState<SessionEndReason | null>(null);
   const [pending, setPending] = useState(false);
+
+  /**
+   * What this account may see. Recomputed from `account`, never stored
+   * separately — two copies of this would drift, and the drifted one would be
+   * the one deciding whether a customer sees the demo.
+   */
+  const features = useMemo(() => featureSet(account), [account]);
 
   /* A synchronous latch on sign-in. `pending` is state, so three clicks
      dispatched in one tick all read the same stale `false` and all three issue
@@ -297,10 +316,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("anonymous");
   }, []);
 
+  /**
+   * Refresh the feature list once, on load.
+   *
+   * The login response carries it, and `loadSession` restores that copy across
+   * a reload — so this is not about getting a list, it is about getting a
+   * CURRENT one. An operator who revokes a feature while somebody is signed in
+   * should not have to wait for that person's session to lapse, and the stored
+   * copy can be twelve hours old.
+   *
+   * ONE extra request on load, and deliberately NOT folded into the session
+   * probe above: that probe is documented at length for using
+   * `GET /v1/viewer/towers`, and a failure here must not be able to end a
+   * session. Anything that goes wrong leaves the stored list in place, which is
+   * the last thing the server actually said.
+   */
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const fresh = await getAccount(controller.signal);
+        if (controller.signal.aborted) return;
+        /* Through the store, so `account` and sessionStorage stay one copy. */
+        updateStoredAccount(fresh);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        /* A dead session still has to end the session — that is the one
+           failure here that is not cosmetic. Everything else is left alone. */
+        endSessionIfUnauthorized(err);
+        console.debug("[auth] could not refresh features:", err);
+      }
+    })();
+    return () => controller.abort();
+    /* Keyed on the account id, not on `account`: `updateStoredAccount` replaces
+       the object, so depending on `account` would re-fetch forever. */
+  }, [status, account?.account_id]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       status,
       account,
+      features,
       endedReason,
       pending,
       operator: operatorName(account),
@@ -308,7 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       unlocked: status === "authenticated",
     }),
-    [status, account, endedReason, pending, signIn, signOut],
+    [status, account, features, endedReason, pending, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

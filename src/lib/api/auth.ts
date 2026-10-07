@@ -69,6 +69,17 @@ export interface AuthAccount {
   login: string;
   role: string;
   status: string;
+  /**
+   * Which features this account may see — `registry/features.py`'s enabled
+   * list, as the server computed it.
+   *
+   * OPTIONAL on purpose. A session stored before this shipped, or a
+   * coordination one version behind, carries no list at all, and the client's
+   * fallback for that case is deliberately the RESTRICTIVE one (see
+   * `lib/features.ts`). Typing it as required would have meant either lying in
+   * the type or inventing a list on the client.
+   */
+  features?: string[];
 }
 
 /** `POST /v1/auth/login` → 200. */

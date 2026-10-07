@@ -1,4 +1,5 @@
 import { useSession } from "@/components/AuthProvider";
+import { navAllowed } from "@/lib/features";
 import { MaskIcon } from "./Icon";
 
 /**
@@ -52,6 +53,16 @@ export function IconRail({
   moreOpen?: boolean;
   className?: string;
 }) {
+  /* ── WHAT THIS ACCOUNT MAY SEE ──────────────────────────────────────────
+     A destination this account does not have is REMOVED, not dimmed. Dimming
+     is this rail's answer for "exists in the design, not built yet" — a promise
+     that it is coming. A feature a customer does not have is not coming for
+     them, and an indefinitely greyed item is an invitation to ask us why.
+
+     `navAllowed` is the same function `App.tsx`'s router refuses with, so an
+     item cannot be visible and unreachable, or hidden and reachable — which is
+     exactly the drift the note above NAV warns about. */
+  const { features } = useSession();
   return (
     <nav
       aria-label="Primary"
@@ -76,7 +87,7 @@ export function IconRail({
           centred on the 24px glyphs so the hit target clears WCAG 2.2 without
           disturbing the spacing. */}
       <ul className="absolute left-1/2 top-[233px] flex -translate-x-1/2 flex-col items-center gap-[24px]">
-        {NAV.map((item) => {
+        {NAV.filter((item) => navAllowed(features, item.id)).map((item) => {
           const isActive = active === item.id && !item.unavailable;
           return (
             <li key={item.id} className="flex h-[24px] items-center">

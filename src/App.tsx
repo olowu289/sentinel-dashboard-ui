@@ -4,6 +4,7 @@ import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
 import { PlaybackView } from "@/components/PlaybackView";
 import { useSession } from "@/components/AuthProvider";
+import { can, navAllowed } from "@/lib/features";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { SettingsView } from "@/components/SettingsView";
@@ -120,7 +121,10 @@ export function SentinelApp() {
 
      This component only ever renders inside `AuthGate`, so a session is always
      present here. */
-  const { operator: OPERATOR, account } = useSession();
+  /* ONE useSession call. `features` is what this account may see — the server
+     decided it; lib/features.ts says why this is not the access control and why
+     its fallback is restrictive. */
+  const { operator: OPERATOR, account, features } = useSession();
 
   /**
    * View preferences, remembered per account.
@@ -172,7 +176,23 @@ export function SentinelApp() {
    * screen. Until then this is a knowing choice, not an oversight — swap the
    * line below back the moment coordination serves alerts.
    */
-  const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
+  /* ══════════════════════════════════════════════════════════════════════
+     THE FIXTURE FEED NOW LOADS FOR NOBODY WHO MAY NOT SEE IT.
+     ══════════════════════════════════════════════════════════════════════
+
+     The note above is the argument for taking this out, and the feature list
+     is what finally takes it out — for every account except one that has been
+     explicitly granted `alerts`, which today is ours alone.
+
+     GATED AT THE SOURCE, not at the screens. Emptying the array is what makes
+     the phantom counts on real tower cards go away, and the new-alert banner,
+     and the badge totals — all of which read `alerts` rather than asking the
+     rail whether the Alerts screen is reachable. Hiding only the screen would
+     have left a customer's tower card counting six detections of somebody
+     else's yard. */
+  const [alerts, setAlerts] = useState<Alert[]>(
+    can(features, "alerts") ? ALERTS : [],
+  );
   /* State rather than the module constant, because a seeded battery actually
      fills: those towers are off-grid and the panel is the only thing that
      refills them, so a card claiming to be charging while the number sits
@@ -296,7 +316,11 @@ export function SentinelApp() {
      towers because a match is an alert like any other — the roster and the feed
      have to be reading the same list, or a person could be removed while their
      sightings still name them. */
-  const [people, setPeople] = useState<Person[]>(PEOPLE);
+  /* The watchlist fixture. Same gate, same reason: `PEOPLE` is six invented
+     people, and a customer's "people of interest" count must not be six. */
+  const [people, setPeople] = useState<Person[]>(
+    can(features, "watchlist") ? PEOPLE : [],
+  );
   const [onPeople, setOnPeople] = useState(false);
   /* The fleet-wide alerts feed, off the rail's bell. A screen rather than a
      panel: it is not scoped to a tower, so there is no wall for it to sit
@@ -775,6 +799,21 @@ export function SentinelApp() {
 
   const navigate = useCallback(
     (id: string) => {
+      /* ── THE ROUTER'S HALF OF THE FEATURE GATE ─────────────────────────────
+
+         `IconRail` removes a destination this account does not have; this
+         refuses it. BOTH, because either alone is a bug: the rail alone leaves
+         the destination reachable by any other caller (and there are several —
+         `TowerView`, `AlertsView` and `PlaybackView` all call `onNavigate`,
+         and `watchPerson` navigates to the watchlist from an alert), while this
+         alone leaves an item on screen that does nothing.
+
+         THERE ARE NO URLs TO GATE. This app has no router and no URL state —
+         `grep -rn "URLSearchParams\|location.search\|location.hash" src/`
+         finds nothing — so a screen cannot be reached by typing an address.
+         Every way in goes through this function, which makes it the whole
+         client-side surface. The server gates its own routes regardless. */
+      if (!navAllowed(features, id)) return;
       /* Every destination but Playback leaves the board. Playback is layered
          over whatever it was opened from, the board included. */
       if (id !== "playback") {
@@ -850,7 +889,11 @@ export function SentinelApp() {
         setOnTowers(true);
       }
     },
-    [show],
+    /* `features` is a dependency because this callback READS it. Without it
+       the memoised router keeps the set it was built with, so a feature
+       revoked while somebody is signed in would be enforced by the rail and
+       not by the router -- the exact split this gate exists to avoid. */
+    [show, features],
   );
 
   const applyRejectMatch = useCallback((id: string) => {

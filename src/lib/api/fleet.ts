@@ -7,9 +7,10 @@
  * an operator nothing.
  */
 
+import type { TowerDetail } from "@kallon/sentry-sdk";
 import type { CameraFeed, Tower } from "@/lib/types";
-import { endSessionIfUnauthorized } from "./auth";
-import { getClient } from "./client";
+import { endSessionIfUnauthorized, getSession } from "./auth";
+import { getClient, getCoordinationBaseUrl, webFetch } from "./client";
 import { toTower } from "./map";
 import { withDemoCabinetReadings } from "./demoCabinet";
 
@@ -182,4 +183,97 @@ export async function renameTower(
   const mapped = toTower(raw);
   // The same demo readings as the list and the detail, so no view disagrees.
   return { towers: [withDemoCabinetReadings(mapped.tower)], feeds: mapped.feeds };
+}
+
+/**
+ * Rename ONE CAMERA on a tower — `PATCH /v1/viewer/towers/{id}/cameras/{n}`.
+ *
+ * ⚠ HAND-ROLLED `fetch`, THE SAME DOCUMENTED EXCEPTION `auth.ts` AND
+ * `account.ts` CARRY. `renameTower` above goes through the SDK because the SDK
+ * has a method for it; this route is newer than the vendored SDK, so there is
+ * nothing to call. Kept in this file rather than in a new one so the two renames
+ * sit together and the exception stays countable.
+ * TODO(sdk): add `renameCamera` and delete the fetch below.
+ *
+ * ── THE SAME ERRORS AS THE TOWER RENAME, ON PURPOSE ────────────────────
+ *
+ * `TowerUnavailableError` and `LabelRejectedError`, reused rather than
+ * reinvented, so the settings screen handles a refused camera name with exactly
+ * the code that handles a refused tower name.
+ *
+ * A 404 HERE MEANS THREE THINGS AND MUST NOT BE SPLIT. Unknown tower, somebody
+ * else's tower, and an account whose `settings` feature is off all answer 404 —
+ * deliberately, so the route cannot be used to enumerate a fleet or to probe
+ * which features an account has. The client therefore says "that tower is not
+ * available", which is true of all three.
+ *
+ * An EMPTY or whitespace label CLEARS the name rather than storing a blank one,
+ * which is the server's behaviour; the caller does not need a second function.
+ *
+ * Returns the whole re-projected tower, so the caller replaces its copy rather
+ * than patching one field and hoping the rest still matches.
+ */
+export async function renameCamera(
+  deviceId: string,
+  cameraIndex: number,
+  label: string,
+  signal?: AbortSignal,
+): Promise<FleetSnapshot> {
+  const base = getCoordinationBaseUrl();
+  if (!base) throw new TowerUnavailableError(deviceId);
+  const session = getSession();
+  if (!session?.ref) {
+    /* Tagged 401 so `isUnauthorized` ends the session, exactly as a real 401
+       from any other call would. */
+    throw Object.assign(new Error("not signed in"), { status: 401 });
+  }
+
+  let response: Response;
+  try {
+    response = await webFetch(
+      `${base}/v1/viewer/towers/${encodeURIComponent(deviceId)}/cameras/${cameraIndex}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.ref}`,
+        },
+        body: JSON.stringify({ label }),
+        ...(signal ? { signal } : {}),
+      },
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new TowerUnavailableError(deviceId);
+  }
+
+  if (response.status === 401) {
+    const dead = Object.assign(new Error("session is no longer valid"), {
+      status: 401,
+    });
+    endSessionIfUnauthorized(dead);
+    throw dead;
+  }
+  if (response.status === 404) throw new TowerUnavailableError(deviceId);
+  if (response.status === 422) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: { message?: unknown };
+    };
+    throw new LabelRejectedError(
+      typeof body?.error?.message === "string" ? body.error.message : undefined,
+    );
+  }
+  if (!response.ok) throw new TowerUnavailableError(deviceId);
+
+  const body = (await response.json().catch(() => ({}))) as { tower?: unknown };
+  if (!body.tower || typeof body.tower !== "object") {
+    /* A 200 with no tower is not a success we can act on: the point of the
+       response is the fresh copy that replaces the stale one. */
+    throw new TowerUnavailableError(deviceId);
+  }
+  const mapped = toTower(body.tower as TowerDetail);
+  return {
+    towers: [withDemoCabinetReadings(mapped.tower)],
+    feeds: mapped.feeds,
+  };
 }

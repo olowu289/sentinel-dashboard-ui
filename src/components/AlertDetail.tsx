@@ -35,7 +35,7 @@ function DetailCell({ label, value }: { label: string; value: ReactNode }) {
       <span className="truncate text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted">
         {label}
       </span>
-      <span className="truncate text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+      <span className="truncate text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
         {value}
       </span>
     </div>
@@ -76,11 +76,11 @@ function TimelineStep({
           height={28}
           className="shrink-0"
         />
-        {!last && <span className="w-px flex-1 bg-white/10" />}
+        {!last && <span className="w-px flex-1 bg-overlay/10" />}
       </div>
 
       <div className={`min-w-0 flex-1 ${last ? "pb-0" : "pb-[16px]"}`}>
-        <p className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <p className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           {event.title}
         </p>
         {/* Wall-clock, plus elapsed from the first step. The clock is what gets
@@ -89,7 +89,7 @@ function TimelineStep({
             their stamps look identical and the sequence stops being readable. */}
         <p className="mt-[2px] text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted tabular-nums">
           {formatClock(event.at)}
-          {!first && <span className="text-white/25"> · {event.delta}</span>}
+          {!first && <span className="text-body-ink/25"> · {event.delta}</span>}
         </p>
 
         {event.attachment && (
@@ -213,7 +213,7 @@ export function AlertDetail({
           type="button"
           onClick={onClose}
           aria-label="Back to alerts"
-          className="mr-[8px] flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/8 hover:text-white lg:hidden"
+          className="mr-[8px] flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-body-ink/50 transition-colors hover:bg-overlay/8 hover:text-body-ink lg:hidden"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
             <path
@@ -241,7 +241,7 @@ export function AlertDetail({
           type="button"
           onClick={onClose}
           aria-label="Close alert detail"
-          className="ml-auto flex size-[24px] items-center justify-center rounded-[4px] text-white/50 transition-colors hover:bg-white/8 hover:text-white"
+          className="ml-auto flex size-[24px] items-center justify-center rounded-[4px] text-body-ink/50 transition-colors hover:bg-overlay/8 hover:text-body-ink"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
             <path
@@ -257,7 +257,7 @@ export function AlertDetail({
       <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[16px] pb-[16px] pt-[16px]">
         <section className="flex flex-col gap-[16px]">
           <div className="flex flex-col gap-[4px]">
-            <h2 className="text-[1rem] leading-[20px] tracking-[0.16px] text-white">
+            <h2 className="text-[1rem] leading-[20px] tracking-[0.16px] text-body-ink">
               {alert.title}
             </h2>
             {/* Status, place, time — wall-clock rather than the frame's
@@ -319,11 +319,11 @@ export function AlertDetail({
                     no label is evidence you cannot cite. After the button in the
                     DOM so they paint over its scrim, and inert so they never eat
                     the tap. */}
-                <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-white/85">
+                <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-body-ink/85">
                   {alert.source}
                 </span>
                 {hero.durationSec !== undefined && (
-                  <span className="chip-blur pointer-events-none absolute bottom-[8px] right-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-white/85 tabular-nums">
+                  <span className="chip-blur pointer-events-none absolute bottom-[8px] right-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-body-ink/85 tabular-nums">
                     {formatDuration(hero.durationSec)}
                   </span>
                 )}
@@ -334,12 +334,12 @@ export function AlertDetail({
                  truth is the feed was down, which is the more serious fact and
                  the one that changes what the operator does next. */
               <div className="flex size-full flex-col items-center justify-center gap-[3px] px-[16px] text-center">
-                <p className="text-[0.75rem] text-white/40">
+                <p className="text-[0.75rem] text-body-ink/40">
                   {alert.kind === "fault"
                     ? "No footage — feed was down"
                     : "No clip attached"}
                 </p>
-                <p className="text-[0.6875rem] text-white/25">
+                <p className="text-[0.6875rem] text-body-ink/25">
                   {alert.kind === "fault"
                     ? `${alert.source} stopped sending frames`
                     : `Raised by ${alert.source}, which has no camera`}
@@ -350,7 +350,7 @@ export function AlertDetail({
         </section>
 
         <section className="flex flex-col gap-[8px]">
-          <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             Alert Details:
           </h3>
           {/* Two columns at every width. The panel is 417px at lg and full
@@ -365,7 +365,7 @@ export function AlertDetail({
                 alert.cameras?.length ? (
                   alert.cameras.join(", ")
                 ) : (
-                  <span className="text-white/30">None</span>
+                  <span className="text-body-ink/30">None</span>
                 )
               }
             />
@@ -379,7 +379,7 @@ export function AlertDetail({
                      talk-down are decisions and events, not predictions, and a
                      number here would invent a machine judgement that was never
                      made. */
-                  <span className="text-white/30">Not scored</span>
+                  <span className="text-body-ink/30">Not scored</span>
                 )
               }
             />
@@ -387,7 +387,7 @@ export function AlertDetail({
         </section>
 
         <section className="flex flex-col gap-[16px]">
-          <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             Timeline:
           </h3>
           <ol className="flex flex-col">
@@ -429,7 +429,7 @@ export function AlertDetail({
             onClick={onAcknowledge}
             disabled={statusPhase.kind === "pending"}
             aria-busy={statusPhase.kind === "pending" || undefined}
-            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-white text-[0.8125rem] font-medium tracking-[0.13px] text-black transition-opacity hover:opacity-90 disabled:opacity-60 ${errorRing(statusPhase)}`}
+            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-action text-[0.8125rem] font-medium tracking-[0.13px] text-action-ink transition-opacity hover:opacity-90 disabled:opacity-60 ${errorRing(statusPhase)}`}
           >
             <MutationIcon phase={statusPhase} idle={null} />
             Acknowledge
@@ -461,7 +461,7 @@ export function AlertDetail({
             onClick={onRejectMatch}
             disabled={rejectPhase.kind === "pending"}
             aria-busy={rejectPhase.kind === "pending" || undefined}
-            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12 disabled:opacity-60 ${errorRing(rejectPhase)}`}
+            className={`flex h-[39px] flex-1 items-center justify-center gap-[8px] rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-body-ink transition-colors hover:bg-overlay/12 disabled:opacity-60 ${errorRing(rejectPhase)}`}
           >
             <MutationIcon phase={rejectPhase} idle={null} />
             Not them
@@ -471,7 +471,7 @@ export function AlertDetail({
           <button
             type="button"
             onClick={onWatchPerson}
-            className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12"
+            className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-body-ink transition-colors hover:bg-overlay/12"
           >
             Add person
           </button>
@@ -487,7 +487,7 @@ export function AlertDetail({
           type="button"
           disabled
           title="Escalate — not available yet"
-          className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-white transition-colors hover:bg-white/12 disabled:bg-panel/60 disabled:text-white/30 disabled:hover:bg-panel/60"
+          className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-body-ink transition-colors hover:bg-overlay/12 disabled:bg-panel/60 disabled:text-body-ink/30 disabled:hover:bg-panel/60"
         >
           Escalate
         </button>

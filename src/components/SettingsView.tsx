@@ -8,6 +8,13 @@ import {
 } from "react";
 import { useSession } from "@/components/AuthProvider";
 import { IconRail } from "@/components/IconRail";
+import {
+  LabelRejectedError,
+  TowerUnavailableError,
+  renameCamera,
+} from "@/lib/api/fleet";
+import { getTheme, setTheme, type Theme } from "@/lib/theme";
+import type { CameraFeed, Tower } from "@/lib/types";
 import { ENTER, FADE } from "@/lib/motion";
 import {
   AccountFieldError,
@@ -130,9 +137,9 @@ function failureFor(err: unknown): Failure {
  * ------------------------------------------------------------------ */
 
 const INPUT_BASE =
-  "h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white outline-none " +
-  "placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra " +
-  "disabled:text-white/40";
+  "h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none " +
+  "placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra " +
+  "disabled:text-body-ink/40";
 
 function Field({
   label,
@@ -191,7 +198,7 @@ function Card({
   return (
     <section className="flex flex-col gap-[20px] rounded-[12px] border border-line bg-card/40 p-[20px]">
       <div className="flex flex-col gap-[6px]">
-        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           {title}
         </h2>
         <p className="text-[0.8125rem] leading-[20px] text-sub/80">{description}</p>
@@ -201,10 +208,21 @@ function Card({
   );
 }
 
+/** One read-only fact about a camera. A <dt>/<dd> pair, so it is a real
+ *  description list to a screen reader rather than two spans. */
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-[6px]">
+      <dt className="text-muted">{label}</dt>
+      <dd className="text-sub">{value}</dd>
+    </div>
+  );
+}
+
 const BUTTON =
-  "h-[52px] rounded-[8px] bg-white text-[0.9375rem] leading-[20px] font-medium " +
-  "text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed " +
-  "disabled:bg-white/25 disabled:text-black/40";
+  "h-[52px] rounded-[8px] bg-action text-[0.9375rem] leading-[20px] font-medium " +
+  "text-black transition-colors hover:bg-overlay/90 disabled:cursor-not-allowed " +
+  "disabled:bg-overlay/25 disabled:text-black/40";
 
 /* ------------------------------------------------------------------ *
  * The screen
@@ -213,9 +231,17 @@ const BUTTON =
 export function SettingsView({
   onNavigate,
   onBack,
+  towers = [],
+  feeds = [],
+  onCameraRenamed,
 }: {
   onNavigate?: (id: string) => void;
   onBack?: () => void;
+  /** The fleet, for the camera section. Empty is a valid state and says so. */
+  towers?: Tower[];
+  feeds?: CameraFeed[];
+  /** Hand the re-projected tower and feeds back up, so the wall agrees. */
+  onCameraRenamed?: (tower: Tower, feeds: CameraFeed[]) => void;
 }) {
   const { account } = useSession();
 
@@ -240,6 +266,21 @@ export function SettingsView({
   const [passwordFailure, setPasswordFailure] = useState<Failure>(null);
   /** Set once the password has changed. This session is dead from here on. */
   const [doneRevoked, setDoneRevoked] = useState<number | null>(null);
+
+  /* ── theme ── */
+  const [theme, setThemeState] = useState<Theme>(() => getTheme());
+
+  /* ── camera names ──
+     Keyed by feed id, because the edit belongs to the CAMERA and not to this
+     panel. One shared "editing" value would follow the operator from one
+     camera to the next, which is the same class of bug `useMutation` documents
+     for AlertDetail: state that outlives the thing it was about. */
+  const [camDraft, setCamDraft] = useState<Record<string, string>>({});
+  const [camSaving, setCamSaving] = useState<string | null>(null);
+  const [camError, setCamError] = useState<{ id: string; message: string } | null>(
+    null,
+  );
+  const [camSaved, setCamSaved] = useState<string | null>(null);
 
   /* Synchronous latches. `renaming`/`changing` are state, so two clicks
      dispatched in one tick both read the same stale `false` and both POST — the
@@ -367,6 +408,57 @@ export function SettingsView({
     }
   }, [currentPassword, newPassword, confirmPassword]);
 
+  /**
+   * Save one camera's name.
+   *
+   * An EMPTY value clears the name — the server treats blank as "clear", so
+   * there is no separate delete control to explain. The placeholder then shows
+   * `CAMERA <n>` again, which is what the wall will fall back to.
+   */
+  const saveCamera = useCallback(
+    async (feed: CameraFeed) => {
+      if (camSaving) return;
+      const next = (camDraft[feed.id] ?? "").trim();
+      const current = feed.label ?? "";
+      if (next === current) return;           // nothing to do, and no request
+      setCamSaving(feed.id);
+      setCamError(null);
+      setCamSaved(null);
+      try {
+        const { towers: [updated], feeds: updatedFeeds } = await renameCamera(
+          feed.towerId,
+          feed.index ?? 0,
+          next,
+        );
+        /* Straight back up to App, so the wall, the tower view and the playback
+           picker show the new name without a refetch. Renaming here and
+           leaving the rest stale is how one camera ends up with two names. */
+        if (updated) onCameraRenamed?.(updated, updatedFeeds);
+        setCamSaved(feed.id);
+        setCamDraft((prev) => {
+          const { [feed.id]: _drop, ...rest } = prev;
+          return rest;                        // fall back to the server's value
+        });
+      } catch (err) {
+        endSessionIfUnauthorized(err);
+        /* The SAME two errors the tower rename raises, handled the same way.
+           A 404 means unknown tower, somebody else's tower, OR a disabled
+           `settings` feature — the server does not distinguish them on purpose,
+           so neither does this message. */
+        const message =
+          err instanceof LabelRejectedError
+            ? err.message
+            : err instanceof TowerUnavailableError
+              ? "That tower is not available."
+              : "The name could not be saved.";
+        setCamError({ id: feed.id, message });
+      } finally {
+        setCamSaving(null);
+      }
+    },
+    [camDraft, camSaving, onCameraRenamed],
+  );
+
   const onRenameKey = (e: KeyboardEvent) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
@@ -388,7 +480,7 @@ export function SettingsView({
         <header className="flex h-[46px] shrink-0 items-center border-b border-line pl-[16px]">
           <span className="flex items-center gap-[8px]">
             <img src="/icons/logo.svg" alt="" width={22.286} height={19.5} className="block" />
-            <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+            <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
               TERRA SENTINEL
             </span>
           </span>
@@ -401,7 +493,7 @@ export function SettingsView({
             role="status"
             className="my-auto flex w-[483px] max-w-full flex-col items-center gap-[26px] text-center"
           >
-            <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-white">
+            <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-body-ink">
               PASSWORD CHANGED
             </h1>
             <p className="text-[0.875rem] leading-[20px] text-sub/80">
@@ -434,14 +526,14 @@ export function SettingsView({
               type="button"
               onClick={onBack}
               title="Back to all towers"
-              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
               TOWERS
             </button>
             <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
             <span
               aria-current="page"
-              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white"
+              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink"
             >
               ACCOUNT
             </span>
@@ -456,12 +548,12 @@ export function SettingsView({
             className="mx-auto flex w-[560px] max-w-full flex-col gap-[20px]"
           >
             <div className="flex flex-col gap-[6px]">
-              <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-white">
+              <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-body-ink">
                 ACCOUNT
               </h1>
               <p className="text-[0.875rem] leading-[20px] text-sub/80">
                 Signed in as{" "}
-                <span className="text-white">{shownLogin || "your organization"}</span>.
+                <span className="text-body-ink">{shownLogin || "your organization"}</span>.
                 One login is shared by everyone in your organization, so changing
                 either of these changes it for all of them.
               </p>
@@ -557,7 +649,7 @@ export function SettingsView({
                     role="status"
                     className="rounded-[8px] bg-terra/12 px-[14px] py-[12px] text-[0.8125rem] leading-[20px] text-terra"
                   >
-                    Your organization is now <span className="text-white">{renamedTo}</span>.
+                    Your organization is now <span className="text-body-ink">{renamedTo}</span>.
                     Sign in with that name from now on. You are still signed in here.
                   </motion.p>
                 )}
@@ -687,6 +779,221 @@ export function SettingsView({
                   {changing ? "CHANGING…" : "CHANGE PASSWORD"}
                 </button>
               </div>
+            </Card>
+
+            {/* ───────────────── theme ───────────────── */}
+            <Card
+              title="APPEARANCE"
+              description="Remembered on this device, for you. One login is shared across your organization, so this is not stored on the server — otherwise one person's choice would change everyone's screen."
+            >
+              <div
+                role="radiogroup"
+                aria-label="Theme"
+                className="flex gap-[12px]"
+              >
+                {(["dark", "light"] as const).map((option) => {
+                  const chosen = theme === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      role="radio"
+                      aria-checked={chosen}
+                      onClick={() => {
+                        /* Applied to the document by `setTheme`, not by a
+                           re-render: the attribute lives on <html>, above
+                           React's root. The local state is only so this
+                           control shows which one is active. */
+                        setTheme(option);
+                        setThemeState(option);
+                      }}
+                      className={`flex h-[52px] flex-1 items-center justify-center gap-[10px] rounded-[8px] border text-[0.9375rem] transition-colors ${
+                        chosen
+                          ? "border-terra bg-terra/12 text-body-ink"
+                          : "border-line bg-card text-sub hover:bg-card-hover"
+                      }`}
+                    >
+                      {/* A filled swatch, so the choice reads without the label.
+                          Hardcoded hexes on purpose: these two squares must show
+                          what each THEME looks like, so they cannot follow the
+                          theme that is currently active. */}
+                      <span
+                        aria-hidden="true"
+                        className="size-[16px] rounded-[4px] border"
+                        style={{
+                          background: option === "dark" ? "#000000" : "#f4f5f7",
+                          borderColor: option === "dark" ? "#2c2c30" : "#c4c8d0",
+                        }}
+                      />
+                      {option === "dark" ? "Dark" : "Light"}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[0.75rem] leading-[16px] text-muted">
+                Camera tiles stay dark in both themes: a video picture is
+                letterboxed, and light bars either side of it make the picture
+                harder to read, not easier.
+              </p>
+            </Card>
+
+            {/* ───────────────── cameras ───────────────── */}
+            <Card
+              title="CAMERAS"
+              description="Name each camera so it can be quoted on the radio. The name is used everywhere — the wall, playback, and downloaded footage."
+            >
+              {towers.length === 0 ? (
+                /* HONEST ABSENCE, not a spinner and not an invented row. An
+                   account with no towers yet is a real state, and this screen
+                   is reachable before the first tower is claimed. */
+                <p className="text-[0.8125rem] leading-[20px] text-muted">
+                  No towers on this account yet. Cameras appear here once a
+                  tower is added and has reported them.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-[24px]">
+                  {towers.map((tower) => {
+                    const mine = feeds.filter((f) => f.towerId === tower.id);
+                    return (
+                      <div key={tower.id} className="flex flex-col gap-[12px]">
+                        <h3 className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
+                          {tower.site || tower.id}
+                        </h3>
+
+                        {mine.length === 0 ? (
+                          <p className="text-[0.8125rem] leading-[20px] text-muted">
+                            {/* A tower with no cameras is either offline or has
+                                never reported an inventory. Both are facts, and
+                                neither is "no cameras exist". */}
+                            This tower has not reported any cameras.
+                          </p>
+                        ) : (
+                          mine.map((feed) => {
+                            const draft = camDraft[feed.id];
+                            const value = draft ?? feed.label ?? "";
+                            const busy = camSaving === feed.id;
+                            const err =
+                              camError?.id === feed.id ? camError.message : null;
+                            const dirty = value.trim() !== (feed.label ?? "");
+                            return (
+                              <div
+                                key={feed.id}
+                                className="flex flex-col gap-[10px] rounded-[8px] border border-line bg-card/60 p-[14px]"
+                              >
+                                <div className="flex flex-wrap items-center gap-[8px]">
+                                  <input
+                                    value={value}
+                                    onChange={(e) => {
+                                      setCamDraft((prev) => ({
+                                        ...prev,
+                                        [feed.id]: e.target.value,
+                                      }));
+                                      setCamError(null);
+                                      setCamSaved(null);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter") return;
+                                      e.preventDefault();
+                                      if (dirty && !busy) void saveCamera(feed);
+                                    }}
+                                    disabled={busy}
+                                    maxLength={80}
+                                    autoCapitalize="none"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                    aria-label={`Name for camera ${feed.index}`}
+                                    /* The PLACEHOLDER is the fallback the wall
+                                       will show, so an empty box is not a
+                                       mystery — it says what the camera is
+                                       currently called. */
+                                    placeholder={`CAMERA ${feed.index}`}
+                                    className={`h-[44px] min-w-[200px] flex-1 rounded-[8px] bg-card px-[12px] text-[0.9375rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
+                                      err ? "ring-1 ring-critical" : ""
+                                    }`}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => void saveCamera(feed)}
+                                    disabled={!dirty || busy}
+                                    aria-busy={busy || undefined}
+                                    className="h-[44px] rounded-[8px] bg-action px-[16px] text-[0.875rem] font-medium text-action-ink transition-colors hover:bg-action/90 disabled:cursor-not-allowed disabled:bg-action/25 disabled:text-action-ink/40"
+                                  >
+                                    {busy ? "SAVING…" : "SAVE"}
+                                  </button>
+                                </div>
+
+                                {err && (
+                                  <p
+                                    role="alert"
+                                    className="text-[0.8125rem] leading-[20px] text-critical"
+                                  >
+                                    {err}
+                                  </p>
+                                )}
+                                {camSaved === feed.id && !err && (
+                                  <p
+                                    role="status"
+                                    className="text-[0.8125rem] leading-[20px] text-terra"
+                                  >
+                                    Saved.
+                                  </p>
+                                )}
+
+                                {/* ── READ-ONLY DETAILS ──────────────────────
+                                    What the tower reports and nothing more. No
+                                    IP, no password, no network, no recording or
+                                    image settings: none of those are in this
+                                    screen's vocabulary or the route's, so there
+                                    is nothing here to get wrong. */}
+                                <dl className="flex flex-wrap gap-x-[20px] gap-y-[4px] text-[0.75rem] leading-[16px]">
+                                  <Detail label="Status" value={
+                                    feed.state === "live" ? "Online"
+                                      : feed.state === "offline" ? "Offline"
+                                        : "Not reported"
+                                  } />
+                                  <Detail label="Resolution" value={
+                                    /* From the DEFAULT profile the tower
+                                       advertised. Absent rather than guessed
+                                       when it advertised none — the projection
+                                       omits resolution it does not know, and
+                                       inventing 1080p here would be the fake
+                                       reading this app refuses elsewhere. */
+                                    (() => {
+                                      const p = feed.profiles?.find((x) => x.default)
+                                        ?? feed.profiles?.[0];
+                                      return p?.resolution
+                                        ? `${p.resolution.width} × ${p.resolution.height}`
+                                        : "Not reported";
+                                    })()
+                                  } />
+                                  <Detail label="Lens" value={
+                                    feed.lens === "ptz" ? "PTZ"
+                                      : feed.lens === "fixed" ? "Fixed"
+                                        : "Not reported"
+                                  } />
+                                  <Detail label="Control" value={
+                                    feed.ptz ? "Pan, tilt, zoom" : "None"
+                                  } />
+                                  {/* ⚠ MODEL IS NOT AVAILABLE. No tower reports a
+                                      camera make or model — it is not in
+                                      `tower.hello`, so the projection has no
+                                      field for it and `_project_camera` could not
+                                      pass one on if it did. Shown as not
+                                      reported rather than omitted, so the gap is
+                                      visible instead of looking like a field
+                                      nobody thought of. Making it real needs the
+                                      tower to report it first. */}
+                                  <Detail label="Model" value="Not reported" />
+                                </dl>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </Card>
           </motion.div>
         </main>

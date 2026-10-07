@@ -97,8 +97,8 @@ export function PtzPad({
             title={limited ? "At tilt limit" : undefined}
             disabled={disabled || limited}
             {...press(b.dir)}
-            className={`absolute flex size-[24px] items-center justify-center transition-[color,transform] hover:text-white active:scale-90 disabled:opacity-40 ${
-              limited ? "text-amber-400/90" : "text-[#e0dfdf]/85"
+            className={`absolute flex size-[24px] items-center justify-center transition-[color,transform] hover:text-body-ink active:scale-90 disabled:opacity-40 ${
+              limited ? "text-amber-400/90" : "text-sub/85"
             } ${b.position}`}
           >
             {/* Rotation must sit on the glyph, not a wrapper — MaskIcon renders
@@ -115,7 +115,7 @@ export function PtzPad({
         aria-label="Recentre"
         disabled={disabled}
         onClick={() => onHome?.()}
-        className="absolute left-[28px] top-[28px] flex size-[24px] items-center justify-center text-[#e0dfdf]/85 transition-[color,transform] hover:text-white active:scale-90 disabled:opacity-40"
+        className="absolute left-[28px] top-[28px] flex size-[24px] items-center justify-center text-sub/85 transition-[color,transform] hover:text-body-ink active:scale-90 disabled:opacity-40"
       >
         <MaskIcon src="/icons/ptz-home.svg" size={24} />
       </button>

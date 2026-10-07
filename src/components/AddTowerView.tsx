@@ -111,19 +111,19 @@ export function AddTowerView({
               type="button"
               onClick={onCancel}
               title="Back to all towers"
-              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
               TOWERS
             </button>
             <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
             <span
               aria-current="page"
-              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white"
+              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink"
             >
               ADD TOWER
             </span>
           </nav>
-          <MaskIcon src="/icons/bell.svg" size={20} className="text-white/70" />
+          <MaskIcon src="/icons/bell.svg" size={20} className="text-body-ink/70" />
         </header>
 
         {/* One column, 483px, centred — the frame's measurement, kept so the
@@ -163,7 +163,7 @@ export function AddTowerView({
 function Heading({ title, body }: { title: string; body: string }) {
   return (
     <div className="flex flex-col items-center gap-[6px] text-center">
-      <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-white">
+      <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-body-ink">
         {title}
       </h1>
       <p className="text-[0.875rem] leading-[20px] text-sub/80">{body}</p>
@@ -192,8 +192,8 @@ function Action({
       onClick={onClick}
       className={`h-[57px] w-full rounded-[8px] text-[1rem] leading-[20px] font-medium transition-colors disabled:cursor-not-allowed ${
         tone === "primary"
-          ? "bg-white text-black hover:bg-white/90 disabled:bg-white/25 disabled:text-black/40"
-          : "bg-line-panel text-white hover:bg-[#2a2a2e] disabled:text-white/30"
+          ? "bg-action text-action-ink hover:bg-overlay/90 disabled:bg-overlay/25 disabled:text-action-ink/40"
+          : "bg-line-panel text-body-ink hover:bg-card-line disabled:text-body-ink/30"
       }`}
     >
       {children}
@@ -260,7 +260,7 @@ function Handoff({ onCode }: { onCode: () => void }) {
         body="Scanning the QR code inside the cabinet door will register the tower from your phone."
       />
 
-      <div className="relative overflow-hidden rounded-[8px] bg-white/12 p-[12px]">
+      <div className="relative overflow-hidden rounded-[8px] bg-overlay/12 p-[12px]">
         <DecorativeQr />
       </div>
 
@@ -420,7 +420,7 @@ function EnterCode({
             spellCheck={false}
             aria-invalid={failed || undefined}
             aria-describedby="code-help"
-            className={`h-[52px] rounded-[8px] bg-card px-[14px] font-display text-[1.25rem] tracking-[0.2em] text-white uppercase outline-none placeholder:text-white/20 focus-visible:outline-1 focus-visible:outline-terra ${
+            className={`h-[52px] rounded-[8px] bg-card px-[14px] font-display text-[1.25rem] tracking-[0.2em] text-body-ink uppercase outline-none placeholder:text-body-ink/20 focus-visible:outline-1 focus-visible:outline-terra ${
               failed ? "ring-1 ring-critical" : ""
             }`}
           />
@@ -446,7 +446,7 @@ function EnterCode({
             disabled={phase.kind === "pending"}
             placeholder="WAREHOUSE: PARKING LOT"
             autoComplete="off"
-            className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white uppercase outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra"
+            className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink uppercase outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
           />
           <span className="text-[0.75rem] leading-[16px] text-muted">
             Place, then zone. This is the name your team will use on the radio —
@@ -526,7 +526,7 @@ function Waiting({
         <img src="/icons/twr-mast-lg.svg" alt="" width={30} height={52} className="block shrink-0" />
         <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
           <dt className="sr-only">Site name</dt>
-          <dd className="truncate font-display text-[0.875rem] tracking-[0.14px] text-white">
+          <dd className="truncate font-display text-[0.875rem] tracking-[0.14px] text-body-ink">
             {claim.label}
           </dd>
           <dt className="sr-only">Status</dt>

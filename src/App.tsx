@@ -77,7 +77,7 @@ const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
 function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-[14px] bg-ink px-[24px] text-center">
-      <p className="font-display text-[0.875rem] tracking-[0.14px] text-white">
+      <p className="font-display text-[0.875rem] tracking-[0.14px] text-body-ink">
         {id} IS UNAVAILABLE
       </p>
       <p className="max-w-[360px] text-[0.8125rem] leading-[20px] text-muted">
@@ -87,7 +87,7 @@ function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="h-[36px] rounded-[8px] bg-panel px-[16px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+        className="h-[36px] rounded-[8px] bg-panel px-[16px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-line"
       >
         Back to all towers
       </button>
@@ -1508,6 +1508,21 @@ export function SentinelApp() {
         <SettingsView
           onNavigate={navigate}
           onBack={() => setOnSettings(false)}
+          towers={towers}
+          feeds={feeds}
+          /* A renamed camera comes straight back up here. The server returns
+             the whole re-projected tower, so both lists are replaced rather
+             than patched — patching one field is how the wall ends up showing
+             the old name while the settings screen shows the new one. */
+          onCameraRenamed={(tower, renamedFeeds) => {
+            setTowers((prev) =>
+              prev.map((t) => (t.id === tower.id ? tower : t)),
+            );
+            setFeeds((prev) => [
+              ...prev.filter((f) => f.towerId !== tower.id),
+              ...renamedFeeds,
+            ]);
+          }}
         />
       ) : onPlayback ? (
         <PlaybackView

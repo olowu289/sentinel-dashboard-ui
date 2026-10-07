@@ -216,7 +216,7 @@ export function DashboardView({
               /* No swing when there is nothing to open. A disabled control
                  that animates under the pointer is offering something it will
                  not do. */
-              className={`flex size-[20px] items-center justify-center text-white transition-colors hover:text-terra disabled:text-white/35 ${
+              className={`flex size-[20px] items-center justify-center text-body-ink transition-colors hover:text-terra disabled:text-body-ink/35 ${
                 newest ? "group/bell" : ""
               }`}
             >
@@ -275,7 +275,7 @@ export function DashboardView({
                     type="button"
                     onClick={() => onOpenTower(band.towerId)}
                     title={`Open ${towerName(band.towerId)}`}
-                    className="max-w-full truncate text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white transition-colors hover:text-sub"
+                    className="max-w-full truncate text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-body-ink transition-colors hover:text-sub"
                   >
                     {towerName(band.towerId)}
                   </button>
@@ -312,8 +312,8 @@ export function DashboardView({
                     title="Drag to rearrange, or use the arrow keys"
                     className={`flex size-[24px] shrink-0 cursor-grab items-center justify-center rounded-[4px] transition-colors active:cursor-grabbing ${
                       heldBand === band.towerId
-                        ? "text-white"
-                        : "text-muted hover:text-white"
+                        ? "text-body-ink"
+                        : "text-muted hover:text-body-ink"
                     }`}
                   >
                     {/* Rotated a quarter turn, as the frame draws it: the

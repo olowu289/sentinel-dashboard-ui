@@ -39,7 +39,7 @@ function timecode(sec: number) {
 
 /* The pill's own controls: 40px chip, 21.333px glyph, per the frame. */
 const CHIP =
-  "flex size-[40px] shrink-0 items-center justify-center rounded-[10px] text-white transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-30";
+  "flex size-[40px] shrink-0 items-center justify-center rounded-[10px] text-body-ink transition-colors hover:bg-overlay/10 disabled:pointer-events-none disabled:opacity-30";
 
 /**
  * Reviewing one recorded clip.
@@ -301,7 +301,7 @@ export function ClipPlayer({
                 onClose();
                 onNavigate?.("dashboard");
               }}
-              className="shrink-0 font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+              className="shrink-0 font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
               TOWERS
             </button>
@@ -309,7 +309,7 @@ export function ClipPlayer({
             <button
               type="button"
               onClick={onClose}
-              className="min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+              className="min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
               {towerName}
             </button>
@@ -317,7 +317,7 @@ export function ClipPlayer({
             <span className="flex min-w-0 items-center gap-[6px]">
               <span
                 aria-current="page"
-                className="truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white uppercase"
+                className="truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink uppercase"
               >
                 {attachment.title}
               </span>
@@ -337,7 +337,7 @@ export function ClipPlayer({
             onClick={onClose}
             aria-label="Close clip"
             title="Close (Esc)"
-            className="ml-auto flex size-[20px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+            className="ml-auto flex size-[20px] shrink-0 items-center justify-center text-body-ink transition-colors hover:text-muted"
           >
             <MaskIcon src="/icons/clip-close.svg" size={20} />
           </button>
@@ -445,7 +445,7 @@ export function ClipPlayer({
                 as a "00:06 / 00:15" fraction. The number under the playhead is
                 the one being read; parking it against the runtime makes both
                 harder. */}
-            <span className="shrink-0 font-display text-[1rem] leading-[20px] font-bold tracking-[0.16px] text-white tabular-nums">
+            <span className="shrink-0 font-display text-[1rem] leading-[20px] font-bold tracking-[0.16px] text-body-ink tabular-nums">
               {timecode(t)}
             </span>
 
@@ -472,7 +472,7 @@ export function ClipPlayer({
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute left-0 top-1/2 h-[6px] -translate-y-1/2 rounded-l-[6px] bg-white"
+                className="pointer-events-none absolute left-0 top-1/2 h-[6px] -translate-y-1/2 rounded-l-[6px] bg-action"
                 style={{ width: `${pct}%` }}
               />
 
@@ -500,7 +500,7 @@ export function ClipPlayer({
 
               <span
                 aria-hidden
-                className="pointer-events-none absolute top-1/2 z-30 size-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-black"
+                className="pointer-events-none absolute top-1/2 z-30 size-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-action ring-2 ring-black"
                 style={{ left: `${pct}%` }}
               />
             </div>
@@ -516,7 +516,7 @@ export function ClipPlayer({
                   carry it. */}
               {attachment.quality && (
                 <>
-                  <span className="font-display text-[1rem] leading-[20px] tracking-[0.16px] text-white">
+                  <span className="font-display text-[1rem] leading-[20px] tracking-[0.16px] text-body-ink">
                     {attachment.quality}
                   </span>
                   <span aria-hidden className="h-[16px] w-px bg-stroke" />
@@ -532,7 +532,7 @@ export function ClipPlayer({
                 }
                 aria-label={`Playback speed ${rate}×, change`}
                 title="Playback speed"
-                className="font-display text-[1rem] leading-[20px] tracking-[0.16px] text-white tabular-nums transition-colors hover:text-muted"
+                className="font-display text-[1rem] leading-[20px] tracking-[0.16px] text-body-ink tabular-nums transition-colors hover:text-muted"
               >
                 {rate}X
               </button>
@@ -545,7 +545,7 @@ export function ClipPlayer({
               aria-label={`Download ${attachment.title}`}
               title="Download clip"
               className={`flex size-[32px] shrink-0 items-center justify-center transition-colors ${
-                phase === "done" ? "text-terra" : "text-white hover:text-muted"
+                phase === "done" ? "text-terra" : "text-body-ink hover:text-muted"
               }`}
             >
               <MaskIcon src="/icons/clip-download.svg" size={32} />

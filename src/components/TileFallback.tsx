@@ -133,15 +133,15 @@ function Spinner({ size = 20 }: { size?: number }) {
 
 export function OfflineFallback({ lastSeen }: { lastSeen: string }) {
   return (
-    <div className="flex flex-col items-center gap-[10px] text-white/35">
+    <div className="flex flex-col items-center gap-[10px] text-body-ink/35">
       <CameraOffGlyph />
-      <p className="text-[0.8125rem] font-medium text-white/70">
+      <p className="text-[0.8125rem] font-medium text-body-ink/70">
         Camera offline
       </p>
       {/* Only when there is a stamp to show. A seeded feed has none, and an
           empty line is worse than a missing one. */}
       {lastSeen && (
-        <p className="-mt-[4px] text-[0.75rem] text-white/35">{lastSeen}</p>
+        <p className="-mt-[4px] text-[0.75rem] text-body-ink/35">{lastSeen}</p>
       )}
     </div>
   );
@@ -161,12 +161,12 @@ export function OfflineFallback({ lastSeen }: { lastSeen: string }) {
  */
 export function UnknownFallback({ since }: { since?: string }) {
   return (
-    <div className="flex flex-col items-center gap-[10px] text-white/35">
+    <div className="flex flex-col items-center gap-[10px] text-body-ink/35">
       <QuestionGlyph />
-      <p className="text-[0.8125rem] font-medium text-white/70">
+      <p className="text-[0.8125rem] font-medium text-body-ink/70">
         No report from this camera
       </p>
-      <p className="-mt-[4px] max-w-[240px] text-center text-[0.75rem] text-white/35">
+      <p className="-mt-[4px] max-w-[240px] text-center text-[0.75rem] text-body-ink/35">
         {since ?? "The tower has not said whether it is working."}
       </p>
     </div>
@@ -229,10 +229,10 @@ export function UnknownFallback({ since }: { since?: string }) {
 export function ReconnectingFallback() {
   return (
     <div className="flex flex-col items-center gap-[12px]">
-      <span className="text-white/50">
+      <span className="text-body-ink/50">
         <Spinner />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/75">Connecting…</p>
+      <p className="text-[0.8125rem] font-medium text-body-ink/75">Connecting…</p>
     </div>
   );
 }
@@ -246,12 +246,12 @@ export function NotStreamingFallback({
 }) {
   const offscreen = reason === "offscreen";
   return (
-    <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-white/35">
+    <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-body-ink/35">
       <CameraOffGlyph />
-      <p className="text-[0.8125rem] font-medium text-white/70">
+      <p className="text-[0.8125rem] font-medium text-body-ink/70">
         {offscreen ? "Live — not on screen" : "Live — not streaming here"}
       </p>
-      <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-white/35">
+      <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-body-ink/35">
         {offscreen
           ? "Scroll it into view and it starts streaming."
           : "Too many cameras on screen to stream them all. Open the tower to watch this one."}
@@ -260,7 +260,7 @@ export function NotStreamingFallback({
         <button
           type="button"
           onClick={onOpen}
-          className="mt-[2px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white lg:text-[0.6875rem]"
+          className="mt-[2px] h-[28px] rounded-[6px] border border-overlay/12 px-[12px] text-[0.75rem] text-body-ink/70 transition-colors hover:border-overlay/25 hover:text-body-ink lg:text-[0.6875rem]"
         >
           Open tower
         </button>
@@ -272,11 +272,11 @@ export function NotStreamingFallback({
 export function AwaitingMediaFallback({ name }: { name: string }) {
   return (
     <div className="flex flex-col items-center gap-[12px]">
-      <span className="text-white/50">
+      <span className="text-body-ink/50">
         <Spinner />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/75">Connecting…</p>
-      <p className="-mt-[6px] text-[0.75rem] text-white/35">
+      <p className="text-[0.8125rem] font-medium text-body-ink/75">Connecting…</p>
+      <p className="-mt-[6px] text-[0.75rem] text-body-ink/35">
         Live view · {name}
       </p>
     </div>
@@ -304,21 +304,21 @@ export function NoMediaPathFallback({ onRetry }: { onRetry?: () => void }) {
       <span className="text-warn/70">
         <SignalOffGlyph />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/70">Camera unavailable</p>
+      <p className="text-[0.8125rem] font-medium text-body-ink/70">Camera unavailable</p>
       {/* The second sentence used to explain that media travels direct from
           the tower rather than through coordination. True, load-bearing, and
           the reason this state exists at all — but it is our network topology,
           offered to somebody looking at a black rectangle. The fact they can
           use is the first half: the tower is fine, the picture is not. The
           topology is in the comment above this component, where it belongs. */}
-      <p className="-mt-[4px] max-w-[280px] text-center text-[0.75rem] text-white/35">
+      <p className="-mt-[4px] max-w-[280px] text-center text-[0.75rem] text-body-ink/35">
         The tower is answering, but its video isn't getting through.
       </p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white lg:text-[0.6875rem]"
+          className="mt-[4px] h-[28px] rounded-[6px] border border-overlay/12 px-[12px] text-[0.75rem] text-body-ink/70 transition-colors hover:border-overlay/25 hover:text-body-ink lg:text-[0.6875rem]"
         >
           Retry
         </button>
@@ -342,17 +342,17 @@ export function SessionEndedFallback({
   onRetry?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center gap-[10px] text-white/35">
+    <div className="flex flex-col items-center gap-[10px] text-body-ink/35">
       <CameraOffGlyph />
-      <p className="text-[0.8125rem] font-medium text-white/70">Viewing ended</p>
-      <p className="-mt-[4px] max-w-[260px] text-center text-[0.75rem] text-white/35">
+      <p className="text-[0.8125rem] font-medium text-body-ink/70">Viewing ended</p>
+      <p className="-mt-[4px] max-w-[260px] text-center text-[0.75rem] text-body-ink/35">
         {message}
       </p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white lg:text-[0.6875rem]"
+          className="mt-[4px] h-[28px] rounded-[6px] border border-overlay/12 px-[12px] text-[0.75rem] text-body-ink/70 transition-colors hover:border-overlay/25 hover:text-body-ink lg:text-[0.6875rem]"
         >
           Resume viewing
         </button>
@@ -390,17 +390,17 @@ export function ConnectingFallback({
 }) {
   return (
     <div className="flex flex-col items-center gap-[12px]">
-      <span className={reconnecting ? "text-warn/70" : "text-white/50"}>
+      <span className={reconnecting ? "text-warn/70" : "text-body-ink/50"}>
         {reconnecting ? <SignalOffGlyph /> : <Spinner />}
       </span>
       {reconnecting ? (
         <>
-          <p className="text-[0.8125rem] font-medium text-white/75">
+          <p className="text-[0.8125rem] font-medium text-body-ink/75">
             Signal lost
           </p>
           {/* No count. See the header — an invented "3 of 5" was worse than
               saying nothing, because it promised an end. */}
-          <p className="-mt-[6px] flex items-center gap-[6px] text-[0.75rem] text-white/35">
+          <p className="-mt-[6px] flex items-center gap-[6px] text-[0.75rem] text-body-ink/35">
             <span className="text-warn/70">
               <Spinner size={12} />
             </span>
@@ -409,10 +409,10 @@ export function ConnectingFallback({
         </>
       ) : (
         <>
-          <p className="text-[0.8125rem] font-medium text-white/75">
+          <p className="text-[0.8125rem] font-medium text-body-ink/75">
             Connecting…
           </p>
-          <p className="-mt-[6px] text-[0.75rem] text-white/35">
+          <p className="-mt-[6px] text-[0.75rem] text-body-ink/35">
             Establishing secure stream · {name}
           </p>
         </>
@@ -433,18 +433,18 @@ export function ErrorFallback({
       <span className="text-critical/70">
         <AlertTriangleGlyph />
       </span>
-      <p className="text-[0.8125rem] font-medium text-white/70">
+      <p className="text-[0.8125rem] font-medium text-body-ink/70">
         Stream unavailable
       </p>
       {/* The raw transport error, verbatim — never paraphrased into "oops". */}
-      <p className="-mt-[4px] font-mono text-[0.75rem] text-white/35">
+      <p className="-mt-[4px] font-mono text-[0.75rem] text-body-ink/35">
         {error}
       </p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-[4px] h-[28px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] lg:text-[0.6875rem] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          className="mt-[4px] h-[28px] rounded-[6px] border border-overlay/12 px-[12px] text-[0.75rem] lg:text-[0.6875rem] text-body-ink/70 transition-colors hover:border-overlay/25 hover:text-body-ink"
         >
           Retry
         </button>

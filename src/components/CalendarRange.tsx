@@ -81,7 +81,7 @@ export function CalendarRange({
           type="button"
           onClick={() => step(-1)}
           aria-label="Previous month"
-          className="flex size-[28px] items-center justify-center rounded-[6px] text-white/50 transition-colors hover:bg-white/8 hover:text-white"
+          className="flex size-[28px] items-center justify-center rounded-[6px] text-body-ink/50 transition-colors hover:bg-overlay/8 hover:text-body-ink"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
             <path
@@ -93,14 +93,14 @@ export function CalendarRange({
             />
           </svg>
         </button>
-        <p aria-live="polite" className="text-[0.8125rem] text-white">
+        <p aria-live="polite" className="text-[0.8125rem] text-body-ink">
           {MONTH.format(Date.UTC(view.y, view.m, 1))}
         </p>
         <button
           type="button"
           onClick={() => step(1)}
           aria-label="Next month"
-          className="flex size-[28px] items-center justify-center rounded-[6px] text-white/50 transition-colors hover:bg-white/8 hover:text-white"
+          className="flex size-[28px] items-center justify-center rounded-[6px] text-body-ink/50 transition-colors hover:bg-overlay/8 hover:text-body-ink"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
             <path
@@ -118,7 +118,7 @@ export function CalendarRange({
         {WEEKDAYS.map((w) => (
           <span
             key={w}
-            className="flex h-[24px] items-center justify-center font-display text-[0.625rem] uppercase tracking-[0.1px] text-white/30"
+            className="flex h-[24px] items-center justify-center font-display text-[0.625rem] uppercase tracking-[0.1px] text-body-ink/30"
           >
             {w}
           </span>
@@ -151,7 +151,7 @@ export function CalendarRange({
               )}
               aria-pressed={edge || inside}
               className={`relative flex h-[32px] items-center justify-center text-[0.75rem] tabular-nums transition-colors ${
-                inside ? "bg-white/10" : ""
+                inside ? "bg-overlay/10" : ""
               } ${isFrom && to ? "rounded-l-[6px]" : ""} ${
                 isTo ? "rounded-r-[6px]" : ""
               } ${isFrom && !to ? "rounded-[6px]" : ""}`}
@@ -159,10 +159,10 @@ export function CalendarRange({
               <span
                 className={`flex size-[28px] items-center justify-center rounded-[6px] transition-colors ${
                   edge
-                    ? "bg-white font-medium text-black"
+                    ? "bg-action font-medium text-action-ink"
                     : inside
-                      ? "text-white"
-                      : "text-white/70 hover:bg-white/8 hover:text-white"
+                      ? "text-body-ink"
+                      : "text-body-ink/70 hover:bg-overlay/8 hover:text-body-ink"
                 }`}
               >
                 {Number(day.slice(8, 10))}
@@ -172,7 +172,7 @@ export function CalendarRange({
               {day === today && !edge && (
                 <span
                   aria-hidden
-                  className="absolute bottom-[3px] size-[3px] rounded-full bg-white/50"
+                  className="absolute bottom-[3px] size-[3px] rounded-full bg-overlay/50"
                 />
               )}
             </button>
@@ -180,15 +180,15 @@ export function CalendarRange({
         })}
       </div>
 
-      <p className="pt-[10px] text-[0.75rem] text-white/40 tabular-nums">
+      <p className="pt-[10px] text-[0.75rem] text-body-ink/40 tabular-nums">
         {from && to ? (
           <>
-            <span className="text-white/75">{formatDayLabel(from)}</span> →{" "}
-            <span className="text-white/75">{formatDayLabel(to)}</span>
+            <span className="text-body-ink/75">{formatDayLabel(from)}</span> →{" "}
+            <span className="text-body-ink/75">{formatDayLabel(to)}</span>
           </>
         ) : from ? (
           <>
-            <span className="text-white/75">{formatDayLabel(from)}</span> — pick
+            <span className="text-body-ink/75">{formatDayLabel(from)}</span> — pick
             an end date
           </>
         ) : (

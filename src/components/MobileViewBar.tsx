@@ -41,7 +41,7 @@ export function MobileViewBar({
             onClick={() => onSelect(item.id)}
             aria-current={active ? "page" : undefined}
             className={`relative flex min-h-[56px] flex-1 flex-col items-center justify-center gap-[3px] transition-colors ${
-              active ? "text-white" : "text-[#cccccc]/55"
+              active ? "text-body-ink" : "text-sub/55"
             }`}
           >
             <span className="relative">
@@ -49,7 +49,7 @@ export function MobileViewBar({
               {/* Unread count rides the icon so a switched-away operator still
                   sees the feed is moving. */}
               {item.id === "alerts" && alertCount > 0 && (
-                <span className="absolute -right-[7px] -top-[3px] min-w-[15px] rounded-full bg-critical px-[4px] text-center font-display text-[0.75rem] leading-[15px] text-white tabular-nums">
+                <span className="absolute -right-[7px] -top-[3px] min-w-[15px] rounded-full bg-critical px-[4px] text-center font-display text-[0.75rem] leading-[15px] text-body-ink tabular-nums">
                   {alertCount > 99 ? "99+" : alertCount}
                 </span>
               )}

@@ -542,14 +542,14 @@ function SignalBars({ online, reading }: { online: boolean; reading: UplinkReadi
         : reading.grade === "fair"
           ? "bg-warn"
           : "bg-critical"
-      : "bg-white/45";
+      : "bg-overlay/45";
   return (
     <span data-bars={lit} aria-hidden className="flex h-[12px] shrink-0 items-end gap-[1.5px]">
       {[5, 8.5, 12].map((h, i) => (
         <span
           key={h}
           style={{ height: h }}
-          className={`w-[3px] rounded-[1px] ${i < lit ? tone : "bg-white/15"}`}
+          className={`w-[3px] rounded-[1px] ${i < lit ? tone : "bg-overlay/15"}`}
         />
       ))}
     </span>
@@ -571,7 +571,7 @@ function Tank({ level, tone }: { level: number; tone: string }) {
     <span
       data-level={Math.round(level * 100)}
       aria-hidden
-      className="relative block h-[14px] w-[5px] shrink-0 overflow-hidden rounded-[1.5px] bg-white/15"
+      className="relative block h-[14px] w-[5px] shrink-0 overflow-hidden rounded-[1.5px] bg-overlay/15"
     >
       <span
         style={{ height: `${Math.round(level * 100)}%` }}
@@ -597,8 +597,8 @@ function CellView({ id, cell, row }: { id: ColumnId; cell: Cell; row: Assessed }
      and the thing this is for — one site in real trouble, seen from across a
      room — stops working the moment everything moves. */
   const alarm = cell.tone === "text-critical";
-  const tone = cell.empty ? "text-white/25" : (cell.tone ?? "text-white");
-  const glyphTone = cell.empty ? "text-white/20" : (cell.tone ?? "text-white/70");
+  const tone = cell.empty ? "text-body-ink/25" : (cell.tone ?? "text-body-ink");
+  const glyphTone = cell.empty ? "text-body-ink/20" : (cell.tone ?? "text-body-ink/70");
 
   return (
     <div
@@ -624,7 +624,7 @@ function CellView({ id, cell, row }: { id: ColumnId; cell: Cell; row: Assessed }
           <span
             aria-hidden
             className={`block size-[6px] rounded-full ${
-              row.tower.online ? "bg-terra" : "bg-white/20"
+              row.tower.online ? "bg-terra" : "bg-overlay/20"
             }`}
           />
         ) : id === "power" && cell.level !== undefined ? (
@@ -795,7 +795,7 @@ function TowerRow({
                 rest of it is the part that says which yard. */}
             <span
               title={tower.site}
-              className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white"
+              className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-body-ink"
             >
               {tower.site}
             </span>
@@ -846,11 +846,11 @@ function Tally({ towers }: { towers: Tower[] }) {
           <span
             key={s}
             className={`flex items-center gap-[6px] font-display text-[0.75rem] leading-[20px] tracking-[0.12px] tabular-nums ${
-              n === 0 ? "text-white/35" : "text-sub"
+              n === 0 ? "text-body-ink/35" : "text-sub"
             }`}
           >
             <span
-              className={`size-[6px] rounded-full ${n === 0 ? "bg-white/20" : STATUS[s].dot}`}
+              className={`size-[6px] rounded-full ${n === 0 ? "bg-overlay/20" : STATUS[s].dot}`}
             />
             {n} {STATUS[s].label}
           </span>
@@ -898,7 +898,7 @@ export function TowersView({
 
       <main aria-label="Towers" className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[46px] shrink-0 items-center justify-between gap-[12px] border-b border-line pl-[16px] pr-[16px] lg:pr-[24px]">
-          <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             TOWERS
           </h1>
           {towers.length > 0 && <Tally towers={towers} />}

@@ -55,13 +55,13 @@ export function CoordinationBanner({
       transition={ENTER}
       role="alert"
       className={`relative z-200 flex shrink-0 items-start gap-[10px] overflow-hidden px-[16px] py-[10px] ${
-        bug ? "bg-critical text-white" : "bg-advice-banner text-advice-ink"
+        bug ? "bg-critical text-body-ink" : "bg-advice-banner text-advice-ink"
       }`}
     >
       <MaskIcon
         src="/icons/banner-alert.svg"
         size={20}
-        className={`mt-[1px] shrink-0 ${bug ? "text-white" : "text-advice-ink"}`}
+        className={`mt-[1px] shrink-0 ${bug ? "text-body-ink" : "text-advice-ink"}`}
       />
       <div className="flex min-w-0 flex-col gap-[2px]">
         <p className="text-[0.875rem] leading-[20px] font-medium tracking-[0.14px]">
@@ -69,7 +69,7 @@ export function CoordinationBanner({
         </p>
         <p
           className={`text-[0.8125rem] leading-[18px] ${
-            bug ? "text-white/85" : "text-advice-ink/80"
+            bug ? "text-body-ink/85" : "text-advice-ink/80"
           }`}
         >
           {problem.detail}

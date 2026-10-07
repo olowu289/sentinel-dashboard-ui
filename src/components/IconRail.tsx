@@ -71,7 +71,7 @@ export function IconRail({
       <a
         href="#"
         aria-label="Terra Sentinel — home"
-        className="absolute left-1/2 top-[6px] flex size-[39px] -translate-x-1/2 items-center justify-center rounded-[12px] transition-colors hover:bg-white/5"
+        className="absolute left-1/2 top-[6px] flex size-[39px] -translate-x-1/2 items-center justify-center rounded-[12px] transition-colors hover:bg-overlay/5"
       >
         {/* Wordless mark: 22.286 × 19.5 inside a 39px hit target. */}
         <img
@@ -113,10 +113,10 @@ export function IconRail({
                   item.id === "alerts" ? "group/bell" : ""
                 } ${
                   item.unavailable
-                    ? "text-[#cccccc]/20"
+                    ? "text-sub/20"
                     : isActive
-                      ? "text-white"
-                      : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
+                      ? "text-body-ink"
+                      : "text-sub/55 hover:bg-overlay/5 hover:text-sub"
                 }`}
               >
                 <MaskIcon
@@ -146,8 +146,8 @@ export function IconRail({
             onClick={onMore}
             className={`flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
               moreOpen
-                ? "bg-white/8 text-white"
-                : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
+                ? "bg-overlay/8 text-body-ink"
+                : "text-sub/55 hover:bg-overlay/5 hover:text-sub"
             }`}
           >
             <MaskIcon src="/icons/nav-more.svg" size={24} />
@@ -187,7 +187,7 @@ function SignOutButton() {
       onClick={() => void signOut()}
       aria-label={label}
       title={label}
-      className="flex size-[34px] items-center justify-center rounded-[8px] text-[#cccccc]/55 transition-colors hover:bg-white/5 hover:text-[#cccccc]"
+      className="flex size-[34px] items-center justify-center rounded-[8px] text-sub/55 transition-colors hover:bg-overlay/5 hover:text-sub"
     >
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
         <path

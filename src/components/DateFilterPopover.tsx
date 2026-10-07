@@ -73,15 +73,15 @@ export function DateFilterPopover({
          a neutral system and belonged to no token. Elevation is carried by the
          border and shadow, which is what separates it from the same-coloured
          clip cards behind it. */
-      className="absolute right-[15px] top-[42px] z-50 w-[320px] max-w-[calc(100vw-30px)] rounded-[12px] border border-white/10 bg-panel shadow-[0_16px_40px_rgba(0,0,0,0.7)]"
+      className="absolute right-[15px] top-[42px] z-50 w-[320px] max-w-[calc(100vw-30px)] rounded-[12px] border border-overlay/10 bg-panel shadow-[0_16px_40px_rgba(0,0,0,0.7)]"
     >
-      <div className="flex h-[44px] items-center justify-between border-b border-white/8 px-[14px]">
-        <p className="text-[0.8125rem] font-semibold text-white">Time range</p>
+      <div className="flex h-[44px] items-center justify-between border-b border-overlay/8 px-[14px]">
+        <p className="text-[0.8125rem] font-semibold text-body-ink">Time range</p>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="flex size-[22px] items-center justify-center rounded-[4px] text-white/45 transition-colors hover:bg-white/8 hover:text-white"
+          className="flex size-[22px] items-center justify-center rounded-[4px] text-body-ink/45 transition-colors hover:bg-overlay/8 hover:text-body-ink"
         >
           <svg
             width="12"
@@ -116,14 +116,14 @@ export function DateFilterPopover({
                  reads as a signal rather than a setting. */
               className={`flex h-[28px] items-center gap-[6px] rounded-full px-[10px] text-[0.75rem] transition-colors ${
                 active
-                  ? "bg-white font-medium text-black"
-                  : "bg-white/6 text-white/70 hover:bg-white/12 hover:text-white"
+                  ? "bg-action font-medium text-action-ink"
+                  : "bg-overlay/6 text-body-ink/70 hover:bg-overlay/12 hover:text-body-ink"
               }`}
             >
               {r.label}
               <span
                 className={`tabular-nums ${
-                  active ? "text-black/50" : "text-white/30"
+                  active ? "text-black/50" : "text-body-ink/30"
                 }`}
               >
                 {counts[r.id] ?? 0}
@@ -138,8 +138,8 @@ export function DateFilterPopover({
           every other date in this app is ISO or WAT wall-clock, and opens a
           picker built around the *viewer's* calendar rather than the tower's.
           On a dark operator surface it was the one light-mode object on screen. */}
-      <div className="border-t border-white/8 px-[14px] py-[12px]">
-        <p className="pb-[8px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/40">
+      <div className="border-t border-overlay/8 px-[14px] py-[12px]">
+        <p className="pb-[8px] font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-body-ink/40">
           Custom
         </p>
         <CalendarRange
@@ -150,11 +150,11 @@ export function DateFilterPopover({
         />
       </div>
 
-      <div className="flex h-[52px] items-center justify-between border-t border-white/8 px-[14px]">
+      <div className="flex h-[52px] items-center justify-between border-t border-overlay/8 px-[14px]">
         <button
           type="button"
           onClick={() => setDraft(NO_FILTER)}
-          className="text-[0.8125rem] text-white/55 transition-colors hover:text-white"
+          className="text-[0.8125rem] text-body-ink/55 transition-colors hover:text-body-ink"
         >
           Clear
         </button>
@@ -165,7 +165,7 @@ export function DateFilterPopover({
             onClose();
           }}
           disabled={!dirty}
-          className="h-[30px] rounded-[6px] bg-white px-[14px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+          className="h-[30px] rounded-[6px] bg-action px-[14px] text-[0.8125rem] font-medium text-action-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
         >
           Apply
         </button>

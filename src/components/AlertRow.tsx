@@ -48,7 +48,7 @@ export function AlertRow({
         aria-label={`${alert.id}: ${alert.title}, ${site ? `${site}, ` : ""}${when}`}
         aria-current={selected ? "true" : undefined}
         className={`-mx-[8px] flex w-[calc(100%+16px)] items-center gap-[12px] rounded-[6px] px-[8px] py-[0px] text-left transition-colors ${
-          selected ? "bg-white/6" : "hover:bg-white/4"
+          selected ? "bg-overlay/6" : "hover:bg-overlay/4"
         }`}
       >
         <img
@@ -59,7 +59,7 @@ export function AlertRow({
           className="shrink-0"
         />
         <span className="flex min-w-0 flex-1 flex-col gap-[2px] py-[1px]">
-          <span className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          <span className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             {alert.title}
           </span>
           {/* Site and time on one line, the site first: on a fleet feed the

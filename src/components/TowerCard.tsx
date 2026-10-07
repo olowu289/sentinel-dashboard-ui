@@ -36,7 +36,7 @@ const SOLAR_LABEL = {
    every tower forever, which is the same trap the old telemetry row fell into. */
 const SOLAR_TONE = {
   charging: "text-warn",
-  idle: "text-white/45",
+  idle: "text-body-ink/45",
   fault: "text-critical",
 } as const;
 
@@ -51,7 +51,7 @@ function tempTone(c: number) {
     ? "text-critical"
     : c >= CABINET_WARN_C
       ? "text-warn"
-      : "text-[#cccccc]";
+      : "text-sub";
 }
 
 export function TowerCard({
@@ -217,7 +217,7 @@ export function TowerCard({
         aria-hidden
         className="pointer-events-none absolute left-[15px] right-[80px] top-[13px] flex flex-col gap-[4px]"
       >
-        <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white">
+        <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-body-ink">
           {tower.site}
         </span>
         <span className="flex items-center gap-[4px]">
@@ -293,10 +293,10 @@ export function TowerCard({
               hairlines. What only the pack reports goes on a second line rather
               than stretching this one past the card it sits on. */}
           <span className="flex h-[32px] items-center">
-          <span className="flex items-center gap-[6px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/78">
+          <span className="flex items-center gap-[6px] border-r border-overlay/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-body-ink/78">
             {/* Only while it is actually taking charge. An idle or faulted
                 array is a still sun, which is the reading. */}
-            <span className={solar !== undefined ? SOLAR_TONE[solar] : "text-white/45"}>
+            <span className={solar !== undefined ? SOLAR_TONE[solar] : "text-body-ink/45"}>
               <MaskIcon
                 src="/icons/twr-solar.svg"
                 size={16}
@@ -315,7 +315,7 @@ export function TowerCard({
           </span>
 
           {hasTemp && (
-            <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+            <span className="flex items-center gap-[8px] border-r border-overlay/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-sub tabular-nums">
               <span className={tempTone(tempC!)}>
                 <MaskIcon src="/icons/twr-temp.svg" size={16} />
               </span>
@@ -324,7 +324,7 @@ export function TowerCard({
           )}
 
           {hasBattery ? (
-            <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+            <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-sub tabular-nums">
               {/* 19.2 in a 16 box, as the frame draws it — the glyph is bled to
                   its own edges where the other two carry a margin. */}
               <span className="flex size-[16px] items-center">
@@ -340,14 +340,14 @@ export function TowerCard({
             /* A battery IS fitted and the tower could not reach it. Saying "NO
                CABINET READINGS" here would deny the hardware exists; showing the
                last charge would be worse. So: the glyph unlit, and the word. */
-            <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-white/45">
+            <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-body-ink/45">
               <span className="flex size-[16px] items-center">
                 <MaskIcon src="/icons/twr-battery.svg" size={19.2} />
               </span>
               UNREACHABLE
             </span>
           ) : (
-            <span className="px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] tracking-[0.12px] whitespace-nowrap text-white/45">
+            <span className="px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] tracking-[0.12px] whitespace-nowrap text-body-ink/45">
               NO CABINET READINGS
             </span>
           )}
@@ -370,12 +370,12 @@ export function TowerCard({
               and current have no tier in this app, and a hue here would be a
               claim about health that nothing has measured. */}
           {(reportedBattery?.voltageV !== undefined || currentAmps !== undefined) && (
-            <span className="flex h-[32px] items-center border-t border-white/7">
+            <span className="flex h-[32px] items-center border-t border-overlay/7">
               {reportedBattery?.voltageV !== undefined && (
-                <span className="flex items-center gap-[8px] border-r border-white/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+                <span className="flex items-center gap-[8px] border-r border-overlay/7 px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-sub tabular-nums">
                   {/* The app's one electrical glyph, and the settings panel
                       already spends it on this pack. */}
-                  <span className="text-white/45">
+                  <span className="text-body-ink/45">
                     <MaskIcon src="/icons/set-bolt.svg" size={16} />
                   </span>
                   {reportedBattery.voltageV} V
@@ -383,7 +383,7 @@ export function TowerCard({
               )}
 
               {currentAmps !== undefined && (
-                <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-[#cccccc] tabular-nums">
+                <span className="flex items-center gap-[8px] px-[8px] py-[6px] font-display text-[0.75rem] leading-[20px] font-bold tracking-[0.12px] whitespace-nowrap text-sub tabular-nums">
                   {/* The PTZ pad's arrow, turned to where the charge is
                       actually going: up into the pack, down out of it, flat
                       while it rests. The rotation IS the reading, taken from
@@ -391,7 +391,7 @@ export function TowerCard({
                       with the word beside it — and it breathes on the sun's own
                       2s heartbeat while charge is going in, which is the
                       vocabulary this panel already speaks. */}
-                  <span className="text-white/45">
+                  <span className="text-body-ink/45">
                     <MaskIcon
                       src="/icons/ptz-arrow.svg"
                       size={16}
@@ -406,7 +406,7 @@ export function TowerCard({
                   </span>
                   {currentAmps}
                   {flow !== undefined && (
-                    <span className="text-white/45">{flow.toUpperCase()}</span>
+                    <span className="text-body-ink/45">{flow.toUpperCase()}</span>
                   )}
                 </span>
               )}
@@ -426,7 +426,7 @@ export function TowerCard({
           onClick={onOpen}
           aria-label={`Open ${tower.id} camera wall`}
           title="Open camera wall"
-          className="flex size-[16px] items-center justify-center text-white/80 transition-colors hover:text-white"
+          className="flex size-[16px] items-center justify-center text-body-ink/80 transition-colors hover:text-body-ink"
         >
           <MaskIcon src="/icons/card-clips.svg" size={16} />
         </button>
@@ -438,7 +438,7 @@ export function TowerCard({
           onClick={onOpenAlerts}
           aria-label={`Open ${tower.id} alerts — ${alertsLabel}`}
           title={`Open alerts (${alertsLabel})`}
-          className="flex items-center gap-[3px] text-[0.75rem] leading-[15px] font-medium tracking-[0.12px] text-white transition-colors tabular-nums hover:text-white/70"
+          className="flex items-center gap-[3px] text-[0.75rem] leading-[15px] font-medium tracking-[0.12px] text-body-ink transition-colors tabular-nums hover:text-body-ink/70"
         >
           <MaskIcon src="/icons/card-recent.svg" size={16} />
           {alertCount > 99 ? "99+" : `${alertCount}+`}
@@ -463,7 +463,7 @@ export function TowerCard({
           <button
             type="button"
             onClick={onOpenAlerts}
-            className="min-w-0 flex-1 truncate text-left text-[0.8125rem] leading-[20px] tracking-[0.13px] text-alert-ink transition-colors hover:text-white"
+            className="min-w-0 flex-1 truncate text-left text-[0.8125rem] leading-[20px] tracking-[0.13px] text-alert-ink transition-colors hover:text-body-ink"
           >
             Alert raised by {latest.source}, {formatRelative(latest.at)}.
           </button>
@@ -472,7 +472,7 @@ export function TowerCard({
             onClick={onDismissNotice}
             aria-label={`Dismiss ${tower.id} alert notice — ${alertsLabel} remain`}
             title="Dismiss"
-            className="flex size-[16px] shrink-0 items-center justify-center text-white/70 transition-colors hover:text-white"
+            className="flex size-[16px] shrink-0 items-center justify-center text-body-ink/70 transition-colors hover:text-body-ink"
           >
             <MaskIcon src="/icons/card-close.svg" size={16} />
           </button>

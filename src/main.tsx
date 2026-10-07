@@ -4,7 +4,20 @@ import { SentinelApp } from "./App";
 import { AuthGate } from "./components/AuthGate";
 import { AuthProvider } from "./components/AuthProvider";
 import { loadSiteConfig } from "./lib/siteConfig";
+import { applyStoredTheme } from "./lib/theme";
 import "./index.css";
+
+/* THE THEME, BEFORE ANYTHING RENDERS.
+   First statement in the file for a reason: it sets `data-theme` on <html>, and
+   every frame drawn before it runs is drawn in the default (dark). A light-mode
+   viewer would see a dark flash, and the later this runs the longer that flash
+   is. Synchronous and cannot throw — `lib/theme.ts` swallows a blocked
+   localStorage and falls back to dark.
+
+   The usual zero-flash trick is an inline <script> in index.html. Not available
+   here: the CSP is `script-src 'self'` with no 'unsafe-inline', and widening a
+   real protection for a cosmetic flash is the wrong trade. */
+applyStoredTheme();
 
 /* ADOPT THE HUB'S TIMEZONE BEFORE THE FIRST RENDER IS ASKED TO SHOW A TIME.
    Fired here rather than awaited: a hub that is slow or unreachable must not delay

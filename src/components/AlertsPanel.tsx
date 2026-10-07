@@ -138,7 +138,7 @@ export function AlertsPanel({
             className={`flex size-[24px] items-center justify-center rounded-[4.364px] transition-colors ${
               filtered || pickerOpen
                 ? "text-terra"
-                : "text-white/70 hover:text-white"
+                : "text-body-ink/70 hover:text-body-ink"
             }`}
           >
             <MaskIcon src="/icons/calendar.svg" size={20} />
@@ -152,7 +152,7 @@ export function AlertsPanel({
               onClick={onCollapse}
               aria-label="Collapse alerts panel"
               title="Collapse alerts"
-              className="hidden size-[24px] items-center justify-center rounded-[4.364px] text-white/70 transition-colors hover:text-white lg:flex"
+              className="hidden size-[24px] items-center justify-center rounded-[4.364px] text-body-ink/70 transition-colors hover:text-body-ink lg:flex"
             >
               <MaskIcon src="/icons/panel-collapse.svg" size={20} />
             </button>
@@ -197,7 +197,7 @@ export function AlertsPanel({
               </svg>
             </button>
           </span>
-          <span className="text-[0.75rem] text-white/35 tabular-nums">
+          <span className="text-[0.75rem] text-body-ink/35 tabular-nums">
             {visible.length} of {alerts.length}
           </span>
         </div>

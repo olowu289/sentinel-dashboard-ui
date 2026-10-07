@@ -28,13 +28,13 @@ const DOT: Record<FeedState, string> = {
   live: "bg-terra",
   delayed: "bg-warn",
   frozen: "bg-warn",
-  connecting: "bg-white/45",
-  offline: "bg-white/45",
+  connecting: "bg-overlay/45",
+  offline: "bg-overlay/45",
   /* Grey, with the dead states. Not green, obviously — but not amber either:
      amber is a reading (degraded, a detection), and this is the absence of one.
      A tower that has never reported is not in a degraded condition; it is a
      tower we cannot speak for. */
-  unknown: "bg-white/45",
+  unknown: "bg-overlay/45",
 };
 
 /**
@@ -77,7 +77,7 @@ function stateLabel(state: FeedState, name: string, elapsedSec?: number): string
 }
 
 function latencyTone(ms: number) {
-  if (ms < 80) return "text-white";
+  if (ms < 80) return "text-body-ink";
   if (ms < 250) return "text-warn";
   return "text-critical";
 }
@@ -125,7 +125,7 @@ export function FeedChip({
             animated ? "pulse-dot" : ""
           }`}
         />
-        <p className="truncate font-display text-[0.875rem] tracking-[0.14px] whitespace-nowrap text-white tabular-nums">
+        <p className="truncate font-display text-[0.875rem] tracking-[0.14px] whitespace-nowrap text-body-ink tabular-nums">
           {stateLabel(state, name, elapsedSec)}
         </p>
       </div>
@@ -134,7 +134,7 @@ export function FeedChip({
         <>
           <span
             aria-hidden
-            className="size-[3px] shrink-0 rounded-full bg-white/40"
+            className="size-[3px] shrink-0 rounded-full bg-overlay/40"
           />
           <div className="flex shrink-0 items-center gap-[6px]">
             <p

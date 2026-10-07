@@ -143,7 +143,7 @@ export function LoginView() {
       <header className="flex h-[46px] shrink-0 items-center border-b border-line pl-[16px]">
         <span className="flex items-center gap-[8px]">
           <img src="/icons/logo.svg" alt="" width={22.286} height={19.5} className="block" />
-          <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             TERRA SENTINEL
           </span>
         </span>
@@ -166,7 +166,7 @@ export function LoginView() {
 
           <div className="flex w-full flex-col gap-[26px]">
             <div className="flex flex-col items-center gap-[6px] text-center">
-              <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-white">
+              <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-body-ink">
                 SIGN IN
               </h1>
               <p className="text-[0.875rem] leading-[20px] text-sub/80">
@@ -216,7 +216,7 @@ export function LoginView() {
                   spellCheck={false}
                   aria-invalid={rejected || undefined}
                   placeholder="Terra Industries"
-                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-white/40 ${
+                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />
@@ -240,7 +240,7 @@ export function LoginView() {
                   disabled={pending}
                   autoComplete="current-password"
                   aria-invalid={rejected || undefined}
-                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white outline-none focus-visible:outline-1 focus-visible:outline-terra disabled:text-white/40 ${
+                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />
@@ -279,7 +279,7 @@ export function LoginView() {
               onClick={() => void submit()}
               disabled={!canSubmit}
               aria-busy={pending || undefined}
-              className="h-[57px] w-full rounded-[8px] bg-white text-[1rem] leading-[20px] font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/25 disabled:text-black/40"
+              className="h-[57px] w-full rounded-[8px] bg-action text-[1rem] leading-[20px] font-medium text-action-ink transition-colors hover:bg-overlay/90 disabled:cursor-not-allowed disabled:bg-overlay/25 disabled:text-action-ink/40"
             >
               {pending ? "SIGNING IN…" : "SIGN IN"}
             </button>

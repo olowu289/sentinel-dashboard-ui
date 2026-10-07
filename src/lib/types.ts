@@ -435,6 +435,19 @@ export interface CameraFeed {
   /** Optical class, straight from the projection. */
   lens?: "ptz" | "fixed";
   /**
+   * The customer's own name for this camera, when they have set one.
+   *
+   * ABSENT when they have not — which is the state `name` papers over by
+   * falling back to `CAMERA <index>`. The settings screen needs the difference
+   * (an input with a value, versus an input with a placeholder), so the raw
+   * label is carried alongside rather than folded in.
+   *
+   * Stored on the DC per (account, device, index), not on the tower: the tower
+   * has no notion of what a customer calls its cameras, and two accounts that
+   * ever shared hardware must not share names.
+   */
+  label?: string;
+  /**
    * The stream profiles this camera can be opened at, default first.
    *
    * ⚠ ABSENT MEANS THE TOWER SAID NOTHING — not that there is one profile. An

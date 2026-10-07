@@ -197,12 +197,12 @@ export function ControlStack({
                cost the operator's attention until it is silenced. */
             className={`chip-blur relative flex size-[32px] items-center justify-center rounded-[5.818px] ${TRANSITION} ${
               alarm
-                ? "bg-critical text-white"
+                ? "bg-critical text-body-ink"
                 : critical
                   ? "bg-black/45 text-critical hover:bg-black/65"
                   : c.active
-                    ? "bg-white/20 text-white"
-                    : "bg-black/45 text-white hover:bg-black/65"
+                    ? "bg-overlay/20 text-body-ink"
+                    : "bg-black/45 text-body-ink hover:bg-black/65"
             } ${c.persistent ? "" : REVEAL} ${
               c.disabled ? "cursor-not-allowed" : ""
             } ${
@@ -234,7 +234,7 @@ export function ControlStack({
             {c.badge && (
               <span
                 aria-hidden
-                className="chip-blur pointer-events-none absolute right-full mr-[6px] whitespace-nowrap rounded-[4px] bg-black/55 px-[5px] py-[1px] font-mono text-[10px] leading-[14px] tracking-tight text-white tabular-nums"
+                className="chip-blur pointer-events-none absolute right-full mr-[6px] whitespace-nowrap rounded-[4px] bg-black/55 px-[5px] py-[1px] font-mono text-[10px] leading-[14px] tracking-tight text-body-ink tabular-nums"
               >
                 {c.badge}
               </span>

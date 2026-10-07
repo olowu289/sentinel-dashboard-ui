@@ -16,7 +16,7 @@ export function AlertsEmpty({
 }) {
   return (
     <div className="flex min-h-[220px] flex-1 flex-col items-center justify-center px-[24px] text-center">
-      <span className="flex size-[40px] items-center justify-center rounded-[12px] border border-white/6 bg-white/4 text-white/35">
+      <span className="flex size-[40px] items-center justify-center rounded-[12px] border border-overlay/6 bg-overlay/4 text-body-ink/35">
         {filtered ? (
           <svg
             width="20"
@@ -57,10 +57,10 @@ export function AlertsEmpty({
         )}
       </span>
 
-      <p className="mt-[16px] text-[0.9375rem] font-medium text-white/85">
+      <p className="mt-[16px] text-[0.9375rem] font-medium text-body-ink/85">
         {filtered ? "No alerts match these filters" : "All clear"}
       </p>
-      <p className="mt-[6px] max-w-[280px] text-[0.8125rem] leading-[1.5] text-white/40">
+      <p className="mt-[6px] max-w-[280px] text-[0.8125rem] leading-[1.5] text-body-ink/40">
         {filtered
           ? "Nothing was detected in the selected range."
           : "No alerts in the last 24 hours. Detections will appear here in real time."}
@@ -70,7 +70,7 @@ export function AlertsEmpty({
         <button
           type="button"
           onClick={onClearFilters}
-          className="mt-[16px] h-[30px] rounded-[6px] border border-white/12 px-[12px] text-[0.75rem] text-white/70 transition-colors hover:border-white/25 hover:text-white"
+          className="mt-[16px] h-[30px] rounded-[6px] border border-overlay/12 px-[12px] text-[0.75rem] text-body-ink/70 transition-colors hover:border-overlay/25 hover:text-body-ink"
         >
           Clear filters
         </button>

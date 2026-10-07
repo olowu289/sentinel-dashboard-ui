@@ -435,7 +435,7 @@ export function CameraSettingsPanel({
           type="button"
           onClick={() => (open ? setOpen(null) : onClose())}
           aria-label={open ? "Collapse this setting" : "Close tower settings"}
-          className="flex size-[24px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+          className="flex size-[24px] shrink-0 items-center justify-center text-body-ink transition-colors hover:text-muted"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
             <path
@@ -447,14 +447,14 @@ export function CameraSettingsPanel({
             />
           </svg>
         </button>
-        <h2 className="ml-[12px] min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <h2 className="ml-[12px] min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           TOWER SETTINGS
         </h2>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close tower settings"
-          className="ml-auto flex size-[24px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+          className="ml-auto flex size-[24px] shrink-0 items-center justify-center text-body-ink transition-colors hover:text-muted"
         >
           <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden>
             <path
@@ -966,7 +966,7 @@ function TowerName({
         aria-label="Tower name"
         /* The failed field wears the ring, as the serial and pairing-code step
            already does — the error text below says why, and this says which. */
-        className={`w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra ${errorRing(phase)}`}
+        className={`w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-body-ink uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra ${errorRing(phase)}`}
       />
     );
   }
@@ -983,7 +983,7 @@ function TowerName({
         title={saving ? "Saving this name…" : "Rename this tower"}
         /* A text cursor, because what happens on click is that you start typing.
            The default arrow says "this does something"; the caret says what. */
-        className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-white transition-colors hover:bg-card disabled:cursor-wait disabled:text-muted"
+        className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-body-ink transition-colors hover:bg-card disabled:cursor-wait disabled:text-muted"
       >
         {name}
       </button>
@@ -1031,11 +1031,11 @@ const LABEL = "text-[0.875rem] leading-[18px] tracking-[0.14px] text-muted";
 /* The value's type, WITHOUT a colour. A reading that carries a tone must carry
    only that one: two colour utilities on one element is one `color`
    declaration, and the stylesheet — not the class list — decides which wins.
-   `text-white` is emitted after every status colour, so for as long as the two
+   `text-body-ink` is emitted after every status colour, so for as long as the two
    were written side by side every tone on this panel rendered white: the
    uplink's Great/Fair/Poor, "Not connected", the storage warning. */
 const VALUE_TYPE = "text-[0.875rem] leading-[18px] font-medium tracking-[0.14px]";
-const VALUE = `${VALUE_TYPE} text-white`;
+const VALUE = `${VALUE_TYPE} text-body-ink`;
 
 /* The export points left. Figma composes it with a vertical flip and a half
    turn, which together are a horizontal flip — so the raw asset is the mirror
@@ -1235,7 +1235,7 @@ function RowReading({
       <span className={LABEL}>{label}</span>
       <span className="flex min-w-0 items-center gap-[6px]">
         {/* One colour class, never two — see VALUE_TYPE. */}
-        <span className={`truncate ${VALUE_TYPE} ${tone ?? "text-white"} tabular-nums`}>
+        <span className={`truncate ${VALUE_TYPE} ${tone ?? "text-body-ink"} tabular-nums`}>
           {value || "Not reported"}
         </span>
         {icon && <img src={icon} alt="" width={16} height={16} className="block shrink-0" />}
@@ -1249,7 +1249,7 @@ function RowReading({
             type="button"
             disabled
             title={`${action} — not available yet`}
-            className="shrink-0 text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-terra transition-colors hover:text-white disabled:text-white/30 disabled:hover:text-white/30"
+            className="shrink-0 text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-terra transition-colors hover:text-body-ink disabled:text-body-ink/30 disabled:hover:text-body-ink/30"
           >
             {action}
           </button>
@@ -1468,10 +1468,10 @@ function StreamChoice({
                   picked ? "bg-panel" : "hover:bg-panel/60"
                 }`}
               >
-                <span className="flex items-center gap-[8px] text-[0.875rem] text-white">
+                <span className="flex items-center gap-[8px] text-[0.875rem] text-body-ink">
                   <span
                     aria-hidden
-                    className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-white" : "bg-white/20"}`}
+                    className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-action" : "bg-overlay/20"}`}
                   />
                   {profileLabel(p)}
                 </span>
@@ -1513,10 +1513,10 @@ function Choices<T extends string | number>({
               picked ? "bg-panel" : "hover:bg-panel/60"
             }`}
           >
-            <span className="flex items-center gap-[8px] text-[0.875rem] text-white">
+            <span className="flex items-center gap-[8px] text-[0.875rem] text-body-ink">
               <span
                 aria-hidden
-                className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-white" : "bg-white/20"}`}
+                className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-action" : "bg-overlay/20"}`}
               />
               {o.label}
             </span>
@@ -1551,12 +1551,12 @@ function Switch({
       aria-label={label}
       onClick={onToggle}
       className={`flex h-[22px] w-[38px] shrink-0 items-center rounded-full px-[3px] transition-colors ${
-        on ? "bg-white" : "bg-stroke"
+        on ? "bg-action" : "bg-stroke"
       }`}
     >
       <span
         className={`size-[16px] rounded-full transition-transform ${
-          on ? "translate-x-[16px] bg-black" : "bg-white/70"
+          on ? "translate-x-[16px] bg-black" : "bg-overlay/70"
         }`}
       />
     </button>
@@ -1620,7 +1620,7 @@ function ZoneEditor({
           type="button"
           onClick={onDone}
           aria-label="Back to camera settings"
-          className="flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-muted transition-colors hover:text-white"
+          className="flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-muted transition-colors hover:text-body-ink"
         >
           <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
             <path
@@ -1632,7 +1632,7 @@ function ZoneEditor({
             />
           </svg>
         </button>
-        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           ACTIVITY ZONES
         </h2>
       </header>
@@ -1649,8 +1649,8 @@ function ZoneEditor({
               aria-pressed={f.id === feedId}
               className={`h-[34px] flex-1 truncate rounded-[8px] px-[10px] text-[0.8125rem] font-medium transition-colors ${
                 f.id === feedId
-                  ? "bg-white text-black"
-                  : "bg-card text-white hover:bg-card-hover"
+                  ? "bg-action text-action-ink"
+                  : "bg-card text-body-ink hover:bg-card-hover"
               }`}
             >
               {f.name}
@@ -1770,7 +1770,7 @@ function ZoneEditor({
                 key={z.id}
                 className="flex h-[44px] items-center justify-between gap-[12px] rounded-[8px] bg-card px-[14px]"
               >
-                <span className="flex items-center gap-[10px] text-[0.875rem] text-white">
+                <span className="flex items-center gap-[10px] text-[0.875rem] text-body-ink">
                   <span
                     aria-hidden
                     className="size-[10px] rounded-[2px] border border-detect bg-detect/20"
@@ -1780,7 +1780,7 @@ function ZoneEditor({
                 <button
                   type="button"
                   onClick={() => setMine(mine.filter((o) => o.id !== z.id))}
-                  className="text-[0.8125rem] font-medium text-critical transition-colors hover:text-white"
+                  className="text-[0.8125rem] font-medium text-critical transition-colors hover:text-body-ink"
                 >
                   Remove
                 </button>

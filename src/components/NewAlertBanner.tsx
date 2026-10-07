@@ -37,12 +37,12 @@ export function NewAlertBanner({
       <MaskIcon
         src="/icons/banner-alert.svg"
         size={24}
-        className="shrink-0 text-white"
+        className="shrink-0 text-body-ink"
       />
 
       {/* One sentence, then the action inline — an operator reads the what
           before deciding whether to leave the wall for it. */}
-      <p className="min-w-0 truncate text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+      <p className="min-w-0 truncate text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
         {alert.title}, {formatRelative(alert.at)}.{" "}
         <button
           type="button"
@@ -58,7 +58,7 @@ export function NewAlertBanner({
         onClick={onDismiss}
         aria-label="Dismiss alert notification"
         title="Dismiss"
-        className="ml-auto mr-[10px] flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-white/90 transition-colors hover:text-white"
+        className="ml-auto mr-[10px] flex size-[24px] shrink-0 items-center justify-center rounded-[4px] text-body-ink/90 transition-colors hover:text-body-ink"
       >
         <MaskIcon src="/icons/banner-close.svg" size={20} />
       </button>

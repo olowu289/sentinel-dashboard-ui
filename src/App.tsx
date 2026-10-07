@@ -5,6 +5,13 @@ import { AlertsView } from "@/components/AlertsView";
 import { PlaybackView } from "@/components/PlaybackView";
 import { useSession } from "@/components/AuthProvider";
 import { can, navAllowed } from "@/lib/features";
+import {
+  clearSection,
+  sectionFromHash,
+  subscribeToSettingsHash,
+  writeSection,
+  type SettingsSection,
+} from "@/lib/settingsRoute";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { SettingsView } from "@/components/SettingsView";
@@ -401,6 +408,18 @@ export function SentinelApp() {
      the others rather than a modal, because a forced re-login lands on the sign-in
      screen and a modal would have had to survive the app unmounting under it. */
   const [onSettings, setOnSettings] = useState(false);
+  /**
+   * Which Settings section is open, and the ONE piece of this app's state that
+   * lives in the URL.
+   *
+   * Seeded from the hash SYNCHRONOUSLY, in the initialiser rather than an
+   * effect, so a pasted `#settings/cameras` renders Cameras on the first frame
+   * instead of flashing Account. `lib/settingsRoute.ts` explains why it is a
+   * hash and not a path.
+   */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(
+    () => sectionFromHash() ?? "account",
+  );
 
   /* Which fleet tiles are on screen, settled rather than instantaneous.
      The hysteresis and the reasoning for it are in `useVisibleTiles`.
@@ -796,6 +815,46 @@ export function SentinelApp() {
      the screens, not to the screens. Add a destination here and every rail
      picks it up; wire it in a view and only that view will have it. */
 
+
+  /**
+   * The URL, in both directions.
+   *
+   * ON LOAD: a link to `#settings/cameras` must OPEN Settings, not merely be
+   * remembered — otherwise the link does nothing for the person who was sent
+   * it, which is the whole point of having one.
+   *
+   * ON hashchange: back, forward, or a second paste into the same tab. `null`
+   * means the hash stopped naming Settings, so the screen CLOSES — leaving it
+   * open would make the back button appear broken.
+   *
+   * ⚠ GATED ON THE FEATURE. A pasted settings link must not open a screen this
+   * account may not have; `navAllowed` is the same check the rail and the
+   * router use, so a URL cannot be the one way past the gate.
+   */
+  useEffect(() => {
+    const open = (next: SettingsSection | null) => {
+      if (next === null) {
+        setOnSettings(false);
+        return;
+      }
+      if (!navAllowed(features, "settings")) return;
+      setSettingsSection(next);
+      setOnSettings(true);
+    };
+    /* The initial read, for a cold load on a deep link. The state initialiser
+       above already has the section; this is what OPENS the screen. */
+    open(sectionFromHash());
+    return subscribeToSettingsHash(open);
+  }, [features]);
+
+  /* Keep the URL in step with the screen. Writing it here rather than in the
+     click handlers means every route INTO Settings — the rail, a pasted link,
+     the back button — ends with the address bar telling the truth, instead of
+     each caller having to remember to update it. */
+  useEffect(() => {
+    if (onSettings) writeSection(settingsSection);
+    else clearSection();
+  }, [onSettings, settingsSection]);
 
   const navigate = useCallback(
     (id: string) => {
@@ -1508,6 +1567,8 @@ export function SentinelApp() {
         <SettingsView
           onNavigate={navigate}
           onBack={() => setOnSettings(false)}
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
           towers={towers}
           feeds={feeds}
           /* A renamed camera comes straight back up here. The server returns

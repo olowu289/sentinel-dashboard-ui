@@ -175,7 +175,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       subscribeToSession((session, reason) => {
-        if (session) return;
+        if (session) {
+          /* A session ARRIVING or being REPLACED. This used to `return`
+             immediately, which was right while the only writer was sign-in (the
+             sign-in path sets `account` itself). It is not right now that a
+             rename replaces the stored account block: without this, the app
+             keeps showing the OLD organization name until a reload, including
+             on everything it stamps as authored. */
+          setAccount(session.account);
+          return;
+        }
         setAccount(null);
         if (reason && reason !== "logged_out") {
           setEndedReason(reason);

@@ -6,6 +6,7 @@ import { PlaybackView } from "@/components/PlaybackView";
 import { useSession } from "@/components/AuthProvider";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
+import { SettingsView } from "@/components/SettingsView";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
@@ -372,6 +373,10 @@ export function SentinelApp() {
      checking what happened a minute ago comes back to a wall that never
      stopped, however long the minute was. */
   const [onPlayback, setOnPlayback] = useState(false);
+  /* Account settings — the organization's own name and password. A screen like
+     the others rather than a modal, because a forced re-login lands on the sign-in
+     screen and a modal would have had to survive the app unmounting under it. */
+  const [onSettings, setOnSettings] = useState(false);
 
   /* Which fleet tiles are on screen, settled rather than instantaneous.
      The hysteresis and the reasoning for it are in `useVisibleTiles`.
@@ -386,7 +391,8 @@ export function SentinelApp() {
      previous render's value, which is one render too late — the tiles detach
      in the very commit the flag flips. */
   const wallOffScreen =
-    onPlayback || onAlerts || onPeople || adding || onTowers || open !== null;
+    onPlayback || onAlerts || onPeople || adding || onTowers || onSettings
+    || open !== null;
   const { observe: observeTile, visible: visibleTiles } =
     useVisibleTiles(wallOffScreen);
 
@@ -507,7 +513,7 @@ export function SentinelApp() {
      no live camera, so they attach nothing and whatever the wall held idles
      behind them. */
   const attachedTargets: PlaybackTarget[] =
-    seededFleet || onAlerts || onPeople || adding || onTowers
+    seededFleet || onAlerts || onPeople || adding || onTowers || onSettings
       ? []
       : open !== null
         ? towerTargets
@@ -775,12 +781,25 @@ export function SentinelApp() {
         setOnTowers(false);
         backToBoard.current = false;
       }
+      /* Every destination leaves Settings. It is not layered over anything the
+         way Playback is, and a settings screen that survived navigating away
+         would keep a half-typed password in state behind another view. */
+      if (id !== "settings") setOnSettings(false);
       if (id === "dashboard") {
         setOnPlayback(false);
         setOnPeople(false);
         setAdding(false);
         setOnAlerts(false);
         show(null);
+        return;
+      }
+      if (id === "settings") {
+        setOnPlayback(false);
+        setOnPeople(false);
+        setAdding(false);
+        setOnAlerts(false);
+        show(null);
+        setOnSettings(true);
         return;
       }
       if (id === "add") {
@@ -830,11 +849,6 @@ export function SentinelApp() {
         show(null);
         setOnTowers(true);
       }
-      /* `settings` deliberately has no branch: there is no account-level
-         settings screen, so the rail draws that item disabled rather than
-         letting it reach here and fall off the end silently. If one is ever
-         built, clear `unavailable` in `IconRail`'s NAV and add the branch —
-         both, or the item lights up and still goes nowhere. */
     },
     [show],
   );
@@ -1447,7 +1461,12 @@ export function SentinelApp() {
           )}
         </AnimatePresence>
         <div className="min-h-0 flex-1">
-      {onPlayback ? (
+      {onSettings ? (
+        <SettingsView
+          onNavigate={navigate}
+          onBack={() => setOnSettings(false)}
+        />
+      ) : onPlayback ? (
         <PlaybackView
           towers={towers}
           feeds={feeds}

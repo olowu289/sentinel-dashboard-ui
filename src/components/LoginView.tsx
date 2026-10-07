@@ -185,9 +185,11 @@ export function LoginView() {
                 role="status"
                 className="rounded-[8px] bg-warn/12 px-[14px] py-[12px] text-[0.8125rem] leading-[20px] text-warn"
               >
-                {endedReason === "revoked"
-                  ? "Your session was ended elsewhere. Sign in again to continue."
-                  : "Your session ended. Sign in again to continue."}
+                {endedReason === "password_changed"
+                  ? "Your password was changed. Sign in with the new one."
+                  : endedReason === "revoked"
+                    ? "Your session was ended elsewhere. Sign in again to continue."
+                    : "Your session ended. Sign in again to continue."}
                 {account ? ` (${account.login})` : ""}
               </motion.p>
             )}

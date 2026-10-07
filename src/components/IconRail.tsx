@@ -30,16 +30,13 @@ const NAV: {
      footage, and that is what it says. Events can sit on top of it later, when
      something is actually finding them. */
   { id: "playback", label: "Playback", icon: "/icons/clip-play.svg" },
-  /* No settings screen exists — the shell's router has no branch for it and
-     the frame never drew one. Per-tower settings DO exist and are reached from
-     the tower bar; what is missing is the account-level screen this glyph
-     implies. */
-  {
-    id: "settings",
-    label: "Settings",
-    icon: "/icons/nav-settings.svg",
-    unavailable: true,
-  },
+  /* Account settings: the organization's own name and password. Per-tower
+     settings are a different thing and are still reached from the tower bar.
+     This item was `unavailable` until the screen existed — cleared here AND
+     given a branch in `App.tsx`'s `navigate`, which is both halves of the note
+     that used to live here. One without the other is an item that lights up
+     and goes nowhere. */
+  { id: "settings", label: "Settings", icon: "/icons/nav-settings.svg" },
 ];
 
 export function IconRail({

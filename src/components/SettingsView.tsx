@@ -93,6 +93,25 @@ function failureFor(err: unknown): Failure {
     return { field: "form", message: err.message, tone: "warn" };
   }
   if (err instanceof AuthUnreachableError) {
+    /* ⚠ ONE REASON NEEDS ITS OWN SENTENCE HERE. `AuthUnreachableError` builds
+       its message from a table written for the SIGN-IN screen, and for
+       `no_endpoint` that sentence is "Signing in isn't available right now" —
+       which is both wrong and alarming on a page reached by somebody who is
+       already signed in.
+
+       And it is not a hypothetical: `no_endpoint` is exactly what a 404 or a 501
+       from these routes produces, which is what coordination answers while it is
+       still a version behind this dashboard. That is a real deployment window —
+       the data centre is updated separately from Vercel — so it is the message
+       most likely to be read in anger. Everything else in that table is about
+       reachability and says the right thing on either screen. */
+    if (err.reason === "no_endpoint") {
+      return {
+        field: "form",
+        message: "Changing this isn't available yet. Please try again later.",
+        tone: "warn",
+      };
+    }
     return { field: "form", message: err.message, tone: "warn" };
   }
   /* Not one of ours, so its message was written for a developer and may be

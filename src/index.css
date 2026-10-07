@@ -177,6 +177,12 @@
   --color-overlay: #ffffff;
   --color-action: #ffffff;
   --color-action-ink: #000000;
+  /* Ink on the CRITICAL fill. Declared in both palettes with the SAME value,
+     which is the point: `bg-critical` keeps its colour in light mode, so its
+     ink must not invert with the theme. The same rule `alert-ink` and
+     `advice-ink` follow — stated as a token so it is visible in the palette
+     rather than as a comment on one button. */
+  --color-critical-ink: #ffffff;
 
   /* Type — self-hosted woff2, see the @font-face block above. */
   --font-display: Quantico, ui-monospace, monospace;
@@ -256,6 +262,7 @@
   --color-overlay: #0b1220;      /* black over light, where dark used white */
   --color-action: #111827;       /* the primary button fill inverts... */
   --color-action-ink: #ffffff;   /* ...and so does its ink, together */
+  --color-critical-ink: #ffffff; /* UNCHANGED: the red fill does not invert */
   --color-sub: #374151;
   --color-muted: #6b7280;
   --color-dim: rgba(55, 65, 81, 0.7);

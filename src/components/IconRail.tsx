@@ -1,4 +1,6 @@
+import { useCallback, useRef, useState } from "react";
 import { useSession } from "@/components/AuthProvider";
+import { SignOutConfirm } from "@/components/SignOutConfirm";
 import { navAllowed } from "@/lib/features";
 import { MaskIcon } from "./Icon";
 
@@ -181,10 +183,51 @@ function SignOutButton() {
   const { account, signOut } = useSession();
   const label = account ? `Sign out of ${account.login}` : "Sign out";
 
+  /* ── THE CONFIRMATION, AND WHY IT IS HELD HERE ──────────────────────────
+     This button is 34px, at the bottom of the rail, one pixel from the
+     simulator button above it, and it used to end the session on the first
+     click. On a wall that is a mis-click that blanks a screen somebody is
+     watching; on the hub's kiosk monitor it is a mis-touch.
+
+     State local to the BUTTON, deliberately. It is what makes "only the
+     person's own click asks" structural rather than remembered: an automatic
+     sign-out goes through `markSessionEnded` / `clearSession` and cannot reach
+     a dialog that only this component mounts. */
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  /* A synchronous latch, not the `busy` state. Two fast clicks on Sign out
+     both read the same stale `false` and both call `signOut` — the same shape
+     of bug `AuthProvider` documents on its sign-in path. */
+  const inFlight = useRef(false);
+
+  const confirm = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      await signOut();
+      /* No `setAsking(false)` on success: the session is gone, the gate closes
+         and this whole subtree unmounts. Setting state on the way out would be
+         a React warning for nothing. */
+    } catch {
+      /* `signOut` already clears the client session whether or not the server
+         confirmed — refusing to sign out locally because coordination was
+         unreachable would strand somebody in a session they asked to leave. So
+         there is nothing to recover here; just stop looking busy. */
+      inFlight.current = false;
+      setBusy(false);
+      setAsking(false);
+    }
+  }, [signOut]);
+
   return (
+    <>
     <button
       type="button"
-      onClick={() => void signOut()}
+      onClick={() => setAsking(true)}
+      aria-haspopup="dialog"
+      aria-expanded={asking}
       aria-label={label}
       title={label}
       className="flex size-[34px] items-center justify-center rounded-[8px] text-sub/55 transition-colors hover:bg-overlay/5 hover:text-sub"
@@ -206,5 +249,18 @@ function SignOutButton() {
         />
       </svg>
     </button>
+
+      {asking && (
+        <SignOutConfirm
+          account={account?.login}
+          busy={busy}
+          onCancel={() => {
+            if (busy) return;
+            setAsking(false);
+          }}
+          onConfirm={() => void confirm()}
+        />
+      )}
+    </>
   );
 }

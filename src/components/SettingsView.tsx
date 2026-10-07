@@ -642,7 +642,13 @@ export function SettingsView({
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                autoComplete="organization"
+                /* `off`, not `organization`. A manager filling the saved
+                   organization name in here would pre-load the RENAME box with
+                   the name you already have — a value nobody typed, in the one
+                   control that changes what you sign in with. Chrome honours
+                   `off` on non-password fields; it is passwords where it does
+                   not, which is the next four notes. */
+                autoComplete="off"
                 aria-invalid={
                   renameFailure?.field === "new_login" || !!loginProblem || undefined
                 }
@@ -668,7 +674,13 @@ export function SettingsView({
                 }}
                 onKeyDown={onEnter(() => canRename && void submitRename())}
                 disabled={renaming}
-                autoComplete="current-password"
+                /* ⚠ `new-password` ON A CURRENT-PASSWORD FIELD, DELIBERATELY.
+                   Chrome ignores `autocomplete="off"` on password inputs by
+                   design; `new-password` is the token it respects by NOT
+                   offering a stored credential. Semantically wrong, and the
+                   lesser wrong: a confirmation box pre-filled by the browser
+                   confirms the browser, not the person. */
+                autoComplete="new-password"
                 /* ⚠ A PLAIN-TEXT HINT, NEVER A ROW OF DOTS. A dotted
                    placeholder in a password box is indistinguishable from a
                    filled one — the control renders real input as dots too — so
@@ -766,7 +778,9 @@ export function SettingsView({
                 onKeyDown={onEnter(() => canSavePassword && void submitPassword())}
                 disabled={saving}
                 autoFocus
-                autoComplete="current-password"
+                /* `new-password` here too, for the reason above: this must be
+                   typed, every time, by the person making the change. */
+                autoComplete="new-password"
                 placeholder="Enter your current password"
                 aria-invalid={passwordFailure?.field === "current_password" || undefined}
                 className={`${INPUT} ${

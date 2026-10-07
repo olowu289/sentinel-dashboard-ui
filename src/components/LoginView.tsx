@@ -207,7 +207,19 @@ export function LoginView() {
                   }}
                   onKeyDown={onKeyDown}
                   disabled={pending}
-                  autoComplete="organization"
+                  /* ⚠ `username`, NOT `organization`, AND THE DISTINCTION IS
+                     THE POINT. This field holds an organization name, so
+                     `organization` describes its CONTENT correctly — but a
+                     password manager pairs a saved credential by finding a
+                     USERNAME field next to a password field, and
+                     `organization` is not one. The login identifier IS the
+                     username in this system: it is the string you type to sign
+                     in. So the credential ROLE is what the attribute has to
+                     carry, and the content type is what the placeholder and
+                     the label say.
+                     This is also the ONLY field in the app that invites a
+                     manager to fill — see the Settings notes. */
+                  autoComplete="username"
                   autoFocus
                   /* The browser must not normalise what the server matches
                      exactly. And no `uppercase` — see the header. */

@@ -3,6 +3,8 @@ import type { AlertAttachment } from "@/lib/types";
 import { FADE } from "@/lib/motion";
 import { formatClock, formatDuration } from "@/lib/time";
 import { useExportPhase } from "@/lib/useExportPhase";
+import { useSession } from "@/components/AuthProvider";
+import { can } from "@/lib/features";
 import { MaskIcon } from "./Icon";
 
 function Spinner() {
@@ -59,6 +61,16 @@ export function ClipCard({
   /** Opens the review player. Omitted for audio, which has nothing to look at. */
   onPlay?: () => void;
 }) {
+  /* ⚠ THIS EXPORT WRITES NOTHING. `useExportPhase` says so itself:
+     "Prototype: nothing is written to disk. The *states* are the deliverable".
+     A tick after pressing it means a customer believes they have a file, which
+     is the one failure mode worse than the button not existing.
+
+     NOT to be confused with the REAL download — `recordings.ts` fetches a
+     presigned segment URL and that genuinely downloads footage. This is the
+     simulated evidence-export affordance on the clip card. */
+  const { features } = useSession();
+  const canExport = can(features, "clip_export");
   const { phase, start: download } = useExportPhase();
 
   const label =
@@ -96,14 +108,14 @@ export function ClipCard({
         {/* Runtime on the thumbnail, not in the title: it is the cost of
             watching, and it belongs on the thing you are about to play. */}
         {attachment.durationSec !== undefined && (
-          <span className="chip-blur absolute bottom-[3px] right-[3px] rounded-[3px] bg-black/65 px-[4px] font-display text-[0.625rem] leading-[14px] text-white/90 tabular-nums">
+          <span className="chip-blur absolute bottom-[3px] right-[3px] rounded-[3px] bg-black/65 px-[4px] font-display text-[0.625rem] leading-[14px] text-body-ink/90 tabular-nums">
             {formatDuration(attachment.durationSec)}
           </span>
         )}
       </div>
 
       <div className="flex min-w-0 flex-col gap-[4px]">
-        <p className="line-clamp-2 text-[0.8125rem] tracking-[0.13px] text-white lg:truncate">
+        <p className="line-clamp-2 text-[0.8125rem] tracking-[0.13px] text-body-ink lg:truncate">
           {attachment.title}
         </p>
         <p className="truncate text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-muted tabular-nums">
@@ -117,6 +129,9 @@ export function ClipCard({
           the two hit areas were closer together than a fingertip is wide. The
           glyphs stay 24px; only the reachable area grew. */}
       <div className="ml-auto flex shrink-0 items-center gap-[2px] lg:mr-[4px]">
+        {/* Removed, not disabled: see the note on `canExport`. The play
+            button beside it is real and stays. */}
+        {canExport && (
         <button
           type="button"
           aria-label={label}
@@ -126,7 +141,7 @@ export function ClipCard({
           className={`flex size-[44px] items-center justify-center rounded-[6px] transition-colors ${
             phase === "done"
               ? "text-terra"
-              : "text-muted hover:bg-white/8 hover:text-white"
+              : "text-muted hover:bg-overlay/8 hover:text-body-ink"
           }`}
         >
           {/* Scale, not just opacity: at 24px a crossfade is invisible, and
@@ -153,6 +168,7 @@ export function ClipCard({
             </motion.span>
           </AnimatePresence>
         </button>
+        )}
         {/* A clip plays, a voice message sounds — the glyph has to say which,
             because the two rows are otherwise identical and the operator is
             deciding whether this needs headphones or a screen. */}
@@ -161,7 +177,7 @@ export function ClipCard({
           onClick={onPlay}
           aria-label={`Play ${attachment.title}`}
           title={attachment.kind === "clip" ? "Play clip" : "Play audio"}
-          className="flex size-[44px] items-center justify-center rounded-[6px] text-muted transition-colors hover:bg-white/8 hover:text-white"
+          className="flex size-[44px] items-center justify-center rounded-[6px] text-muted transition-colors hover:bg-overlay/8 hover:text-body-ink"
         >
           <MaskIcon
             src={

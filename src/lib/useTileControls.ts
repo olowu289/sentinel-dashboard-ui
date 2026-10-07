@@ -6,6 +6,8 @@ import type { TileControl } from "@/components/ControlStack";
 import type { CameraFeed } from "@/lib/types";
 import type { MutationPhase } from "@/lib/useMutation";
 import { useSiren } from "@/lib/useSiren";
+import { useSession } from "@/components/AuthProvider";
+import type { Feature } from "@/lib/features";
 import { useMutation } from "@/lib/useMutation";
 import {
   MIN_PRESS_MS,
@@ -124,6 +126,11 @@ export function useTileControls({
   onToggleFullscreen?: () => void;
   onToggleRecord?: () => void;
 }) {
+  /* What this account may see. Read here rather than threaded in as a prop:
+     this hook is used by two tile components on four screens, and the rail
+     already reads the session the same way. */
+  const { features } = useSession();
+
   const [siren, setSiren] = useState(false);
   const [overlays, setOverlays] = useState(false);
   const [talking, setTalking] = useState(false);
@@ -626,8 +633,38 @@ export function useTileControls({
     },
   ];
 
+  /* ── THREE OF THESE CONTROLS ACT ON NOTHING ─────────────────────────────
+
+     `siren` plays a two-tone wail in THIS BROWSER (see useSiren — it is a
+     synthesised AudioContext, not a command). `talk` sets a boolean and opens no
+     channel. `record` flips a boolean; App's `toggleRecord` awaits no request.
+     All three are labelled as though they reach the site: "Sound alarm", "Hold
+     to talk", and a record switch.
+
+     The talk-down is the one that matters most. A guard holds it, believes they
+     are audible in the yard, and speaks to somebody who cannot hear them — and
+     unlike a dead button, that failure is invisible to the person relying on it.
+
+     REMOVED, not disabled. A disabled control says "not right now"; these are
+     not coming for an account that does not have them, and a permanently greyed
+     alarm button on a monitoring tile is worse than no alarm button.
+
+     `fullscreen`, `screenshot`, `zoom` and `overlays` are NOT gated: the first
+     three are real client-side actions (a frame really is captured, the zoom is
+     the camera's own and already gated on `feed.ptz`) and the last is a render
+     toggle. Gating something real would be the opposite mistake. */
+  const needed: Partial<Record<string, Feature>> = {
+    siren: "siren",
+    talk: "two_way_audio",
+    record: "record_toggle",
+  };
+  const allowed = controls.filter((c) => {
+    const feature = needed[c.id];
+    return feature === undefined || features.has(feature);
+  });
+
   return {
-    controls,
+    controls: allowed,
     view,
     scale,
     limit,

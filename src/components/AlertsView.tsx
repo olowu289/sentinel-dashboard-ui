@@ -146,14 +146,14 @@ export function AlertsView({
               type="button"
               onClick={onBack}
               title="Back to all towers"
-              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
               TOWERS
             </button>
             <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
             <span
               aria-current="page"
-              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white"
+              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink"
             >
               ALERTS
             </span>
@@ -168,7 +168,7 @@ export function AlertsView({
             className={`flex size-[24px] shrink-0 items-center justify-center rounded-[4px] transition-colors ${
               filtered || pickerOpen
                 ? "text-terra"
-                : "text-muted hover:text-white"
+                : "text-muted hover:text-body-ink"
             }`}
           >
             <MaskIcon src="/icons/calendar.svg" size={20} />
@@ -206,7 +206,7 @@ export function AlertsView({
                 </svg>
               </button>
             </span>
-            <span className="text-[0.75rem] text-white/35 tabular-nums">
+            <span className="text-[0.75rem] text-body-ink/35 tabular-nums">
               {visible.length} of {alerts.length}
             </span>
           </div>

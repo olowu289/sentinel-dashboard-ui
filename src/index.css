@@ -1,5 +1,67 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   FONTS, SELF-HOSTED. THE HUB SERVES THIS BUNDLE WITH NO INTERNET.
+   ═══════════════════════════════════════════════════════════════════════════
+
+   These used to come from Google Fonts, through a <link> in index.html. The
+   same bundle is served from the HUB, on a monitor, at a site whose uplink is a
+   radio and may be down — and on that box the two stylesheet requests fail, the
+   @font-face declarations never arrive, and every heading and label in the
+   product silently falls back to ui-monospace / system-ui. The page renders;
+   it just stops being this product.
+
+   So the four files live in public/fonts and are served from the same origin as
+   everything else. 68 KB total, which is less than the two round trips it
+   replaces, and it lets the CSP drop fonts.googleapis.com and fonts.gstatic.com
+   entirely — one fewer third party in the path of a control-room screen.
+
+   Quantico and Sora are both SIL Open Font License 1.1 (public/fonts/OFL.txt),
+   which permits self-hosting.
+
+   SORA IS ONE FILE PER SUBSET, NOT ONE PER WEIGHT. It is a variable font:
+   Google serves the identical woff2 for 300, 400, 500 and 600, so four copies
+   were 148 KB of the same bytes. One file with a `font-weight: 300 600` range
+   is what a variable font is for, and the browser interpolates.
+
+   `font-display: swap` is kept from the Google CSS: text must be readable while
+   a font loads, and on a monitoring surface a blank label is worse than a
+   label in the fallback face for 50 ms. */
+
+@font-face {
+  font-family: "Quantico";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/quantico-400.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Quantico";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/quantico-700.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Variable: one file covers 300-600. */
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url("/fonts/sora-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url("/fonts/sora-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 @theme {
   /* Surfaces */
   --color-ink: #000000;
@@ -97,7 +159,32 @@
      is gone the moment the band lands. */
   --color-drag: #0f263f;
 
-  /* Type — loaded from Google Fonts in index.html. */
+  /* ── THE THREE THEME-AWARE TOKENS THAT REPLACED 571 HARDCODED WHITES ──
+
+     `text-white` compiles to `color: #fff` with no custom property in the
+     middle, so NO palette override can reach it. These exist so the light theme
+     can, and the split between them is semantic:
+
+     body-ink    INK ON THE PAGE. Every heading, label and value that used
+                 `text-white` or `text-white/NN`.
+     overlay     A TRANSLUCENT OVERLAY on a surface -- hover fills, hairline
+                 borders, focus rings. White over a dark surface, black over a
+                 light one, which is why it cannot just be `body-ink`.
+     action      A SOLID FILL that carries its own ink: the primary button.
+                 `action` and `action-ink` swap TOGETHER, so the button is
+                 white-on-black in dark and dark-on-white in light. */
+  --color-body-ink: #ffffff;
+  --color-overlay: #ffffff;
+  --color-action: #ffffff;
+  --color-action-ink: #000000;
+  /* Ink on the CRITICAL fill. Declared in both palettes with the SAME value,
+     which is the point: `bg-critical` keeps its colour in light mode, so its
+     ink must not invert with the theme. The same rule `alert-ink` and
+     `advice-ink` follow — stated as a token so it is visible in the palette
+     rather than as a comment on one button. */
+  --color-critical-ink: #ffffff;
+
+  /* Type — self-hosted woff2, see the @font-face block above. */
   --font-display: Quantico, ui-monospace, monospace;
   --font-sans: Sora, ui-sans-serif, system-ui, sans-serif;
 
@@ -106,6 +193,103 @@
      the timings as CSS custom properties gave us a set nothing consumed —
      editing them looked like it would retune the UI and did nothing. If
      CSS-driven motion arrives later, add tokens then, with real consumers. */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT THEME
+   ═══════════════════════════════════════════════════════════════════════════
+
+   The @theme block above is DARK and stays the default — it is the product's
+   visual language and what every existing screen is set to. This overrides the
+   same custom properties under `:root[data-theme="light"]`, which beats `:root`
+   on specificity, so every Tailwind utility that reads `var(--color-x)` follows
+   without a single component changing.
+
+   `lib/theme.ts` sets and removes the attribute. Dark sets NO attribute, so the
+   way back to the default is removing one thing rather than maintaining a second
+   palette in step with the first.
+
+   ── THREE RULES THIS PALETTE FOLLOWS, AND WHY EACH ONE EXISTS ────────────
+
+   1. VIDEO SURFACES STAY DARK. `tile`, `tile-dead` and `stage` are barely
+      lightened. A camera feed is letterboxed, and a letterboxed video on a white
+      tile puts glaring bars either side of the picture; a dead tile on white
+      reads as a broken image rather than as a camera that is down. Every other
+      surface inverts; the ones a picture sits in do not.
+
+   2. STATUS COLOURS ARE DARKENED, NOT REUSED. #66e28e mint and #ffdd70 amber are
+      tuned for a black background and are close to invisible on white — amber
+      especially. Each keeps its HUE, so green still means good and amber still
+      means attention, and takes a value that clears 4.5:1 on the light surface
+      it sits on. Reusing the dark values would have produced a UI where the one
+      thing that must be legible at a glance is the thing that is not.
+
+   3. ⚠ INK ON A COLOURED FILL DOES NOT INVERT. `alert-ink` sits on
+      `alert-banner`, and `advice-ink` sits on `advice-banner` — both fills keep
+      their colour in light mode, so both inks keep theirs. Flipping them with
+      the theme is the classic light-mode bug: pale pink text on a red banner,
+      white text on yellow. They are listed here with their dark values on
+      purpose, so the next person can see the decision rather than assume an
+      omission.
+
+   NOT VERIFIED VISUALLY. Written from the contrast maths, not from looking at
+   it — there is no browser in the environment this was authored in. The maps,
+   the alert rows and the dead-tile states are the places to check first. */
+
+:root[data-theme="light"] {
+  /* Surfaces — the stack inverts, keeping the same relative layering. */
+  --color-ink: #f4f5f7;          /* page: off-white, so white cards still lift */
+  --color-panel: #ffffff;
+  --color-card: #ffffff;
+  --color-card-hover: #f7f8fa;
+  --color-card-lift: #ffffff;    /* the line does the lifting here, not the fill */
+  --color-card-line: #e2e4e9;
+  --color-pill: #eef0f3;
+  --color-pill-line: #d8dbe1;
+  --color-row-line: #e8eaee;
+  --color-line-rail: #e4e6ea;
+  --color-line: #e2e4e9;
+  --color-line-panel: #e6e8ec;
+  --color-stroke: #c4c8d0;
+
+  /* RULE 1 — the surfaces a picture sits in. Deliberately still dark. */
+  --color-tile: #11141a;
+  --color-tile-dead: #1a1d24;
+  --color-stage: #10131a;
+
+  /* Text, and the two inverting pairs. */
+  --color-body-ink: #111827;
+  --color-overlay: #0b1220;      /* black over light, where dark used white */
+  --color-action: #111827;       /* the primary button fill inverts... */
+  --color-action-ink: #ffffff;   /* ...and so does its ink, together */
+  --color-critical-ink: #ffffff; /* UNCHANGED: the red fill does not invert */
+  --color-sub: #374151;
+  --color-muted: #6b7280;
+  --color-dim: rgba(55, 65, 81, 0.7);
+
+  /* RULE 2 — same hue, darkened until it reads on white. */
+  --color-terra: #0f8a46;        /* was #66e28e */
+  --color-warn: #8a5a00;         /* was #ffdd70 — yellow is the worst offender */
+  --color-critical: #c42b23;     /* was #ff5b53 */
+  --color-detect: #7a5c00;       /* was #f3cf58 */
+  --color-unseen: #b23128;       /* was #e26666 */
+  --color-detect-bg: #fdf6e0;    /* was #181509 — a tint, not a shade */
+
+  /* Filled banners keep their colour, so RULE 3 applies to their inks. */
+  --color-alert-banner: #c42b23;
+  --color-alert-ink: #ffe3e0;    /* on the red fill — NOT inverted */
+  --color-advice-banner: #f5cc45;
+  --color-advice-ink: #110d00;   /* on the amber fill — NOT inverted */
+
+  /* Map and scrubber. The track is a translucent overlay on the dark stage, so
+     it stays light; the mark colours sit on the light map and darken. */
+  --color-track: rgba(217, 217, 217, 0.74);
+  --color-mark-line: #1f7a45;
+  --color-mark-key: #4a6b00;
+  --color-mark-key-line: #9fb86a;
+
+  /* The drag highlight: a tint rather than the dark navy. */
+  --color-drag: #dbeafe;
 }
 
 @layer base {
@@ -122,9 +306,14 @@
     text-size-adjust: 100%;
   }
 
+  /* THE ONE COLOUR IN THIS FILE THAT WAS NOT A TOKEN. `color: #ffffff` is
+     correct on black and unreadable on #f4f5f7, and because it is hardcoded no
+     palette override could reach it -- every component that does not set its own
+     text colour inherits from here. Now a token, defaulting to white, so the
+     light block above can flip it like everything else. */
   body {
     background: var(--color-ink);
-    color: #ffffff;
+    color: var(--color-body-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }

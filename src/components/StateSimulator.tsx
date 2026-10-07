@@ -66,16 +66,16 @@ export function StateSimulator({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute bottom-[24px] left-[79px] z-30 w-[248px] rounded-[10px] border border-line bg-[#0e0e10] p-[12px] shadow-2xl shadow-black/60">
+    <div className="absolute bottom-[24px] left-[79px] z-30 w-[248px] rounded-[10px] border border-line bg-ink p-[12px] shadow-2xl shadow-black/60">
       <div className="mb-[10px] flex items-center justify-between">
-        <p className="font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-white/45">
+        <p className="font-display text-[0.75rem] lg:text-[0.6875rem] uppercase tracking-[0.11px] text-body-ink/45">
           Feed state
         </p>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close simulator"
-          className="text-white/40 transition-colors hover:text-white"
+          className="text-body-ink/40 transition-colors hover:text-body-ink"
         >
           <svg
             width="12"
@@ -97,12 +97,12 @@ export function StateSimulator({
       {/* What the states now come from, said plainly, so nobody reads an
           absent control as a broken one. */}
       {realFleet && (
-        <div className="mb-[12px] flex flex-col gap-[6px] border-b border-white/8 pb-[10px]">
-          <p className="text-[0.75rem] leading-[16px] text-white/45 lg:text-[0.6875rem]">
+        <div className="mb-[12px] flex flex-col gap-[6px] border-b border-overlay/8 pb-[10px]">
+          <p className="text-[0.75rem] leading-[16px] text-body-ink/45 lg:text-[0.6875rem]">
             Feed states are real on this fleet — they come from the tower, not
             from here.
           </p>
-          <p className="text-[0.75rem] leading-[16px] text-white/30 lg:text-[0.6875rem]">
+          <p className="text-[0.75rem] leading-[16px] text-body-ink/30 lg:text-[0.6875rem]">
             Induce them at the tower: cut its power, stop its video, or let a
             viewing session lapse.
           </p>
@@ -118,7 +118,7 @@ export function StateSimulator({
             : feed.state;
         return (
           <div key={feed.id} className="mb-[12px] last:mb-0">
-            <p className="mb-[6px] text-[0.75rem] lg:text-[0.6875rem] text-white/35">
+            <p className="mb-[6px] text-[0.75rem] lg:text-[0.6875rem] text-body-ink/35">
               {feed.name}
             </p>
             <div className="flex flex-wrap gap-[4px]">
@@ -129,8 +129,8 @@ export function StateSimulator({
                   onClick={() => onSetFeedState(feed.id, s.id)}
                   className={`rounded-[4px] px-[6px] py-[3px] text-[0.75rem] lg:text-[0.6875rem] transition-colors ${
                     current === s.id
-                      ? "bg-white text-black"
-                      : "bg-white/6 text-white/60 hover:bg-white/12 hover:text-white"
+                      ? "bg-action text-action-ink"
+                      : "bg-overlay/6 text-body-ink/60 hover:bg-overlay/12 hover:text-body-ink"
                   }`}
                 >
                   {s.label}
@@ -141,7 +141,7 @@ export function StateSimulator({
         );
       })}
 
-      <div className="mt-[12px] flex flex-col gap-[6px] border-t border-white/8 pt-[10px]">
+      <div className="mt-[12px] flex flex-col gap-[6px] border-t border-overlay/8 pt-[10px]">
         {/* Arrival is the only alert event the wall itself reacts to, so it
             needs a trigger here — the banner is unreachable otherwise. */}
         <button
@@ -156,8 +156,8 @@ export function StateSimulator({
           onClick={onToggleAlertsEmpty}
           className={`w-full rounded-[4px] px-[6px] py-[5px] text-[0.75rem] lg:text-[0.6875rem] transition-colors ${
             alertsEmpty
-              ? "bg-white text-black"
-              : "bg-white/6 text-white/60 hover:bg-white/12 hover:text-white"
+              ? "bg-action text-action-ink"
+              : "bg-overlay/6 text-body-ink/60 hover:bg-overlay/12 hover:text-body-ink"
           }`}
         >
           Empty alerts feed
@@ -172,8 +172,8 @@ export function StateSimulator({
           onClick={onToggleLiveViewWarning}
           className={`w-full rounded-[4px] px-[6px] py-[5px] text-[0.75rem] lg:text-[0.6875rem] transition-colors ${
             liveViewWarning
-              ? "bg-white text-black"
-              : "bg-white/6 text-white/60 hover:bg-white/12 hover:text-white"
+              ? "bg-action text-action-ink"
+              : "bg-overlay/6 text-body-ink/60 hover:bg-overlay/12 hover:text-body-ink"
           }`}
         >
           Extended viewing banner

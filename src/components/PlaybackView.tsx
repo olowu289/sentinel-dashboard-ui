@@ -185,7 +185,7 @@ export function PlaybackView({
             aria-label="Site"
             value={chosenTower?.id ?? ""}
             onChange={(e) => { setTowerId(e.target.value); setCamera(null); }}
-            className="h-[34px] rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-card-hover"
+            className="h-[34px] rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-hover"
           >
             {options.map((t) => (
               <option key={t.id} value={t.id}>
@@ -216,8 +216,8 @@ export function PlaybackView({
                 aria-pressed={chosen === index}
                 className={`h-[34px] truncate rounded-[8px] px-[12px] text-[0.8125rem] font-medium transition-colors ${
                   chosen === index
-                    ? "bg-white text-black"
-                    : "bg-card text-white hover:bg-card-hover"
+                    ? "bg-action text-action-ink"
+                    : "bg-card text-body-ink hover:bg-card-hover"
                 }`}
               >
                 {/* The live feed's name when there is one, else the camera number.
@@ -264,7 +264,7 @@ export function PlaybackView({
 
             {selected && (
               <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[6px] rounded-[8px] bg-panel px-[12px] py-[10px]">
-                <span className="min-w-0 flex-1 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] tabular-nums text-white">
+                <span className="min-w-0 flex-1 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] tabular-nums text-body-ink">
                   {formatLocalTime(selected.startEpoch * 1000)}
                   <span className="ml-[6px] text-[0.75rem] text-muted">{LOCAL_TZ_LABEL}</span>
                   <span className="ml-[10px] text-[0.75rem] font-sans text-muted">
@@ -281,7 +281,7 @@ export function PlaybackView({
                   // a good name even when a response fails BEFORE its headers arrive,
                   // which is how a download came to be saved as "segment".
                   download={freshFilename}
-                  className="flex h-[30px] shrink-0 items-center justify-center gap-[6px] rounded-[8px] bg-white px-[12px] text-[0.8125rem] font-medium text-black transition-opacity hover:opacity-90"
+                  className="flex h-[30px] shrink-0 items-center justify-center gap-[6px] rounded-[8px] bg-action px-[12px] text-[0.8125rem] font-medium text-action-ink transition-opacity hover:opacity-90"
                 >
                   <MaskIcon src="/icons/clip-download.svg" size={14} />
                   Download
@@ -293,7 +293,7 @@ export function PlaybackView({
           {/* the list */}
           <div className="flex min-h-0 w-full flex-col gap-[8px] rounded-[12px] bg-panel p-[12px] lg:w-[380px]">
             <div className="flex items-center justify-between gap-[8px]">
-              <span className="font-display text-[0.8125rem] leading-[20px] tracking-[0.13px] uppercase text-white">
+              <span className="font-display text-[0.8125rem] leading-[20px] tracking-[0.13px] uppercase text-body-ink">
                 Recordings
               </span>
               <span className="text-[0.6875rem] leading-[16px] text-muted">
@@ -310,13 +310,13 @@ export function PlaybackView({
                 min={dateRange?.min}
                 max={dateRange?.max}
                 onChange={(e) => setSelectedDay(e.target.value || null)}
-                className="h-[32px] flex-1 rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white [color-scheme:dark] transition-colors hover:bg-card-hover"
+                className="h-[32px] flex-1 rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-body-ink [color-scheme:dark] transition-colors hover:bg-card-hover"
               />
               {selectedDay && (
                 <button
                   type="button"
                   onClick={() => setSelectedDay(null)}
-                  className="h-[32px] shrink-0 rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-card-hover"
+                  className="h-[32px] shrink-0 rounded-[8px] bg-card px-[10px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-hover"
                 >
                   All dates
                 </button>
@@ -368,7 +368,7 @@ function ListBody({
   if (phase.kind === "idle" || phase.kind === "loading") {
     return (
       <div className="flex items-center gap-[8px] px-[4px] py-[16px] text-[0.8125rem] leading-[20px] text-muted">
-        <span className="size-[14px] animate-spin rounded-full border-2 border-white/30 border-t-white" />
+        <span className="size-[14px] animate-spin rounded-full border-2 border-overlay/30 border-t-white" />
         Listing recordings…
       </div>
     );
@@ -425,7 +425,7 @@ function ListBody({
                      download are separate interactive children (nesting an <a>
                      inside a <button> is invalid and breaks the DOM). */
                   className={`flex items-center gap-[10px] rounded-[8px] pr-[8px] transition-colors ${
-                    on ? "bg-white text-black" : "bg-card text-white hover:bg-card-hover"
+                    on ? "bg-action text-action-ink" : "bg-card text-body-ink hover:bg-card-hover"
                   }`}
                 >
                   <button
@@ -453,7 +453,7 @@ function ListBody({
                     aria-label="Download segment"
                     title="Download segment"
                     className={`flex size-[26px] shrink-0 items-center justify-center rounded-[6px] transition-colors ${
-                      on ? "hover:bg-black/10" : "hover:bg-white/12"
+                      on ? "hover:bg-black/10" : "hover:bg-overlay/12"
                     }`}
                   >
                     <MaskIcon src="/icons/clip-download.svg" size={14} />

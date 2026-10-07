@@ -352,7 +352,7 @@ export function MonitorTile({
             blanking is what tells an operator the still was taken. */}
         <span
           aria-hidden
-          className={`pointer-events-none absolute inset-0 bg-white transition-opacity ${
+          className={`pointer-events-none absolute inset-0 bg-action transition-opacity ${
             flash ? "opacity-70 duration-0" : "opacity-0 duration-300"
           }`}
         />

@@ -58,7 +58,7 @@ export function PendingTowerCard({
         aria-hidden
         className="pointer-events-none absolute left-[15px] right-[90px] top-[13px] flex flex-col gap-[4px]"
       >
-        <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-white">
+        <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-body-ink">
           {claim.label}
         </span>
         <span className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-detect">
@@ -86,7 +86,7 @@ export function PendingTowerCard({
           obviously clickable thing on the card would be the one dead spot. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-[15px] left-[15px] flex h-[31px] items-center justify-center rounded-[60px] bg-white px-[24px] text-[0.75rem] leading-[15px] font-semibold tracking-[0.12px] text-black"
+        className="pointer-events-none absolute bottom-[15px] left-[15px] flex h-[31px] items-center justify-center rounded-[60px] bg-action px-[24px] text-[0.75rem] leading-[15px] font-semibold tracking-[0.12px] text-action-ink"
       >
         {dead ? "REGISTER AGAIN" : "VIEW REGISTRATION"}
       </span>

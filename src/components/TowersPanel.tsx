@@ -72,7 +72,7 @@ export function TowersPanel({
       className={`relative min-w-0 flex-1 flex-col bg-ink lg:w-[417px] lg:flex-none lg:shrink-0 lg:border-r lg:border-line-panel ${className}`}
     >
       <header className="flex h-[46px] shrink-0 items-center border-b border-line pl-[16px] pr-[14px]">
-        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <h2 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           TOWERS
         </h2>
       </header>

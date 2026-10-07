@@ -7,8 +7,16 @@
       sessionStorage, so a script that runs in this origin owns the account;
       this is the page-level line against that. Kept deliberately tight:
         script-src 'self'                 nothing inline, nothing third-party
-        style-src  'self' + Google Fonts  the two typefaces in <link> below
-        font-src   'self' + fonts.gstatic the files that stylesheet pulls
+        style-src  'self'                 NO Google Fonts. The two typefaces are
+                                          self-hosted in /fonts (see index.css):
+                                          the HUB serves this same bundle on a
+                                          monitor, over a radio that can be down,
+                                          and two failed stylesheet fetches took
+                                          every heading in the product down to a
+                                          system fallback. Self-hosting also lets
+                                          this policy drop two third parties from
+                                          the path of a control-room screen.
+        font-src   'self'                 same origin, 68 KB, four woff2 files
         img-src    'self' data: blob:     /icons, /media, and camera snapshots
         media-src  'self' blob: https:    hub-archived playback is a <video>
                                           src on the COORDINATION origin (the
@@ -26,13 +34,17 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="color-scheme" content="dark" />
+    <!-- `dark light`, not `dark`. This tells the browser both are supported,
+         so form controls and the scrollbar follow whichever theme is active;
+         `lib/theme.ts` sets the exact one on <html> as a style. Leaving this
+         `dark` made a light-theme page keep dark native controls. -->
+    <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#000000" />
     <meta
       name="description"
@@ -40,12 +52,10 @@
     />
     <title>Sentinel — TWR-1042</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Quantico:wght@400;700&family=Sora:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <!-- NO FONT <link>. Quantico and Sora are declared in src/index.css and
+         served from /fonts on this origin. There is nothing to preconnect to:
+         this page must render completely with no internet, because the hub
+         serves it to a monitor at a site whose uplink is a radio. -->
   </head>
   <body>
     <div id="root"></div>

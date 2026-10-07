@@ -59,7 +59,7 @@ export function TopBar({
           type="button"
           onClick={onNavigateUp}
           title="Back to all towers"
-          className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+          className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
         >
           TOWERS
         </button>
@@ -67,7 +67,7 @@ export function TopBar({
         <span className="flex items-center gap-[6px]">
           <span
             aria-current="page"
-            className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white"
+            className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink"
           >
             {towerName}
           </span>
@@ -126,7 +126,7 @@ export function TopBar({
           title={`Switch to ${next} view`}
           /* Hidden below lg: the wall is forced to a single stacked column
              there, so a control that switches the split axis would do nothing. */
-          className="hidden items-center gap-[6px] py-[2px] text-dim transition-colors hover:text-white lg:flex"
+          className="hidden items-center gap-[6px] py-[2px] text-dim transition-colors hover:text-body-ink lg:flex"
         >
           {/* The label crossfades in place. `mode="popLayout"` would reflow the
               row as one word replaces the other; both are absolutely stacked in
@@ -168,7 +168,7 @@ export function TopBar({
                 <MaskIcon
                   src={`/icons/view-${layout}.svg`}
                   size={20}
-                  className="text-[#e9e9e9]"
+                  className="text-sub"
                 />
               </motion.span>
             </AnimatePresence>
@@ -187,8 +187,8 @@ export function TopBar({
             settingsOpen ? "Close camera settings" : "Tower settings"
           }
           title="Tower settings"
-          className={`group/gear hidden size-[24px] items-center justify-center rounded-[4px] transition-colors hover:text-white lg:flex ${
-            settingsOpen ? "text-white" : "text-[#e9e9e9]"
+          className={`group/gear hidden size-[24px] items-center justify-center rounded-[4px] transition-colors hover:text-body-ink lg:flex ${
+            settingsOpen ? "text-body-ink" : "text-sub"
           }`}
         >
           <MaskIcon src="/icons/nav-settings.svg" size={20} className="gear-turn" />
@@ -210,7 +210,7 @@ export function TopBar({
                   : "Show alerts panel"
               }
               title={alertsUnread ? "New alert" : "Show alerts"}
-              className={`relative hidden size-[24px] items-center justify-center rounded-[4px] text-[#e9e9e9] transition-colors hover:text-white lg:flex ${
+              className={`relative hidden size-[24px] items-center justify-center rounded-[4px] text-sub transition-colors hover:text-body-ink lg:flex ${
                 /* No swing while something is unread. The ring below already
                    says it, and the alert rail carries the pulse — a swinging
                    bell on top of those is three things saying one thing. */

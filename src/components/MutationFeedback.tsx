@@ -152,7 +152,7 @@ export function MutationError({
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded-[6px] px-[8px] py-[3px] text-[0.75rem] text-muted transition-colors hover:text-white"
+          className="shrink-0 rounded-[6px] px-[8px] py-[3px] text-[0.75rem] text-muted transition-colors hover:text-body-ink"
         >
           Dismiss
         </button>

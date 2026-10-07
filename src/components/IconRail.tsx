@@ -1,4 +1,7 @@
+import { useCallback, useRef, useState } from "react";
 import { useSession } from "@/components/AuthProvider";
+import { SignOutConfirm } from "@/components/SignOutConfirm";
+import { navAllowed } from "@/lib/features";
 import { MaskIcon } from "./Icon";
 
 /**
@@ -30,16 +33,13 @@ const NAV: {
      footage, and that is what it says. Events can sit on top of it later, when
      something is actually finding them. */
   { id: "playback", label: "Playback", icon: "/icons/clip-play.svg" },
-  /* No settings screen exists — the shell's router has no branch for it and
-     the frame never drew one. Per-tower settings DO exist and are reached from
-     the tower bar; what is missing is the account-level screen this glyph
-     implies. */
-  {
-    id: "settings",
-    label: "Settings",
-    icon: "/icons/nav-settings.svg",
-    unavailable: true,
-  },
+  /* Account settings: the organization's own name and password. Per-tower
+     settings are a different thing and are still reached from the tower bar.
+     This item was `unavailable` until the screen existed — cleared here AND
+     given a branch in `App.tsx`'s `navigate`, which is both halves of the note
+     that used to live here. One without the other is an item that lights up
+     and goes nowhere. */
+  { id: "settings", label: "Settings", icon: "/icons/nav-settings.svg" },
 ];
 
 export function IconRail({
@@ -55,6 +55,16 @@ export function IconRail({
   moreOpen?: boolean;
   className?: string;
 }) {
+  /* ── WHAT THIS ACCOUNT MAY SEE ──────────────────────────────────────────
+     A destination this account does not have is REMOVED, not dimmed. Dimming
+     is this rail's answer for "exists in the design, not built yet" — a promise
+     that it is coming. A feature a customer does not have is not coming for
+     them, and an indefinitely greyed item is an invitation to ask us why.
+
+     `navAllowed` is the same function `App.tsx`'s router refuses with, so an
+     item cannot be visible and unreachable, or hidden and reachable — which is
+     exactly the drift the note above NAV warns about. */
+  const { features } = useSession();
   return (
     <nav
       aria-label="Primary"
@@ -63,7 +73,7 @@ export function IconRail({
       <a
         href="#"
         aria-label="Terra Sentinel — home"
-        className="absolute left-1/2 top-[6px] flex size-[39px] -translate-x-1/2 items-center justify-center rounded-[12px] transition-colors hover:bg-white/5"
+        className="absolute left-1/2 top-[6px] flex size-[39px] -translate-x-1/2 items-center justify-center rounded-[12px] transition-colors hover:bg-overlay/5"
       >
         {/* Wordless mark: 22.286 × 19.5 inside a 39px hit target. */}
         <img
@@ -79,7 +89,7 @@ export function IconRail({
           centred on the 24px glyphs so the hit target clears WCAG 2.2 without
           disturbing the spacing. */}
       <ul className="absolute left-1/2 top-[233px] flex -translate-x-1/2 flex-col items-center gap-[24px]">
-        {NAV.map((item) => {
+        {NAV.filter((item) => navAllowed(features, item.id)).map((item) => {
           const isActive = active === item.id && !item.unavailable;
           return (
             <li key={item.id} className="flex h-[24px] items-center">
@@ -105,10 +115,10 @@ export function IconRail({
                   item.id === "alerts" ? "group/bell" : ""
                 } ${
                   item.unavailable
-                    ? "text-[#cccccc]/20"
+                    ? "text-sub/20"
                     : isActive
-                      ? "text-white"
-                      : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
+                      ? "text-body-ink"
+                      : "text-sub/55 hover:bg-overlay/5 hover:text-sub"
                 }`}
               >
                 <MaskIcon
@@ -138,8 +148,8 @@ export function IconRail({
             onClick={onMore}
             className={`flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
               moreOpen
-                ? "bg-white/8 text-white"
-                : "text-[#cccccc]/55 hover:bg-white/5 hover:text-[#cccccc]"
+                ? "bg-overlay/8 text-body-ink"
+                : "text-sub/55 hover:bg-overlay/5 hover:text-sub"
             }`}
           >
             <MaskIcon src="/icons/nav-more.svg" size={24} />
@@ -173,13 +183,57 @@ function SignOutButton() {
   const { account, signOut } = useSession();
   const label = account ? `Sign out of ${account.login}` : "Sign out";
 
+  /* ── THE CONFIRMATION, AND WHY IT IS HELD HERE ──────────────────────────
+     This button is 34px, at the bottom of the rail, one pixel from the
+     simulator button above it, and it used to end the session on the first
+     click. On a wall that is a mis-click that blanks a screen somebody is
+     watching; on the hub's kiosk monitor it is a mis-touch.
+
+     State local to the BUTTON, deliberately. It is what makes "only the
+     person's own click asks" structural rather than remembered: an automatic
+     sign-out goes through `markSessionEnded` / `clearSession` and cannot reach
+     a dialog that only this component mounts. */
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  /* A synchronous latch, not the `busy` state. Two fast clicks on Sign out
+     both read the same stale `false` and both call `signOut` — the same shape
+     of bug `AuthProvider` documents on its sign-in path. */
+  const inFlight = useRef(false);
+  /* The popover is placed from this button's own rect — see SignOutConfirm. */
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+
+  const confirm = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      await signOut();
+      /* No `setAsking(false)` on success: the session is gone, the gate closes
+         and this whole subtree unmounts. Setting state on the way out would be
+         a React warning for nothing. */
+    } catch {
+      /* `signOut` already clears the client session whether or not the server
+         confirmed — refusing to sign out locally because coordination was
+         unreachable would strand somebody in a session they asked to leave. So
+         there is nothing to recover here; just stop looking busy. */
+      inFlight.current = false;
+      setBusy(false);
+      setAsking(false);
+    }
+  }, [signOut]);
+
   return (
+    <>
     <button
+      ref={btnRef}
       type="button"
-      onClick={() => void signOut()}
+      onClick={() => setAsking(true)}
+      aria-haspopup="dialog"
+      aria-expanded={asking}
       aria-label={label}
       title={label}
-      className="flex size-[34px] items-center justify-center rounded-[8px] text-[#cccccc]/55 transition-colors hover:bg-white/5 hover:text-[#cccccc]"
+      className="flex size-[34px] items-center justify-center rounded-[8px] text-sub/55 transition-colors hover:bg-overlay/5 hover:text-sub"
     >
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
         <path
@@ -198,5 +252,19 @@ function SignOutButton() {
         />
       </svg>
     </button>
+
+      {asking && (
+        <SignOutConfirm
+          anchorRef={btnRef}
+          account={account?.login}
+          busy={busy}
+          onCancel={() => {
+            if (busy) return;
+            setAsking(false);
+          }}
+          onConfirm={() => void confirm()}
+        />
+      )}
+    </>
   );
 }

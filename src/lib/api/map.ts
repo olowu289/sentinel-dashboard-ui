@@ -242,14 +242,42 @@ export function toFeed(
 ): CameraFeed {
   const { state } = feedStateFor(link, cam.status, asOf, now);
 
+  /* ⚠ READ THROUGH A NARROWING, BECAUSE THE VENDORED SDK DOES NOT DECLARE IT.
+     Coordination adds `label` to each camera in the projection (the account's
+     own name for it, merged per request), and `@kallon/sentry-sdk`'s
+     `CameraInfo` is a version behind. Narrowing here rather than editing
+     `vendor/sentry-sdk`: the SDK is a separate repo, and a hand-edited vendored
+     type is a change that vanishes on the next SDK update with nothing to say
+     it was ever needed.
+     TODO(sdk): add `label?: string` to CameraInfo and delete this cast. */
+  const rawLabel = (cam as { label?: unknown }).label;
+  const named = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel : "";
+
   return {
     id: feedId(deviceId, cam.index),
     towerId: deviceId,
     index: cam.index,
-    /* The projection carries no per-camera label — a zone name like "GAS YARD"
-       is an account-layer nicety the contract does not have — so the honest
-       label is the address the operator can actually quote on the radio. */
-    name: `CAMERA ${cam.index}`,
+    /* ⚠ THE NOTE HERE USED TO SAY THE PROJECTION CARRIES NO LABEL. It does
+       now: a zone name like "GAS YARD" is an account-layer nicety, and that is
+       exactly where it has been put — `camera_labels` on the DC, keyed on
+       (account, device, index), merged into the projection per request.
+
+       So the customer's own name wins, and `CAMERA 2` is the FALLBACK rather
+       than the only answer. Falling back rather than showing an empty string
+       matters on a monitoring surface: a tile with no name is a tile nobody can
+       quote on the radio, which is the whole reason that note argued for the
+       index in the first place.
+
+       Named here, in the mapper, and therefore named EVERYWHERE — the wall, the
+       tower view, the playback picker, the download filename. Doing it in the
+       settings screen alone would have produced a camera called "North gate" in
+       one place and "CAMERA 2" in the five others. */
+    name: named || `CAMERA ${cam.index}`,
+    /* The RAW label, kept apart from `name`. The settings screen has to tell
+       "named North gate" from "not named, so showing CAMERA 2" — it puts the
+       first in the input and the second in the placeholder — and `name` alone
+       cannot answer that. */
+    ...(named ? { label: named } : {}),
     state,
     lens: cam.lens,
     // Capability, not permission. See the note on `CameraFeed.ptz`.

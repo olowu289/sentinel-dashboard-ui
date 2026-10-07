@@ -345,7 +345,7 @@ export function CameraTile({
           gives no feedback gets taken twice. */}
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-0 bg-white transition-opacity ${
+        className={`pointer-events-none absolute inset-0 bg-action transition-opacity ${
           flash ? "opacity-70 duration-0" : "opacity-0 duration-300"
         }`}
       />
@@ -423,7 +423,7 @@ export function CameraTile({
             type="button"
             onClick={onToggleFullscreen}
             aria-label="Exit fullscreen"
-            className="flex size-[40px] shrink-0 items-center justify-center rounded-[8px] text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+            className="flex size-[40px] shrink-0 items-center justify-center rounded-[8px] text-body-ink/85 transition-colors hover:bg-overlay/10 hover:text-body-ink"
           >
             <svg
               width="20"
@@ -442,11 +442,11 @@ export function CameraTile({
             </svg>
           </button>
           <div className="min-w-0">
-            <p className="truncate font-display text-[1.25rem] leading-[24px] tracking-[0.2px] text-[#f5f7fa]">
+            <p className="truncate font-display text-[1.25rem] leading-[24px] tracking-[0.2px] text-body-ink">
               {feed.name}
             </p>
             {towerId && (
-              <p className="truncate text-[0.8125rem] leading-[16px] text-white/60">
+              <p className="truncate text-[0.8125rem] leading-[16px] text-body-ink/60">
                 {towerId} · Sentry camera
               </p>
             )}
@@ -465,7 +465,7 @@ export function CameraTile({
               onClick={onToggleFullscreen}
               aria-label="Exit fullscreen"
               title="Exit fullscreen (Esc)"
-              className="flex size-[40px] items-center justify-center rounded-[8px] text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+              className="flex size-[40px] items-center justify-center rounded-[8px] text-body-ink/85 transition-colors hover:bg-overlay/10 hover:text-body-ink"
             >
               <svg
                 width="16"
@@ -515,7 +515,7 @@ export function CameraTile({
               type="button"
               onClick={() => onSwitchCamera?.(-1)}
               aria-label="Previous camera"
-              className="pointer-events-auto invisible flex size-[48px] items-center justify-center rounded-full bg-black/50 text-white/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100 hover:text-white"
+              className="pointer-events-auto invisible flex size-[48px] items-center justify-center rounded-full bg-black/50 text-body-ink/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100 hover:text-body-ink"
             >
               <svg
                 width="20"
@@ -542,7 +542,7 @@ export function CameraTile({
               type="button"
               onClick={() => onSwitchCamera?.(1)}
               aria-label="Next camera"
-              className="pointer-events-auto invisible flex size-[48px] items-center justify-center rounded-full bg-black/50 text-white/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100 hover:text-white"
+              className="pointer-events-auto invisible flex size-[48px] items-center justify-center rounded-full bg-black/50 text-body-ink/80 opacity-0 transition-[opacity,visibility] group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 max-lg:visible max-lg:opacity-100 hover:text-body-ink"
             >
               <svg
                 width="20"
@@ -573,7 +573,7 @@ export function CameraTile({
             aria-hidden
             className="pulse-dot size-[6px] rounded-full bg-critical"
           />
-          <p className="font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-white tabular-nums">
+          <p className="font-display text-[0.75rem] lg:text-[0.6875rem] tracking-[0.11px] text-body-ink tabular-nums">
             TRANSMITTING {formatElapsed(talkSec)}
           </p>
         </motion.div>

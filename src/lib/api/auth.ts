@@ -69,6 +69,17 @@ export interface AuthAccount {
   login: string;
   role: string;
   status: string;
+  /**
+   * Which features this account may see — `registry/features.py`'s enabled
+   * list, as the server computed it.
+   *
+   * OPTIONAL on purpose. A session stored before this shipped, or a
+   * coordination one version behind, carries no list at all, and the client's
+   * fallback for that case is deliberately the RESTRICTIVE one (see
+   * `lib/features.ts`). Typing it as required would have meant either lying in
+   * the type or inventing a list on the client.
+   */
+  features?: string[];
 }
 
 /** `POST /v1/auth/login` → 200. */
@@ -88,8 +99,21 @@ export interface StoredSession {
   account: AuthAccount;
 }
 
-/** Why a stored session stopped being valid. */
-export type SessionEndReason = "expired" | "revoked" | "unknown" | "logged_out";
+/**
+ * Why a stored session stopped being valid.
+ *
+ * `password_changed` is its own reason, not a flavour of `revoked`, because it
+ * is the one ending the person CAUSED and therefore the one that needs no
+ * explaining — "your session was ended elsewhere" would be alarming and wrong
+ * when they are standing on the screen they ended it from. The sign-in screen
+ * says so: see `LoginView`.
+ */
+export type SessionEndReason =
+  | "expired"
+  | "revoked"
+  | "unknown"
+  | "logged_out"
+  | "password_changed";
 
 /**
  * THE one message shown for any credential failure.
@@ -523,6 +547,27 @@ export function saveSession(session: StoredSession): void {
     }
   }
   notify();
+}
+
+/**
+ * Replace the stored account block, keeping the same session.
+ *
+ * For a RENAME: the organization name changed server-side and the copy in
+ * `sessionStorage` is stale from the moment the 200 lands. Everything that shows
+ * the organization reads it from here — `operatorName` stamps it on authored
+ * acts, the sign-in screen names it when a session ends — so a stale copy means
+ * the app attributes today's actions to yesterday's name.
+ *
+ * A no-op with no live session: there is nothing to attach the account to, and
+ * inventing a session around it would be worse than losing the update.
+ *
+ * ⚠ THE SESSION REFERENCE IS NOT TOUCHED. A rename does not change the
+ * credential (the login is an identifier, not a secret), and this must not be
+ * the function that quietly re-issues one.
+ */
+export function updateStoredAccount(account: AuthAccount): void {
+  if (!current) return;
+  saveSession({ ...current, account });
 }
 
 /**

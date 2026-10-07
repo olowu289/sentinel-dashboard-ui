@@ -152,14 +152,14 @@ export function PeopleView({
               type="button"
               onClick={onBack}
               title="Back to all towers"
-              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-white"
+              className="rounded-[2px] font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
               TOWERS
             </button>
             <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
             <span
               aria-current="page"
-              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white"
+              className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink"
             >
               PEOPLE OF INTEREST
             </span>
@@ -179,7 +179,7 @@ export function PeopleView({
                 setEnrolling(true);
                 setSelectedId(null);
               }}
-              className="flex items-center gap-[8px] rounded-[8px] bg-white px-[16px] py-[12px] text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] text-black transition-colors hover:bg-white/90"
+              className="flex items-center gap-[8px] rounded-[8px] bg-action px-[16px] py-[12px] text-[0.875rem] leading-[20px] font-bold tracking-[0.14px] text-action-ink transition-colors hover:bg-overlay/90"
             >
               <MaskIcon src="/icons/nav-add.svg" size={24} />
               ADD NEW PERSON
@@ -339,14 +339,14 @@ function PoiCard({
             keeps the frame's 4 rather than collapsing them, since the two live
             on different surfaces. */}
         <span className="absolute right-[12px] top-[7px] flex items-center gap-[6px] rounded-[32px] bg-black/40 px-[8px] py-[6px] backdrop-blur-[4px]">
-          <MaskIcon src="/icons/poi-eye.svg" size={20} className="text-white" />
-          <span className="text-[0.875rem] leading-none font-medium tracking-[0.14px] text-white tabular-nums">
+          <MaskIcon src="/icons/poi-eye.svg" size={20} className="text-body-ink" />
+          <span className="text-[0.875rem] leading-none font-medium tracking-[0.14px] text-body-ink tabular-nums">
             {sightings}
           </span>
         </span>
 
         <span className="absolute bottom-[16px] left-[23px] right-[16px] flex flex-col gap-[6px]">
-          <span className="truncate text-[1.125rem] leading-[normal] font-medium tracking-[0.18px] text-white uppercase">
+          <span className="truncate text-[1.125rem] leading-[normal] font-medium tracking-[0.18px] text-body-ink uppercase">
             {person.name}
           </span>
           <span className="flex min-w-0 items-center gap-[6px] text-[0.875rem] leading-[normal] tracking-[0.14px] text-sub">
@@ -435,7 +435,7 @@ function PersonDetail({
       className="flex min-h-0 flex-1 flex-col"
     >
       <header className="flex h-[46px] shrink-0 items-center gap-[12px] border-b border-line px-[16px]">
-        <h1 className="min-w-0 flex-1 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <h1 className="min-w-0 flex-1 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           {person.name}
         </h1>
         <button
@@ -443,7 +443,7 @@ function PersonDetail({
           onClick={onClose}
           aria-label={`Close ${person.name}`}
           title="Close (Esc)"
-          className="flex size-[20px] shrink-0 items-center justify-center text-white transition-colors hover:text-muted"
+          className="flex size-[20px] shrink-0 items-center justify-center text-body-ink transition-colors hover:text-muted"
         >
           <MaskIcon src="/icons/clip-close.svg" size={20} />
         </button>
@@ -503,7 +503,7 @@ function PersonDetail({
             the whole point of having an expiry at all. */}
         {confirming ? (
           <div className="flex flex-col gap-[10px] rounded-[12px] bg-critical/12 p-[14px]">
-            <p className="text-[0.875rem] leading-[20px] text-white">
+            <p className="text-[0.875rem] leading-[20px] text-body-ink">
               {expired
                 ? `Delete ${person.name}'s entry? This cannot be undone. The alerts their matches raised are kept.`
                 : `Stop watching ${person.name}? Cameras stop matching straight away. The entry stays on the list, marked expired.`}
@@ -528,8 +528,8 @@ function PersonDetail({
                       onClick={() => setWhy(r)}
                       className={`h-[30px] rounded-[6px] px-[10px] text-[0.8125rem] transition-colors ${
                         why === r
-                          ? "bg-white text-black"
-                          : "bg-black/25 text-white hover:bg-black/40"
+                          ? "bg-action text-action-ink"
+                          : "bg-black/25 text-body-ink hover:bg-black/40"
                       }`}
                     >
                       {r}
@@ -543,7 +543,7 @@ function PersonDetail({
                     autoFocus
                     aria-label="Why watching is being stopped"
                     placeholder="Briefly, what changed"
-                    className="h-[36px] rounded-[8px] bg-black/25 px-[12px] text-[0.8125rem] text-white outline-none placeholder:text-white/30 focus-visible:outline-1 focus-visible:outline-terra"
+                    className="h-[36px] rounded-[8px] bg-black/25 px-[12px] text-[0.8125rem] text-body-ink outline-none placeholder:text-body-ink/30 focus-visible:outline-1 focus-visible:outline-terra"
                   />
                 )}
               </fieldset>
@@ -574,7 +574,7 @@ function PersonDetail({
               <button
                 type="button"
                 onClick={() => setConfirming(false)}
-                className="h-[36px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+                className="h-[36px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-line"
               >
                 Cancel
               </button>
@@ -587,7 +587,7 @@ function PersonDetail({
               onClick={() => onExtend(DEFAULT_DAYS)}
               disabled={extendPhase.kind === "pending"}
               aria-busy={extendPhase.kind === "pending" || undefined}
-              className="flex h-[36px] items-center gap-[8px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e] disabled:opacity-50"
+              className="flex h-[36px] items-center gap-[8px] rounded-[8px] bg-panel px-[14px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-line disabled:opacity-50"
             >
               <MutationIcon phase={extendPhase} idle={null} />
               {expired
@@ -629,7 +629,7 @@ function PersonDetail({
                     aria-hidden
                     className="size-[8px] shrink-0 rounded-full bg-detect"
                   />
-                  <span className="font-display text-[0.8125rem] tracking-[0.13px] text-white tabular-nums">
+                  <span className="font-display text-[0.8125rem] tracking-[0.13px] text-body-ink tabular-nums">
                     {formatEventTime(s.at)}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-sub">
@@ -662,7 +662,7 @@ function Field({
       <dt className="font-display text-[0.6875rem] tracking-[0.11px] text-muted">
         {label}
       </dt>
-      <dd className={`text-[0.875rem] leading-[20px] ${tone ?? "text-white"}`}>
+      <dd className={`text-[0.875rem] leading-[20px] ${tone ?? "text-body-ink"}`}>
         {value}
       </dd>
     </div>
@@ -733,7 +733,7 @@ export function Enrol({
       className="flex min-h-0 flex-1 flex-col"
     >
       <header className="flex h-[46px] shrink-0 items-center border-b border-line px-[16px]">
-        <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+        <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
           ADD A PERSON
         </h1>
       </header>
@@ -773,7 +773,7 @@ export function Enrol({
                   size={24}
                   className="text-muted"
                 />
-                <span className="text-[0.875rem] text-white">
+                <span className="text-[0.875rem] text-body-ink">
                   Drop a photo, or click to choose one
                 </span>
                 <span className="text-[0.75rem] text-muted">
@@ -800,7 +800,7 @@ export function Enrol({
           <ul className="mt-[10px] flex flex-col gap-[4px] text-[0.75rem] leading-[16px] text-muted">
             {PHOTO_RULES.map((rule) => (
               <li key={rule} className="flex items-start gap-[8px]">
-                <span aria-hidden className="pt-[5px] text-white/30">
+                <span aria-hidden className="pt-[5px] text-body-ink/30">
                   &bull;
                 </span>
                 {rule}
@@ -819,7 +819,7 @@ export function Enrol({
             onChange={(e) => setName(e.target.value)}
             placeholder="M. OKONKWO"
             autoComplete="off"
-            className="h-[48px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white uppercase outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra"
+            className="h-[48px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink uppercase outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
           />
           <span className="text-[0.75rem] leading-[16px] text-muted">
             If nobody knows who this is, use the case's alias.
@@ -835,7 +835,7 @@ export function Enrol({
             onChange={(e) => setReason(e.target.value)}
             rows={3}
             placeholder="Trespass at Gas Yard, 4 Aug. Case OP-114."
-            className="resize-none rounded-[8px] bg-card px-[14px] py-[12px] text-[0.875rem] leading-[20px] text-white outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra"
+            className="resize-none rounded-[8px] bg-card px-[14px] py-[12px] text-[0.875rem] leading-[20px] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
           />
           <span className="text-[0.75rem] leading-[16px] text-muted">
             Shown with every match, so the next operator can judge it.
@@ -855,8 +855,8 @@ export function Enrol({
                 aria-pressed={days === d}
                 className={`h-[40px] flex-1 rounded-[8px] text-[0.875rem] font-medium transition-colors ${
                   days === d
-                    ? "bg-white text-black"
-                    : "bg-card text-white hover:bg-card-hover"
+                    ? "bg-action text-action-ink"
+                    : "bg-card text-body-ink hover:bg-card-hover"
                 }`}
               >
                 {d} days
@@ -899,7 +899,7 @@ export function Enrol({
           type="submit"
           disabled={!ready || phase.kind === "pending"}
           aria-busy={phase.kind === "pending" || undefined}
-          className="flex h-[44px] items-center gap-[8px] rounded-[8px] bg-white px-[20px] text-[0.875rem] font-medium text-black transition-colors hover:bg-white/90 disabled:bg-white/25 disabled:text-black/40"
+          className="flex h-[44px] items-center gap-[8px] rounded-[8px] bg-action px-[20px] text-[0.875rem] font-medium text-action-ink transition-colors hover:bg-overlay/90 disabled:bg-overlay/25 disabled:text-action-ink/40"
         >
           <MutationIcon phase={phase} idle={null} />
           Start watching
@@ -907,7 +907,7 @@ export function Enrol({
         <button
           type="button"
           onClick={onCancel}
-          className="h-[44px] rounded-[8px] bg-panel px-[20px] text-[0.875rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+          className="h-[44px] rounded-[8px] bg-panel px-[20px] text-[0.875rem] font-medium text-body-ink transition-colors hover:bg-card-line"
         >
           Cancel
         </button>

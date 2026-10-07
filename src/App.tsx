@@ -4,8 +4,17 @@ import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
 import { PlaybackView } from "@/components/PlaybackView";
 import { useSession } from "@/components/AuthProvider";
+import { can, navAllowed } from "@/lib/features";
+import {
+  clearSection,
+  sectionFromHash,
+  subscribeToSettingsHash,
+  writeSection,
+  type SettingsSection,
+} from "@/lib/settingsRoute";
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
+import { SettingsView } from "@/components/SettingsView";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
@@ -75,7 +84,7 @@ const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
 function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-[14px] bg-ink px-[24px] text-center">
-      <p className="font-display text-[0.875rem] tracking-[0.14px] text-white">
+      <p className="font-display text-[0.875rem] tracking-[0.14px] text-body-ink">
         {id} IS UNAVAILABLE
       </p>
       <p className="max-w-[360px] text-[0.8125rem] leading-[20px] text-muted">
@@ -85,7 +94,7 @@ function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="h-[36px] rounded-[8px] bg-panel px-[16px] text-[0.8125rem] font-medium text-white transition-colors hover:bg-[#2a2a2e]"
+        className="h-[36px] rounded-[8px] bg-panel px-[16px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-line"
       >
         Back to all towers
       </button>
@@ -119,7 +128,10 @@ export function SentinelApp() {
 
      This component only ever renders inside `AuthGate`, so a session is always
      present here. */
-  const { operator: OPERATOR, account } = useSession();
+  /* ONE useSession call. `features` is what this account may see — the server
+     decided it; lib/features.ts says why this is not the access control and why
+     its fallback is restrictive. */
+  const { operator: OPERATOR, account, features } = useSession();
 
   /**
    * View preferences, remembered per account.
@@ -171,7 +183,23 @@ export function SentinelApp() {
    * screen. Until then this is a knowing choice, not an oversight — swap the
    * line below back the moment coordination serves alerts.
    */
-  const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
+  /* ══════════════════════════════════════════════════════════════════════
+     THE FIXTURE FEED NOW LOADS FOR NOBODY WHO MAY NOT SEE IT.
+     ══════════════════════════════════════════════════════════════════════
+
+     The note above is the argument for taking this out, and the feature list
+     is what finally takes it out — for every account except one that has been
+     explicitly granted `alerts`, which today is ours alone.
+
+     GATED AT THE SOURCE, not at the screens. Emptying the array is what makes
+     the phantom counts on real tower cards go away, and the new-alert banner,
+     and the badge totals — all of which read `alerts` rather than asking the
+     rail whether the Alerts screen is reachable. Hiding only the screen would
+     have left a customer's tower card counting six detections of somebody
+     else's yard. */
+  const [alerts, setAlerts] = useState<Alert[]>(
+    can(features, "alerts") ? ALERTS : [],
+  );
   /* State rather than the module constant, because a seeded battery actually
      fills: those towers are off-grid and the panel is the only thing that
      refills them, so a card claiming to be charging while the number sits
@@ -295,7 +323,11 @@ export function SentinelApp() {
      towers because a match is an alert like any other — the roster and the feed
      have to be reading the same list, or a person could be removed while their
      sightings still name them. */
-  const [people, setPeople] = useState<Person[]>(PEOPLE);
+  /* The watchlist fixture. Same gate, same reason: `PEOPLE` is six invented
+     people, and a customer's "people of interest" count must not be six. */
+  const [people, setPeople] = useState<Person[]>(
+    can(features, "watchlist") ? PEOPLE : [],
+  );
   const [onPeople, setOnPeople] = useState(false);
   /* The fleet-wide alerts feed, off the rail's bell. A screen rather than a
      panel: it is not scoped to a tower, so there is no wall for it to sit
@@ -372,6 +404,22 @@ export function SentinelApp() {
      checking what happened a minute ago comes back to a wall that never
      stopped, however long the minute was. */
   const [onPlayback, setOnPlayback] = useState(false);
+  /* Account settings — the organization's own name and password. A screen like
+     the others rather than a modal, because a forced re-login lands on the sign-in
+     screen and a modal would have had to survive the app unmounting under it. */
+  const [onSettings, setOnSettings] = useState(false);
+  /**
+   * Which Settings section is open, and the ONE piece of this app's state that
+   * lives in the URL.
+   *
+   * Seeded from the hash SYNCHRONOUSLY, in the initialiser rather than an
+   * effect, so a pasted `#settings/cameras` renders Cameras on the first frame
+   * instead of flashing Account. `lib/settingsRoute.ts` explains why it is a
+   * hash and not a path.
+   */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(
+    () => sectionFromHash() ?? "account",
+  );
 
   /* Which fleet tiles are on screen, settled rather than instantaneous.
      The hysteresis and the reasoning for it are in `useVisibleTiles`.
@@ -386,7 +434,8 @@ export function SentinelApp() {
      previous render's value, which is one render too late — the tiles detach
      in the very commit the flag flips. */
   const wallOffScreen =
-    onPlayback || onAlerts || onPeople || adding || onTowers || open !== null;
+    onPlayback || onAlerts || onPeople || adding || onTowers || onSettings
+    || open !== null;
   const { observe: observeTile, visible: visibleTiles } =
     useVisibleTiles(wallOffScreen);
 
@@ -507,7 +556,7 @@ export function SentinelApp() {
      no live camera, so they attach nothing and whatever the wall held idles
      behind them. */
   const attachedTargets: PlaybackTarget[] =
-    seededFleet || onAlerts || onPeople || adding || onTowers
+    seededFleet || onAlerts || onPeople || adding || onTowers || onSettings
       ? []
       : open !== null
         ? towerTargets
@@ -767,20 +816,88 @@ export function SentinelApp() {
      picks it up; wire it in a view and only that view will have it. */
 
 
+  /**
+   * The URL, in both directions.
+   *
+   * ON LOAD: a link to `#settings/cameras` must OPEN Settings, not merely be
+   * remembered — otherwise the link does nothing for the person who was sent
+   * it, which is the whole point of having one.
+   *
+   * ON hashchange: back, forward, or a second paste into the same tab. `null`
+   * means the hash stopped naming Settings, so the screen CLOSES — leaving it
+   * open would make the back button appear broken.
+   *
+   * ⚠ GATED ON THE FEATURE. A pasted settings link must not open a screen this
+   * account may not have; `navAllowed` is the same check the rail and the
+   * router use, so a URL cannot be the one way past the gate.
+   */
+  useEffect(() => {
+    const open = (next: SettingsSection | null) => {
+      if (next === null) {
+        setOnSettings(false);
+        return;
+      }
+      if (!navAllowed(features, "settings")) return;
+      setSettingsSection(next);
+      setOnSettings(true);
+    };
+    /* The initial read, for a cold load on a deep link. The state initialiser
+       above already has the section; this is what OPENS the screen. */
+    open(sectionFromHash());
+    return subscribeToSettingsHash(open);
+  }, [features]);
+
+  /* Keep the URL in step with the screen. Writing it here rather than in the
+     click handlers means every route INTO Settings — the rail, a pasted link,
+     the back button — ends with the address bar telling the truth, instead of
+     each caller having to remember to update it. */
+  useEffect(() => {
+    if (onSettings) writeSection(settingsSection);
+    else clearSection();
+  }, [onSettings, settingsSection]);
+
   const navigate = useCallback(
     (id: string) => {
+      /* ── THE ROUTER'S HALF OF THE FEATURE GATE ─────────────────────────────
+
+         `IconRail` removes a destination this account does not have; this
+         refuses it. BOTH, because either alone is a bug: the rail alone leaves
+         the destination reachable by any other caller (and there are several —
+         `TowerView`, `AlertsView` and `PlaybackView` all call `onNavigate`,
+         and `watchPerson` navigates to the watchlist from an alert), while this
+         alone leaves an item on screen that does nothing.
+
+         THERE ARE NO URLs TO GATE. This app has no router and no URL state —
+         `grep -rn "URLSearchParams\|location.search\|location.hash" src/`
+         finds nothing — so a screen cannot be reached by typing an address.
+         Every way in goes through this function, which makes it the whole
+         client-side surface. The server gates its own routes regardless. */
+      if (!navAllowed(features, id)) return;
       /* Every destination but Playback leaves the board. Playback is layered
          over whatever it was opened from, the board included. */
       if (id !== "playback") {
         setOnTowers(false);
         backToBoard.current = false;
       }
+      /* Every destination leaves Settings. It is not layered over anything the
+         way Playback is, and a settings screen that survived navigating away
+         would keep a half-typed password in state behind another view. */
+      if (id !== "settings") setOnSettings(false);
       if (id === "dashboard") {
         setOnPlayback(false);
         setOnPeople(false);
         setAdding(false);
         setOnAlerts(false);
         show(null);
+        return;
+      }
+      if (id === "settings") {
+        setOnPlayback(false);
+        setOnPeople(false);
+        setAdding(false);
+        setOnAlerts(false);
+        show(null);
+        setOnSettings(true);
         return;
       }
       if (id === "add") {
@@ -830,13 +947,12 @@ export function SentinelApp() {
         show(null);
         setOnTowers(true);
       }
-      /* `settings` deliberately has no branch: there is no account-level
-         settings screen, so the rail draws that item disabled rather than
-         letting it reach here and fall off the end silently. If one is ever
-         built, clear `unavailable` in `IconRail`'s NAV and add the branch —
-         both, or the item lights up and still goes nowhere. */
     },
-    [show],
+    /* `features` is a dependency because this callback READS it. Without it
+       the memoised router keeps the set it was built with, so a feature
+       revoked while somebody is signed in would be enforced by the rail and
+       not by the router -- the exact split this gate exists to avoid. */
+    [show, features],
   );
 
   const applyRejectMatch = useCallback((id: string) => {
@@ -1447,7 +1563,29 @@ export function SentinelApp() {
           )}
         </AnimatePresence>
         <div className="min-h-0 flex-1">
-      {onPlayback ? (
+      {onSettings ? (
+        <SettingsView
+          onNavigate={navigate}
+          onBack={() => setOnSettings(false)}
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
+          towers={towers}
+          feeds={feeds}
+          /* A renamed camera comes straight back up here. The server returns
+             the whole re-projected tower, so both lists are replaced rather
+             than patched — patching one field is how the wall ends up showing
+             the old name while the settings screen shows the new one. */
+          onCameraRenamed={(tower, renamedFeeds) => {
+            setTowers((prev) =>
+              prev.map((t) => (t.id === tower.id ? tower : t)),
+            );
+            setFeeds((prev) => [
+              ...prev.filter((f) => f.towerId !== tower.id),
+              ...renamedFeeds,
+            ]);
+          }}
+        />
+      ) : onPlayback ? (
         <PlaybackView
           towers={towers}
           feeds={feeds}

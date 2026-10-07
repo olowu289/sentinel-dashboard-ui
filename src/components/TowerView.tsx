@@ -1,5 +1,7 @@
 import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSession } from "@/components/AuthProvider";
+import { can } from "@/lib/features";
 import { AlertsPanel } from "@/components/AlertsPanel";
 import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
 import { CameraTile } from "@/components/CameraTile";
@@ -131,6 +133,14 @@ export function TowerView({
   const [alertsEmpty, setAlertsEmpty] = useState(false);
   const [focusedFeed, setFocusedFeed] = useState<string | null>(null);
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
+  /* What this account may see. Three surfaces on this screen are gated:
+     the alerts panel (fixture data), the camera tuning panel (local state) and
+     the state simulator (a review tool). */
+  const { features } = useSession();
+  const showAlertsPanel = can(features, "alerts");
+  const canTune = can(features, "camera_tuning");
+  const canSimulate = can(features, "simulator");
+
   const [simOpen, setSimOpen] = useState(false);
   /* Portrait by default: side by side gives each camera the full height of the
      wall, which is the axis a fixed camera watching a yard actually needs.
@@ -210,8 +220,12 @@ export function TowerView({
       <IconRail
         active="towers"
         onSelect={onNavigate}
-        onMore={() => setSimOpen((o) => !o)}
-        moreOpen={simOpen}
+        /* Undefined rather than a no-op when the account cannot simulate:
+           `IconRail` only DRAWS the button when it is handed a handler, and its
+           own comment says why — it used to draw on four screens and work on
+           one, "the same dead-control bug as an unwired nav item". */
+        onMore={canSimulate ? () => setSimOpen((o) => !o) : undefined}
+        moreOpen={canSimulate && simOpen}
         className="hidden lg:block"
       />
 
@@ -245,8 +259,13 @@ export function TowerView({
             setAlertsCollapsed(false);
             setNewAlertId(null);
           }}
-          onOpenSettings={onToggleSettings}
-          settingsOpen={settingsOpen}
+          /* The GEAR opens the per-camera detection panel — zones,
+             sensitivity, person/vehicle switches — all of which are local
+             state. Undefined when the account cannot tune, for the same
+             reason as the simulator button above: a control that is drawn
+             and does nothing is worse than one that is absent. */
+          onOpenSettings={canTune ? onToggleSettings : undefined}
+          settingsOpen={canTune && settingsOpen}
         />
 
         {/* Shown only where the alerts feed itself is not: collapsed on
@@ -376,7 +395,13 @@ export function TowerView({
              state of the alerts feed; this panel is what replaces it. */
           className={mobileView === "alerts" ? "flex" : "hidden lg:flex"}
         />
-      ) : (
+      ) : !showAlertsPanel ? null : (
+      /* THE FIXTURE FEED. App.tsx already empties the array for an account
+         without `alerts`, so this panel would render an empty list — and an
+         empty alerts column on a tower screen reads as "this site is quiet",
+         which is a claim nobody made. Not rendering it at all is the honest
+         answer: this account has no alerts feature, so it has no alerts
+         column. */
       <AlertsPanel
         alerts={alerts}
         towerName={tower.site}
@@ -407,7 +432,7 @@ export function TowerView({
         onSelect={setMobileView}
       />
 
-      {simOpen && (
+      {canSimulate && simOpen && (
         <StateSimulator
           feeds={feeds}
           alertsEmpty={alertsEmpty}

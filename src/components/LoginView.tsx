@@ -143,7 +143,7 @@ export function LoginView() {
       <header className="flex h-[46px] shrink-0 items-center border-b border-line pl-[16px]">
         <span className="flex items-center gap-[8px]">
           <img src="/icons/logo.svg" alt="" width={22.286} height={19.5} className="block" />
-          <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-white">
+          <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             TERRA SENTINEL
           </span>
         </span>
@@ -166,7 +166,7 @@ export function LoginView() {
 
           <div className="flex w-full flex-col gap-[26px]">
             <div className="flex flex-col items-center gap-[6px] text-center">
-              <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-white">
+              <h1 className="font-display text-[1.125rem] leading-[20px] tracking-[0.18px] text-body-ink">
                 SIGN IN
               </h1>
               <p className="text-[0.875rem] leading-[20px] text-sub/80">
@@ -185,9 +185,11 @@ export function LoginView() {
                 role="status"
                 className="rounded-[8px] bg-warn/12 px-[14px] py-[12px] text-[0.8125rem] leading-[20px] text-warn"
               >
-                {endedReason === "revoked"
-                  ? "Your session was ended elsewhere. Sign in again to continue."
-                  : "Your session ended. Sign in again to continue."}
+                {endedReason === "password_changed"
+                  ? "Your password was changed. Sign in with the new one."
+                  : endedReason === "revoked"
+                    ? "Your session was ended elsewhere. Sign in again to continue."
+                    : "Your session ended. Sign in again to continue."}
                 {account ? ` (${account.login})` : ""}
               </motion.p>
             )}
@@ -205,7 +207,19 @@ export function LoginView() {
                   }}
                   onKeyDown={onKeyDown}
                   disabled={pending}
-                  autoComplete="organization"
+                  /* ⚠ `username`, NOT `organization`, AND THE DISTINCTION IS
+                     THE POINT. This field holds an organization name, so
+                     `organization` describes its CONTENT correctly — but a
+                     password manager pairs a saved credential by finding a
+                     USERNAME field next to a password field, and
+                     `organization` is not one. The login identifier IS the
+                     username in this system: it is the string you type to sign
+                     in. So the credential ROLE is what the attribute has to
+                     carry, and the content type is what the placeholder and
+                     the label say.
+                     This is also the ONLY field in the app that invites a
+                     manager to fill — see the Settings notes. */
+                  autoComplete="username"
                   autoFocus
                   /* The browser must not normalise what the server matches
                      exactly. And no `uppercase` — see the header. */
@@ -214,7 +228,7 @@ export function LoginView() {
                   spellCheck={false}
                   aria-invalid={rejected || undefined}
                   placeholder="Terra Industries"
-                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white outline-none placeholder:text-white/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-white/40 ${
+                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />
@@ -237,8 +251,16 @@ export function LoginView() {
                   onKeyDown={onKeyDown}
                   disabled={pending}
                   autoComplete="current-password"
+                  /* Words, not dots. See the note in `SettingsView`: a dotted
+                     placeholder in a password box cannot be told apart from a
+                     filled one, and on the sign-in screen that is the first
+                     thing anybody meets. */
+                  placeholder="Enter your password"
                   aria-invalid={rejected || undefined}
-                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-white outline-none focus-visible:outline-1 focus-visible:outline-terra disabled:text-white/40 ${
+                  /* `placeholder:` was missing here while the organization field
+                     above has it, so the two boxes would have styled their hints
+                     differently the moment this one had a hint. */
+                  className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />
@@ -277,7 +299,7 @@ export function LoginView() {
               onClick={() => void submit()}
               disabled={!canSubmit}
               aria-busy={pending || undefined}
-              className="h-[57px] w-full rounded-[8px] bg-white text-[1rem] leading-[20px] font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/25 disabled:text-black/40"
+              className="h-[57px] w-full rounded-[8px] bg-action text-[1rem] leading-[20px] font-medium text-action-ink transition-colors hover:bg-overlay/90 disabled:cursor-not-allowed disabled:bg-overlay/25 disabled:text-action-ink/40"
             >
               {pending ? "SIGNING IN…" : "SIGN IN"}
             </button>

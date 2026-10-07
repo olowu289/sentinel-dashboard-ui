@@ -53,6 +53,8 @@ export const FEATURES = [
   "detections",
   "camera_tuning",
   "siren",
+  "two_way_audio",
+  "record_toggle",
   "simulator",
   "clip_export",
 ] as const;

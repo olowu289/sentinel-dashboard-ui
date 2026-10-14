@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { formatZoom, useZoomReadout } from "@/lib/useZoomReadout";
 import { captureFrame, downloadBlob, snapshotFilename } from "@/lib/snapshot";
 import type { TileControl } from "@/components/ControlStack";
@@ -30,6 +30,7 @@ import {
   type PtzHold,
 } from "@/lib/api/ptz";
 import { sweepOf, type PtzResult, type SweepStatus, type ViewerSession } from "@kallon/sentry-sdk";
+import { SweepRadar } from "@/components/SweepRadar";
 
 /**
  * The device's own countdown to an auto-resume, as `m:ss`.
@@ -935,6 +936,22 @@ export function useTileControls({
          belongs on a 32px chip: a glyph that changes under the pointer is a
          second thing to learn, and the badge already says 42% or 1:34. */
       icon: "/icons/nav-sweep.svg",
+      /* IDLE KEEPS THE MASK. The static icon and the live one are the same
+         drawing, so there is nothing to gain from rendering the component when
+         nothing is turning -- and a needle parked at 0 would read as a sweep at
+         0%, which is a different claim from "no sweep". */
+      /* `createElement` rather than JSX because this is a HOOK file, not a
+         component one -- renaming it to .tsx for a single element would move a
+         file every tile imports, to buy syntax sugar on one line. */
+      glyph: sweeping || paused
+        ? createElement(SweepRadar, {
+            percent: sweep?.percent ?? 0,
+            paused,
+            // The needle glides over exactly the interval the next reading
+            // arrives on, so it is never far from what the device last said.
+            trackMs: SWEEP_POLL_MS,
+          })
+        : undefined,
       active: sweeping || paused,
       /* MEASURED OR ABSENT, per the badge contract. While sweeping it is the
          degrees the DEVICE has observed; while paused it is the device's own

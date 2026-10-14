@@ -22,3 +22,23 @@ export const EXIT: Transition = { duration: 0.16, ease: [0.3, 0, 0, 1] };
 
 /** Opacity and in-place swaps. Linear, because eased opacity reads as lag. */
 export const FADE: Transition = { duration: 0.12, ease: "linear" };
+
+/**
+ * Following a value the DEVICE reports on a poll, between readings.
+ *
+ * The only one here that takes a duration, because the duration is not a taste
+ * decision: it is the interval the reading arrives on, so the travel ends about
+ * as the next one lands and the thing on screen is never far from the thing
+ * being reported.
+ *
+ * ⚠ LINEAR, AND THAT IS NOT THE HOUSE EASE. Everything above eases, because
+ * everything above is chrome arriving or leaving. This is a MEASUREMENT moving
+ * at a constant rate -- a radar needle, driven by a head turning at a fixed
+ * speed -- and an eased one reads as a mechanism that speeds up and slows down
+ * twice a second. Ease what the interface does; never ease what the equipment
+ * is doing.
+ *
+ * (The header says there are no CSS motion tokens because nothing consumed
+ * them. This is a JS tween like the rest, and it has a consumer: SweepRadar.)
+ */
+export const TRACK = (seconds: number): Transition => ({ duration: seconds, ease: "linear" });

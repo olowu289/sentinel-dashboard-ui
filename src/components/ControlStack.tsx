@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { MaskIcon } from "./Icon";
 
 export interface TileControl {
@@ -49,6 +50,20 @@ export interface TileControl {
    * space the readout can occupy is the picture, which is to its left.
    */
   badge?: string | null;
+  /**
+   * A glyph the control draws ITSELF, instead of `icon`.
+   *
+   * ⚠ THE EXCEPTION, NOT THE PATTERN. Every other control is an exported
+   * Figma mask through {@link MaskIcon}, which is what keeps the set coherent
+   * and themable. This exists for the one glyph with a MOVING PART driven by
+   * data -- the sweep's radar needle, whose angle is a device reading. A mask
+   * cannot carry that, and faking it with a spin animation would be a radar
+   * that turns while the camera is stuck.
+   *
+   * Whatever is passed must still take `currentColor`, or it will not invert
+   * with the theme like everything beside it.
+   */
+  glyph?: ReactNode;
   /** Survives the hover reveal — the tile's one permanent affordance. */
   persistent?: boolean;
   /**
@@ -256,7 +271,7 @@ export function ControlStack({
                   <path d="M18 10a8 8 0 0 0-8-8" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                 </svg>
               ) : (
-                <MaskIcon src={c.icon} size={c.size ?? 20} />
+                c.glyph ?? <MaskIcon src={c.icon} size={c.size ?? 20} />
               )}
               {critical && (
                 <span

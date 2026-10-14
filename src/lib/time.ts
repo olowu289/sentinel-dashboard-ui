@@ -121,6 +121,63 @@ export function siteToday(at: number = Date.now()) {
   return siteDay(at);
 }
 
+/**
+ * The site's UTC offset, in seconds, at a given instant.
+ *
+ * Read out of `Intl` rather than hardcoded, because the site timezone comes
+ * from the hub (`/healthz` `site.tz`) and this app must not hold a second
+ * opinion about it -- the same rule the zone itself follows.
+ */
+function siteOffsetSec(at: number): number {
+  const parts = fmt("en-CA", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(at);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  // The same wall clock, read as if it were UTC: the difference IS the offset.
+  const asUtc = Date.UTC(
+    get("year"), get("month") - 1, get("day"),
+    get("hour") % 24, get("minute"), get("second"),
+  );
+  return Math.round((asUtc - at) / 1000);
+}
+
+/**
+ * Midnight at the SITE, as epoch seconds, for a `YYYY-MM-DD` site day.
+ *
+ * ⚠ NOT THE VIEWER'S MIDNIGHT. An operator in London looking at a Lagos site is
+ * on a different date for five hours a day, and a day of footage that began at
+ * the viewer's midnight would be an hour short at one end and an hour long at
+ * the other -- with the missing hour looking exactly like a recording gap.
+ *
+ * The offset is read twice because a zone with DST changes it across the very
+ * boundary being computed; the second read uses the instant the first produced,
+ * which is the one that actually matters. Africa/Lagos has no DST and does not
+ * exercise this, which is precisely why it is written down rather than assumed.
+ */
+export function siteDayStart(isoDay: string): number {
+  const [y, m, d] = isoDay.split("-").map(Number);
+  const naive = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const first = siteOffsetSec(naive);
+  const once = naive - first * 1000;
+  const second = siteOffsetSec(once);
+  return Math.floor((second === first ? once : naive - second * 1000) / 1000);
+}
+
+/** The first moment of the NEXT site day. Exclusive, so ranges never overlap. */
+export function siteDayEnd(isoDay: string): number {
+  const [y, m, d] = isoDay.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const iso = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+  return siteDayStart(iso);
+}
+
+/** The `YYYY-MM-DD` site day a moment falls on. Epoch SECONDS. */
+export function siteDayOf(epochSec: number): string {
+  return siteToday(epochSec * 1000);
+}
+
 /** `Jul 26` from a `YYYY-MM-DD` site day. */
 export function formatDayLabel(isoDay: string) {
   const [y, m, d] = isoDay.split("-").map(Number);

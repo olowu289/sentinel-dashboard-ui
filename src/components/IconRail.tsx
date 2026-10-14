@@ -27,12 +27,17 @@ const NAV: {
      two readings of one icon are as far apart as this product gets. */
   { id: "poi", label: "People of interest", icon: "/icons/nav-team.svg" },
   { id: "alerts", label: "Alerts", icon: "/icons/nav-alerts.svg" },
-  /* "Playback", not "Events". Events would promise detected occurrences — a
-     list of things the system decided were worth looking at — and nothing here
-     detects them yet. What this opens is a scrubber over recent recorded
-     footage, and that is what it says. Events can sit on top of it later, when
-     something is actually finding them. */
-  { id: "playback", label: "Playback", icon: "/icons/clip-play.svg" },
+  /* "Footage", not "Events" and no longer "Playback". Events would promise
+     detected occurrences -- a list of things the system decided were worth
+     looking at -- and nothing here detects them yet.
+
+     "Playback" named the ACTION rather than the thing: an operator going to
+     look at yesterday is not thinking "I would like to play something back",
+     they are thinking "where is the footage". The glyph follows the noun -- a
+     clock turned back, not a play button, which promised a single clip and a
+     transport rather than a day to look through. The route id stays
+     `playback`, because that is the server's feature name. */
+  { id: "playback", label: "Footage", icon: "/icons/nav-footage.svg" },
   /* Account settings: the organization's own name and password. Per-tower
      settings are a different thing and are still reached from the tower bar.
      This item was `unavailable` until the screen existed — cleared here AND

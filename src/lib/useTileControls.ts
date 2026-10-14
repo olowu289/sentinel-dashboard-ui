@@ -926,7 +926,15 @@ export function useTileControls({
         : paused
           ? `Resume sweep (${sweep?.percent ?? 0}% round)`
           : "360\u00b0 Sweep",
-      icon: sweeping ? "/icons/clip-pause.svg" : "/icons/clip-play.svg",
+      /* ONE ICON IN EVERY STATE. It was a play/pause pair, which read as a
+         video transport -- press it and you expect footage, not a camera to
+         start turning. A radar says what this does: a head sweeping a circle.
+         Deliberately NOT a circular arrow, which reads as refresh.
+
+         The state is carried by the label and the badge, which is where state
+         belongs on a 32px chip: a glyph that changes under the pointer is a
+         second thing to learn, and the badge already says 42% or 1:34. */
+      icon: "/icons/nav-sweep.svg",
       active: sweeping || paused,
       /* MEASURED OR ABSENT, per the badge contract. While sweeping it is the
          degrees the DEVICE has observed; while paused it is the device's own

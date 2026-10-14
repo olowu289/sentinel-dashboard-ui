@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test:lib": "esbuild src/lib/footageTimeline.ts --bundle --format=esm --platform=neutral --outfile=node_modules/.cache/footage-test/footageTimeline.mjs && node --test test/footageTimeline.test.mjs",
     "test": "node --test --test-timeout=180000 test/csp.test.mjs test/account.test.mjs test/features.test.mjs test/settingsRoute.test.mjs test/passwordHints.test.mjs test/signOut.test.mjs"
   },
   "dependencies": {

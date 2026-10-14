@@ -102,6 +102,30 @@ export async function listReviewableTowers(
   }
 }
 
+/**
+ * EVERY camera's footage for one tower, in a single call.
+ *
+ * The per-camera call above is what a one-pane screen needed. A screen that
+ * shows a tower's cameras SIDE BY SIDE needs them together, and asking four
+ * times would be four round trips whose answers arrive at four different
+ * moments -- which is visible, because the panes would populate one by one and
+ * the day bar would redraw under the operator each time.
+ *
+ * The camera argument is simply omitted, which the archive reads as "the whole
+ * tower". Grouping by camera is the caller's job ({@link useFootageDay}).
+ */
+export async function listTowerRecordings(
+  deviceId: string,
+  range: { from?: number; to?: number } = {},
+): Promise<ArchivedRecordingList> {
+  try {
+    return await getClient().listArchivedRecordings(deviceId, null, range);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
 export function segmentDownloadUrl(segment: ArchivedSegment): string {
   return segment.downloadUrl;
 }

@@ -2,7 +2,7 @@ import { AnimatePresence, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
-import { PlaybackView } from "@/components/PlaybackView";
+import { FootageView } from "@/components/FootageView";
 import { useSession } from "@/components/AuthProvider";
 import { can, navAllowed } from "@/lib/features";
 import {
@@ -1586,9 +1586,12 @@ export function SentinelApp() {
           }}
         />
       ) : onPlayback ? (
-        <PlaybackView
-          towers={towers}
-          feeds={feeds}
+        /* FOOTAGE. The route id stays `playback` because that is the server's
+           feature name; everything an operator reads says Footage. It takes no
+           `towers`/`feeds`: the LIVE fleet is the wrong source here, because an
+           offline tower still has footage on the archive and used to vanish
+           from this screen. It asks the archive what is reviewable instead. */
+        <FootageView
           onNavigate={navigate}
           onBack={() => setOnPlayback(false)}
         />

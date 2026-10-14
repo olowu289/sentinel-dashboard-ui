@@ -93,6 +93,15 @@ export interface ViewPrefs {
    * watched in 2K says nothing about the other.
    */
   cameraProfiles: Record<string, string>;
+  /**
+   * Whether the Footage screen's clips drawer is open.
+   *
+   * A view preference in the same sense as the wall arrangement: it changes
+   * what this operator sees and nothing about any device. It lives here rather
+   * than in component state because a drawer that forgets itself on every
+   * navigation is a drawer somebody has to open again all day.
+   */
+  footageClips: boolean;
 }
 
 export const EMPTY_PREFS: ViewPrefs = {
@@ -100,6 +109,9 @@ export const EMPTY_PREFS: ViewPrefs = {
   dismissedNotices: [],
   cameraSettings: {},
   cameraProfiles: {},
+  /* Closed by default: the picture is what the screen is for, and a drawer
+     over it is something you ask for. */
+  footageClips: false,
 };
 
 function keyFor(accountId: string): string {
@@ -147,6 +159,7 @@ export function loadPrefs(accountId: string | null | undefined): ViewPrefs {
     return {
       wallOrder: stringArray(parsed.wallOrder) ?? [],
       dismissedNotices: stringArray(parsed.dismissedNotices) ?? [],
+      footageClips: parsed.footageClips === true,
       cameraSettings:
         parsed.cameraSettings && typeof parsed.cameraSettings === "object"
           ? (parsed.cameraSettings as Record<string, CameraSettings>)

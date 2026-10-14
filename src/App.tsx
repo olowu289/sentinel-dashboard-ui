@@ -383,6 +383,10 @@ export function SentinelApp() {
    * ⚠ THE TOWER VIEW'S ONLY. The fleet wall never consults this: see the note
    * on `fleetTargets` below.
    */
+  /* Whether Footage's clips drawer is open. Up here with the other remembered
+     view preferences, and restored from ViewPrefs on sign-in. */
+  const [footageClips, setFootageClips] = useState(false);
+
   const [cameraProfiles, setCameraProfiles] = useState<Record<string, string>>(
     {},
   );
@@ -1150,6 +1154,7 @@ export function SentinelApp() {
     if (Object.keys(stored.cameraProfiles).length > 0) {
       setCameraProfiles(stored.cameraProfiles);
     }
+    setFootageClips(stored.footageClips);
   }, [accountId]);
 
   /* Write back whenever a preference moves. Cheap, and it means a browser that
@@ -1161,11 +1166,12 @@ export function SentinelApp() {
       dismissedNotices: [...dismissedNotices],
       cameraSettings: settings,
       cameraProfiles,
+      footageClips,
     });
     /* Deliberately no mirrored `prefs` state. It would be a second copy of
        what the three sources already say, and the first time it drifted the
        stale one would be what got written to disk. */
-  }, [accountId, wallOrder, dismissedNotices, settings, cameraProfiles]);
+  }, [accountId, wallOrder, dismissedNotices, settings, cameraProfiles, footageClips]);
 
   const dismissNotice = useCallback((towerId: string) => {
     setDismissedNotices((prev) => new Set(prev).add(towerId));
@@ -1592,7 +1598,10 @@ export function SentinelApp() {
            offline tower still has footage on the archive and used to vanish
            from this screen. It asks the archive what is reviewable instead. */
         <FootageView
-          onNavigate={navigate}
+          /* The drawer is a remembered view preference, so it is App's like
+             every other one -- see ViewPrefs.footageClips. */
+          clipsOpen={footageClips}
+          onClipsOpen={setFootageClips}
           onBack={() => setOnPlayback(false)}
         />
       ) : onAlerts ? (

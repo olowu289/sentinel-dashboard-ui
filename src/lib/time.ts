@@ -20,7 +20,36 @@
  */
 const FALLBACK_SITE_TZ = "Africa/Lagos";
 
-let siteTzName: string = FALLBACK_SITE_TZ;
+/**
+ * A zone pinned by the BUILD, which wins over whatever `/healthz` answers.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY THIS EXISTS, AND WHAT IT DOES NOT FIX
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ ON sentri.watch, `/healthz` ANSWERS "UTC", AND IT IS NOT LYING. The
+ * zone is read from the coordination process's own `SITE_TZ`, which defaults to
+ * UTC; `SITE_TZ=Africa/Lagos` is set in `hub.env.example` and there is no data
+ * centre equivalent. So a hub serving its own dashboard reports the site's zone
+ * correctly, and the DC reports its own -- which is UTC, and which is NOT the
+ * zone the footage was recorded in. Every time on the cloud dashboard was an
+ * hour out, labelled as though it were right.
+ *
+ * The REAL fix is upstream and is not ours: the DC should carry each hub's zone
+ * per tower, because one data centre will eventually serve sites in several of
+ * them and no single value can be right for all. Until it does, a cloud build
+ * that serves ONE site can be told which site that is, and this is how.
+ *
+ * It is deliberately a BUILD variable rather than a setting. A zone an operator
+ * could change would be a second source of truth about when a recording was
+ * made, which is the exact thing the note above this file forbids.
+ */
+/* Optional-chained because this module is also imported OUTSIDE Vite -- the
+   lib test harness bundles it with esbuild, where `import.meta.env` does not
+   exist at all and a bare property read throws before a single test runs. */
+const PINNED_SITE_TZ = (import.meta.env?.VITE_SITE_TZ ?? "").trim();
+
+let siteTzName: string = PINNED_SITE_TZ || FALLBACK_SITE_TZ;
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
 
 /** A cached formatter in the CURRENT site zone. */
@@ -47,6 +76,10 @@ export function siteTz(): string {
  * whether it took, so a caller can log that it is still on the fallback.
  */
 export function setSiteTz(tz: string | null | undefined): boolean {
+  /* A pinned zone outranks the service. See PINNED_SITE_TZ: on a data centre
+     the service's answer is its OWN zone, not the site's, so a deployment that
+     knows better must be able to say so and not be overwritten at boot. */
+  if (PINNED_SITE_TZ) return (tz ?? "").trim() === PINNED_SITE_TZ;
   const next = (tz ?? "").trim();
   if (!next || next === siteTzName) return next === siteTzName;
   try {
@@ -66,16 +99,49 @@ export function setSiteTz(tz: string | null | undefined): boolean {
  * lying. Derived per call from the current zone AND the instant, because an
  * abbreviation can differ across the year.
  */
+/**
+ * Conventional abbreviations for zones whose short name is only an offset.
+ *
+ * Add a row when a site is deployed in a zone that needs one -- never a guess.
+ */
+const KNOWN_TZ_ABBREVIATIONS: Record<string, string> = {
+  "Africa/Lagos": "WAT",
+  "Africa/Accra": "GMT",
+  "Africa/Abidjan": "GMT",
+  "Africa/Douala": "WAT",
+  "Africa/Kinshasa": "WAT",
+};
+
 export function siteTzLabel(at: number = Date.now()): string {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: siteTzName,
-      timeZoneName: "short",
-    }).formatToParts(at);
-    return parts.find((p) => p.type === "timeZoneName")?.value ?? siteTzName;
-  } catch {
-    return siteTzName;
-  }
+  const name = (option: Intl.DateTimeFormatOptions["timeZoneName"]): string | null => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: siteTzName,
+        timeZoneName: option,
+      }).formatToParts(at);
+      return parts.find((p) => p.type === "timeZoneName")?.value ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const short = name("short");
+  /* Most zones give a real abbreviation here -- EST, PST, GMT, UTC -- and when
+     they do it is the right answer and nothing else is needed. */
+  if (short && !/^GMT[+\-]/.test(short)) return short;
+
+  /* ⚠ SOME ZONES ONLY GIVE AN OFFSET, and Africa/Lagos is one of them: Chrome
+     answers "GMT+1" where an operator in Nigeria says WAT. The abbreviation is
+     not missing from the world, only from this locale's short names.
+     This is a TABLE rather than a rule, and that is deliberate. Taking the
+     initials of the long name is tempting -- "West Africa Time" really does
+     give WAT, and so do East Africa and India Standard -- but the same rule
+     turns Europe/London's "United Kingdom Time" into "UKT", which nobody has
+     ever written. An invented abbreviation on a timestamp is worse than an
+     unfamiliar one, because it looks like a fact.
+     So: the zones this product is deployed in, and nothing else. Anything
+     absent keeps the offset, which is correct if less familiar. */
+  return KNOWN_TZ_ABBREVIATIONS[siteTzName] ?? short ?? siteTzName;
 }
 
 const clock = () => fmt("en-US", {
@@ -265,9 +331,19 @@ export function formatDelta(from: number, at: number) {
 
 /** `15s`, `4m 30s` — an attachment's runtime, for the thumbnail pill. */
 export function formatDuration(sec: number) {
-  if (sec < 60) return `${sec}s`;
-  const mins = Math.floor(sec / 60);
-  const rem = sec % 60;
+  /* ⚠ ROUNDED FIRST, AND THAT IS THE WHOLE FIX. This took the modulus of a
+     RAW float, so an archive segment of 836.591999999999985 seconds printed as
+     "13m 56.591999999999985s" on the clip list -- seventeen digits of encoder
+     timing presented to an operator as the length of a recording. A duration is
+     a reading, and nobody has ever needed one to a femtosecond.
+
+     Rounded to whole seconds BEFORE the split, so the carry works: 59.6s
+     becomes "1m", not "0m 60s". */
+  if (!Number.isFinite(sec) || sec < 0) return "0s";
+  const whole = Math.round(sec);
+  if (whole < 60) return `${whole}s`;
+  const mins = Math.floor(whole / 60);
+  const rem = whole % 60;
   return rem === 0 ? `${mins}m` : `${mins}m ${String(rem).padStart(2, "0")}s`;
 }
 

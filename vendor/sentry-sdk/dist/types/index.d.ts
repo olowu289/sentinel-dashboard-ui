@@ -8,15 +8,15 @@
  * connection), the tower WSS link (§1–§3 is tower ↔ coordination), and
  * recording/playback (§9 — deferred, and unspecified).
  */
-export { SentryClient, clampMove } from "./client.js";
+export { SentryClient, clampMove, clampStep } from "./client.js";
 export type { CreateSessionOptions, SentryClientOptions, SessionRef, } from "./client.js";
 export { HttpTransport } from "./http.js";
 export type { AbortSignalLike, FetchInitLike, FetchLike, FetchResponseLike, HttpOptions, RequestOptions, TokenProvider, } from "./http.js";
 export { AuthError, GrantError, InvalidRequestError, MediaError, NetworkError, NotFoundError, ProjectionLeakError, PtzError, RateLimitedError, RequestAbortedError, RequestTimeoutError, SentryError, ServerError, SessionConflictError, TowerOfflineError, TowerTimeoutError, ValidationError, describeError, errorFromEnvelope, isNormalPtzOutcome, isPtzPermissionDenied, isSentryErrorCode, isSessionEnded, } from "./errors.js";
-export { assertNoProjectionLeak, parseCameraInfo, parseIceCandidates, parsePtzResult, parseTowerDetail, parseTowerHealth, parseTowerInfo, parseTowerList, parseSessionStatus, parseViewerSession, ValidationCheck, } from "./validate.js";
+export { assertNoProjectionLeak, parseCameraInfo, parseIceCandidates, parsePtzResult, parseSweepStatus, sweepOf, parseTowerDetail, parseTowerHealth, parseTowerInfo, parseTowerList, parseSessionStatus, parseViewerSession, ValidationCheck, } from "./validate.js";
 export type { ValidateContext } from "./validate.js";
-export { PTZ_DEADMAN_MS, PTZ_KEEPALIVE_MS } from "./models.js";
-export type { ApiError, ApiErrorCode, ApiErrorEnvelope, CameraIndex, CameraInfo, CameraLens, CameraResolution, CameraRole, CameraStatus, CoverHealth, CreateSessionRequest, DeviceId, DiskHealth, DoorHealth, FeedHealth, GrantPermission, GrantRole, IceCandidate, IceCandidatesRequest, IceCandidatesResponse, IceServer, ImpactHealth, LinkState, PtzAction, PtzAxes, PtzCommand, PtzErrorCode, PtzMoveMode, PtzMoveParams, PtzResult, PtzSetHomeResult, RecordingSpan, RecordingWindow, ArchivedSegment, FreshSegmentUrl, ReviewableTower, ArchivedRecordingList, PtzStatusResult, HomeSource, PtzStopParams, RecordingPlaybackDeferred, SensorInfo, SessionCloseReason, SessionId, ThermalHealth, ThermalState, Timestamp, TowerDetail, TowerHealth, TowerInfo, TowerListResponse, TowerStateEvent, TowerStateReason, ViewerSession, ViewerSessionStatus, } from "./models.js";
+export { PTZ_CLICK_MS, PTZ_DEADMAN_MS, PTZ_KEEPALIVE_MS, PTZ_STEP_DEG_MAX, PTZ_STEP_DEG_MIN, SWEEP_SECONDS_MAX, SWEEP_SECONDS_MIN, } from "./models.js";
+export type { ApiError, ApiErrorCode, ApiErrorEnvelope, CameraIndex, CameraInfo, CameraLens, CameraResolution, CameraRole, CameraStatus, CoverHealth, CreateSessionRequest, DeviceId, DiskHealth, DoorHealth, FeedHealth, GrantPermission, GrantRole, IceCandidate, IceCandidatesRequest, IceCandidatesResponse, IceServer, ImpactHealth, LinkState, PtzAction, PtzAxes, PtzCommand, PtzErrorCode, PtzMoveMode, PtzMoveParams, PtzResult, PtzSetHomeResult, PtzStepParams, PtzStepResult, SweepOp, SweepParams, SweepPhase, SweepStatus, RecordingSpan, RecordingWindow, ArchivedSegment, FreshSegmentUrl, ReviewableTower, ArchivedRecordingList, PtzStatusResult, HomeSource, PtzStopParams, RecordingPlaybackDeferred, SensorInfo, SessionCloseReason, SessionId, ThermalHealth, ThermalState, Timestamp, TowerDetail, TowerHealth, TowerInfo, TowerListResponse, TowerStateEvent, TowerStateReason, ViewerSession, ViewerSessionStatus, } from "./models.js";
 /** Protocol version this SDK is written against (§2.2 `v`). */
 export declare const PROTOCOL_VERSION = 1;
 /** Base path of the viewer-facing API (§4.2). One versioned base URL, as v1 had. */

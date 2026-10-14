@@ -215,13 +215,114 @@ export interface PtzMoveParams extends PtzAxes {
 export interface PtzStopParams {
     /** Default `false`. */
     home?: boolean;
+    /**
+     * Release of a tilt/zoom hold taken DURING a sweep: drop the held axes and
+     * leave the sweep's pan turning.
+     *
+     * ⚠ ONLY THE CALLER KNOWS WHICH GESTURE THIS WAS. Letting go of a tilt
+     * button and pressing Stop arrive as the same `stop`, and during a sweep they
+     * must do opposite things -- the release keeps the circle, Stop ends it. The
+     * device cannot guess, so a UI that forgets this flag kills the operator's
+     * sweep every time they let go of tilt.
+     *
+     * It is NOT a bare stop: it keeps the camera moving, so it needs the `ptz`
+     * permission like any move. Default `false`.
+     */
+    keep_sweep?: boolean;
 }
-export type PtzAction = "move" | "stop" | "keepalive" | "status" | "set_home";
+/**
+ * `params` for `action: "step"` -- ONE FIXED NUDGE.
+ *
+ * A step is a DISTANCE, executed as an ONVIF RelativeMove: the camera performs
+ * the translation and stops itself, so link delay changes WHEN it happens and
+ * never HOW FAR it goes. That is the whole point -- the short-hold-then-stop it
+ * replaces moved a different distance on every press and moved furthest on the
+ * worst link.
+ */
+export interface PtzStepParams {
+    /**
+     * Signed MULTIPLIER in a jog's sense, not an angle -- so a pad's left button
+     * means the same thing for a step and for a hold. The angle comes from the
+     * camera's configured `step_deg`. Clamped to -1..1.
+     */
+    pan?: number;
+    /** As {@link PtzStepParams.pan}. `+tilt` is up, `+pan` is right. */
+    tilt?: number;
+    /**
+     * Override the step size for this one call, in degrees. Clamped to
+     * {@link PTZ_STEP_DEG_MIN}..{@link PTZ_STEP_DEG_MAX} so a caller cannot ask
+     * for a sweep by sending a 300-degree step. Omit to use the camera's own.
+     */
+    degrees?: number;
+}
+/** Which way a sweep is being driven. `status` changes nothing. */
+export type SweepOp = "start" | "pause" | "resume" | "stop" | "status";
+/** `params` for `action: "sweep"`. */
+export interface SweepParams {
+    /** Defaults to `status` on the wire: a bare sweep command ASKS, never starts. */
+    op: SweepOp;
+    /**
+     * Duration for the full 360, on `start` only.
+     *
+     * ⚠ REFUSED, NOT CLAMPED, outside {@link SWEEP_SECONDS_MIN}..{@link
+     * SWEEP_SECONDS_MAX} -- a duration nobody can mean is a mistake to report
+     * rather than a request for the limit. This SDK does not pre-empt that: the
+     * device owns the bounds and its refusal carries the better message. Validate
+     * against the exported constants before calling if you want to catch it
+     * without a round trip.
+     */
+    seconds?: number;
+}
+/** The three states a camera's sweep can be in. */
+export type SweepPhase = "idle" | "sweeping" | "paused";
+/**
+ * One camera's sweep, as every viewer sees it.
+ *
+ * Carried by every `sweep` reply, by every `status` reply, AND by any command
+ * that CHANGED the sweep (a pan hold that paused it, a keepalive during one, a
+ * stop that ended it) -- so a dashboard learns what its own command did without
+ * waiting for the next poll. Absent entirely when no sweep is in play.
+ *
+ * ⚠ PROGRESS IS DEGREES OBSERVED, NOT TIME ELAPSED. That is what makes
+ * pausing, tilting and zooming safe: none of them lose the place.
+ */
+export interface SweepStatus {
+    state: SweepPhase;
+    /** `0..100`, from degrees covered. Never exceeds 100. Absent when idle. */
+    percent?: number;
+    /** Degrees of pan actually observed. Absent when idle. */
+    covered_deg?: number;
+    target_deg?: number;
+    /** The duration this sweep was started with. */
+    seconds?: number;
+    started_at?: string;
+    /**
+     * Seconds until a PAUSED sweep resumes itself. Never negative, present only
+     * while paused -- the one thing an operator looking at a pause needs.
+     */
+    resume_in_sec?: number;
+    /**
+     * How the LAST sweep ended, on an idle camera that has run one.
+     *
+     * Its absence is a different fact from its presence: a bare `idle` means no
+     * sweep has run since the daemon started. Render the two differently.
+     */
+    last?: string;
+}
+export type PtzAction = "move" | "step" | "sweep" | "stop" | "keepalive" | "status" | "set_home";
 /** `payload` of `ptz.command` (§5.1), as a viewer submits it. */
 export type PtzCommand = {
     camera: CameraIndex;
     action: "move";
     params: PtzMoveParams;
+} | {
+    camera: CameraIndex;
+    action: "step";
+    params: PtzStepParams;
+} | {
+    camera: CameraIndex;
+    action: "sweep";
+    params: SweepParams;
 } | {
     camera: CameraIndex;
     action: "stop";
@@ -293,6 +394,62 @@ export declare const PTZ_DEADMAN_MS = 3000;
  */
 export declare const PTZ_KEEPALIVE_MS = 600;
 /**
+ * How long a press has to be held before it is a HOLD rather than a CLICK.
+ *
+ * A click is one {@link SentryClient.ptzStep}; a hold is a continuous move kept
+ * alive until release. Not a device value and not on the wire -- it is purely
+ * how a pointer gesture is read, and it lives here so a dashboard and anything
+ * else driving this SDK read it the same way.
+ */
+export declare const PTZ_CLICK_MS = 300;
+/** A step's size is clamped to these bounds, in degrees (docs/ptz-api.md §2). */
+export declare const PTZ_STEP_DEG_MIN = 0.05;
+export declare const PTZ_STEP_DEG_MAX = 45;
+/**
+ * A sweep's duration bounds, in seconds (docs/ptz-api.md §5).
+ *
+ * ⚠ THE DEVICE REFUSES OUTSIDE THESE, it does not clamp. Exported so a UI
+ * can refuse first and say so without a round trip; this SDK deliberately does
+ * not pre-empt the device, whose message is the authoritative one.
+ */
+export declare const SWEEP_SECONDS_MIN = 10;
+export declare const SWEEP_SECONDS_MAX = 1800;
+/**
+ * `result` of `action: "step"`.
+ *
+ * ⚠ CHECK `done`, NOT THE STATUS CODE. A step blocked by the tilt limit is
+ * HTTP 200 with `ok: true` and `done: false` plus a `reason` written for a
+ * person -- it is a refusal, not an error. A caller that reads 200 as "it
+ * moved" will report a step that never happened.
+ */
+export interface PtzStepResult {
+    done: boolean;
+    transport?: string;
+    /** The angle actually commanded, AFTER zoom scaling. A distance, not a position. */
+    step_deg?: number;
+    /** The nominal size before scaling, so a UI can show both. */
+    requested_deg?: number;
+    /**
+     * `true` when the camera reported a magnification and it was applied. `false`
+     * means the ratio was unreadable and nothing was scaled -- which is honest
+     * rather than a failure: the step still happened, at its nominal size.
+     */
+    zoom_scaled?: boolean;
+    /** Present only when known. */
+    zoom_ratio?: number;
+    /** The glide rate the move was executed at. */
+    speed?: number;
+    /** Present only when a limit is in play. */
+    tilt_limit?: "max" | "min";
+    /** Why `done` is false. Written for a person; surface it as-is. */
+    reason?: string;
+    /** Absent unless something was out of range; then `true` with the axes named. */
+    clamped?: boolean;
+    clamped_axes?: unknown[];
+    /** Present when this command changed a running sweep (a step pauses one). */
+    sweep?: SweepStatus;
+}
+/**
  * Result body of a PTZ command — the `ptz.result` payload (§5.2), relayed to
  * the viewer.
  *
@@ -314,6 +471,15 @@ export interface PtzResult {
 export interface PtzStatusResult extends PtzAxes {
     transport?: string;
     camera?: CameraIndex;
+    /**
+     * The camera's sweep, when one is in play. Absent otherwise.
+     *
+     * It rides on `status` deliberately: a second operator, or the same one in
+     * another tab, sees a sweep somebody else started without asking a different
+     * question. Poll `status` for progress -- a sweeping camera needs no extra
+     * request. Read it with {@link sweepOf} rather than casting.
+     */
+    sweep?: SweepStatus;
     bearing_deg?: number;
     elevation_deg?: number;
     /**

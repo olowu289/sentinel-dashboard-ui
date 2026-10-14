@@ -44,6 +44,8 @@ exports.parseViewerSession = parseViewerSession;
 exports.parseSessionStatus = parseSessionStatus;
 exports.parseIceCandidates = parseIceCandidates;
 exports.parsePtzResult = parsePtzResult;
+exports.parseSweepStatus = parseSweepStatus;
+exports.sweepOf = sweepOf;
 exports.parseCameraInfo = parseCameraInfo;
 exports.parseTowerHealth = parseTowerHealth;
 exports.parseTowerInfo = parseTowerInfo;
@@ -365,6 +367,73 @@ function parsePtzResult(raw, ctx = {}) {
         }
     }
     return c.done(value, "PTZ result", ctx);
+}
+/**
+ * Validate a sweep block.
+ *
+ * TOLERANT ON EVERY FIELD BUT `state`, and deliberately. The three states are
+ * what a dashboard renders and a fourth would be unrenderable, so an unknown
+ * one is read as `idle` -- the safe reading, because it draws nothing rather
+ * than claiming a camera is turning. Everything else is optional on the wire
+ * (an idle block is `{"state":"idle"}` and nothing more), so a missing figure
+ * is absence and not an error: a progress bar with no percent must not take the
+ * whole reply down.
+ */
+function parseSweepStatus(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw) ?? {};
+    const state = c.optStr("state", o["state"]);
+    const value = {
+        state: state === "sweeping" || state === "paused" ? state : "idle",
+    };
+    const percent = c.optNum("percent", o["percent"]);
+    // Bounded here as well as on the device: a percent over 100 would overflow a
+    // progress bar, and this is the cheaper place to be sure of it.
+    if (percent !== undefined)
+        value.percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    const covered = c.optNum("covered_deg", o["covered_deg"]);
+    if (covered !== undefined)
+        value.covered_deg = covered;
+    const target = c.optNum("target_deg", o["target_deg"]);
+    if (target !== undefined)
+        value.target_deg = target;
+    const seconds = c.optNum("seconds", o["seconds"]);
+    if (seconds !== undefined)
+        value.seconds = seconds;
+    const startedAt = c.optStr("started_at", o["started_at"]);
+    if (startedAt !== undefined)
+        value.started_at = startedAt;
+    const resumeIn = c.optNum("resume_in_sec", o["resume_in_sec"]);
+    // Never negative: an overdue auto-resume counts down to 0 and stays there.
+    if (resumeIn !== undefined)
+        value.resume_in_sec = resumeIn < 0 ? 0 : resumeIn;
+    const last = c.optStr("last", o["last"]);
+    if (last !== undefined)
+        value.last = last;
+    return c.done(value, "sweep status", ctx);
+}
+/**
+ * The sweep block carried by a PTZ reply, or `undefined` when there is none.
+ *
+ * ⚠ ABSENCE IS MEANINGFUL AND IS NOT AN ERROR. A `sweep` key appears only
+ * on a reply that reported or CHANGED a sweep; an ordinary move answers without
+ * one. So `undefined` means "this reply says nothing about a sweep", which is
+ * different from `{state:"idle"}` ("there is no sweep on this camera"), and a
+ * UI must not turn the first into the second -- that is how a running sweep
+ * started in another tab gets drawn as idle.
+ *
+ * Use this rather than reaching into `result.sweep`: `PtzResult.result` is a
+ * pass-through object, so a cast would skip validation on the one block whose
+ * numbers drive a progress indicator.
+ */
+function sweepOf(result) {
+    const inner = result?.result;
+    if (!inner || typeof inner !== "object")
+        return undefined;
+    const block = inner.sweep;
+    if (!block || typeof block !== "object")
+        return undefined;
+    return parseSweepStatus(block);
 }
 /* ------------------------------------------------------------------ *
  * §3.1 / §3.4 — inventory and health

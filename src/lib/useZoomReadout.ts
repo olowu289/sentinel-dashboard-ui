@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PtzStatusResult, SessionRef } from "@kallon/sentry-sdk";
-import { getClient } from "@/lib/api/client";
+import { readStatus } from "@/lib/api/ptz";
 
 /**
  * The camera's REAL optical magnification, while an operator is zooming.
@@ -137,9 +137,14 @@ export function useZoomReadout({
       try {
         const ref = sessionRef.current;
         if (!ref) return;
-        const res = await getClient().ptzStatus(ref, camera);
+        /* Through ptz.ts, not the client: that file holds what a PTZ call
+           means, including the deliberate decision NOT to end the session when
+           a status read is refused. This poll runs while a button is held, and
+           signing an operator out of a working wall because one reading was
+           refused would be the wrong trade. */
+        const res = await readStatus(ref, camera);
         if (cancelled || gen !== generation.current) return;
-        setRatio(readRatio(res.result));
+        setRatio(res ? readRatio(res.result) : null);
       } catch {
         /* A failed status is not a zoom level. Clear it — the same rule the
            tower follows when its CGI goes quiet, and the reason there is no

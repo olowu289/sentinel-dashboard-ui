@@ -287,7 +287,7 @@ export function MonitorTile({
                   onRetry={onRetry}
                 />
               ) : dropped ? (
-                <ReconnectingFallback />
+                <ReconnectingFallback onRetry={onRetry} />
               ) : awaitingMedia ? (
                 <AwaitingMediaFallback name={feed.name} />
               ) : (

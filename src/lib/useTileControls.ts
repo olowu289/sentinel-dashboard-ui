@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatZoom, useZoomReadout } from "@/lib/useZoomReadout";
-import { getClient } from "@/lib/api/client";
 import { captureFrame, downloadBlob, snapshotFilename } from "@/lib/snapshot";
 import type { TileControl } from "@/components/ControlStack";
 import type { CameraFeed } from "@/lib/types";
@@ -10,15 +9,42 @@ import { useSession } from "@/components/AuthProvider";
 import type { Feature } from "@/lib/features";
 import { useMutation } from "@/lib/useMutation";
 import {
-  MIN_PRESS_MS,
+  PTZ_CLICK_MS,
+  PTZ_ERROR_LINGER_MS,
+  SWEEP_POLL_MS,
   CONTINUOUS_AXES,
   beginHold,
   describePtzFailure,
+  describeStepRefusal,
+  isStepDirection,
+  readStatus,
+  readSweep,
+  step,
+  stopKeepingSweep,
   stopOrHome,
+  sweepPause,
+  sweepResume,
+  sweepStart,
+  sweepStop,
   type JogDirection,
   type PtzHold,
 } from "@/lib/api/ptz";
-import type { ViewerSession } from "@kallon/sentry-sdk";
+import { sweepOf, type PtzResult, type SweepStatus, type ViewerSession } from "@kallon/sentry-sdk";
+
+/**
+ * The device's own countdown to an auto-resume, as `m:ss`.
+ *
+ * `undefined` draws nothing, per the badge contract -- a paused sweep whose
+ * countdown the device did not report has no number to show, and inventing one
+ * would be a claim about when a camera is going to start moving again.
+ */
+function formatCountdown(sec: number | undefined): string | null {
+  if (sec === undefined || !Number.isFinite(sec)) return null;
+  const whole = Math.max(0, Math.round(sec));
+  const m = Math.floor(whole / 60);
+  const s = whole % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 /* The feed renders slightly over-scaled at rest so the PTZ head has somewhere
    to travel before any letterboxing shows. Without it, panning a 1x image just
@@ -279,7 +305,67 @@ export function useTileControls({
      state would be missed by the release that has to end it. */
   const holdRef = useRef<PtzHold | null>(null);
   const pressedAt = useRef(0);
-  const [ptzError, setPtzError] = useState<string | null>(null);
+
+  /* The pending hold. A press does NOT begin a hold any more -- it waits
+     PTZ_CLICK_MS to find out whether this is a click or a hold, and this is the
+     timer that decides. A ref for the same reason as `holdRef`: a release can
+     arrive before React has re-rendered. */
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDir = useRef<JogDirection | null>(null);
+  /* Which direction the CURRENT press is, kept for the release: a tilt or zoom
+     release during a sweep has to send a different stop from a pan release, and
+     by the time the release fires the direction is no longer an argument. */
+  const lastDir = useRef<JogDirection | null>(null);
+
+  /**
+   * A PTZ error that CLEARS ITSELF.
+   *
+   * ⚠ IT USED TO STAY UNTIL SOMETHING ELSE REPLACED IT, which on a working
+   * camera is the worst version: a single REQUEST_TIMEOUT or a SUPERSEDED from
+   * a rapid direction change would sit on a tile whose head was moving
+   * perfectly well, and an operator reading it has no way to tell a stale line
+   * from a live fault. A transient fault must look transient.
+   *
+   * So it goes two ways: after {@link PTZ_ERROR_LINGER_MS}, or the moment any
+   * PTZ command succeeds -- whichever comes first. Setting `null` cancels the
+   * timer, so a success does not leave an old one armed to fire later.
+   */
+  const [ptzError, setPtzErrorState] = useState<string | null>(null);
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setPtzError = useCallback((message: string | null) => {
+    if (errorTimer.current !== null) {
+      clearTimeout(errorTimer.current);
+      errorTimer.current = null;
+    }
+    setPtzErrorState(message);
+    if (message !== null) {
+      errorTimer.current = setTimeout(() => {
+        errorTimer.current = null;
+        setPtzErrorState(null);
+      }, PTZ_ERROR_LINGER_MS);
+    }
+  }, []);
+  /* Timers outlive the component unless something cancels them, and this one
+     would call setState on an unmounted tile every time a wall is navigated
+     away from within the linger window. */
+  useEffect(() => () => {
+    if (errorTimer.current !== null) clearTimeout(errorTimer.current);
+    if (holdTimer.current !== null) clearTimeout(holdTimer.current);
+  }, []);
+
+  /* The camera's sweep, as the DEVICE reports it -- never inferred here.
+     `null` means we have not been told, which is not the same as idle: a
+     view-only session cannot read it at all, and drawing "idle" for that would
+     be a claim about a camera that might be turning. */
+  const [sweep, setSweep] = useState<SweepStatus | null>(null);
+  const sweepRef = useRef<SweepStatus | null>(null);
+  sweepRef.current = sweep;
+  /* Every reply that CHANGED a sweep carries the new block, so the UI reflects
+     a pause caused by a pan without waiting for the next poll. */
+  const applySweep = useCallback((res: PtzResult | null | undefined) => {
+    const block = sweepOf(res ?? undefined);
+    if (block) setSweep(block);
+  }, []);
 
   /* Whether the lens is being zoomed RIGHT NOW, which is the only time the
      magnification is worth asking the camera for. Separate from `holdRef`
@@ -339,31 +425,74 @@ export function useTileControls({
         }
         setTiltHeld(dir);
       }
-      void (async () => {
-        try {
-          /* CONTINUOUS hold: ONE ContinuousMove, kept alive by the SDK's
-             keepalive (which only refreshes the tower's ~3s link-death deadman —
-             no per-tick movement, so nothing piles up at any latency). Release
-             is bounded by the prompt Stop (jogEnd), NOT the deadman; the deadman
-             only bites if the link genuinely drops. */
-          const held = await beginHold(feed, session, {
-            mode: "continuous",
-            ...CONTINUOUS_AXES[dir],
-          });
-          /* The release may already have happened while this was in flight.
-             Stop it immediately rather than storing a hold nobody will end —
-             the same late-success discipline the video seam uses. */
-          if (pressedAt.current === 0) {
-            void held.stop();
-            return;
+      /* ── CLICK OR HOLD, DECIDED BY TIME HELD ──────────────────────────
+         A press no longer begins a move. Pan and tilt wait PTZ_CLICK_MS: let
+         go inside that and it was a CLICK, which sends one fixed step; keep
+         holding and the continuous move begins and runs until release.
+
+         WHY THE WAIT IS ON THE START AND NOT THE END. The old code started a
+         hold immediately and used MIN_PRESS_MS to delay the STOP, so a quick
+         tap moved the camera for however long the round trip took -- a
+         different distance on every press, furthest on the worst link. There
+         is no way to make that repeatable from the stop side, because the
+         distance was already travelled. Waiting before starting is what makes
+         a click a known quantity.
+
+         ZOOM IS NOT STEPPABLE and begins its hold at once: there is no
+         zoom step in the contract, and a 300ms dead patch before a zoom
+         responds would feel broken. */
+      lastDir.current = dir;
+      if (!isStepDirection(dir)) {
+        void (async () => {
+          try {
+            const held = await beginHold(feed, session, {
+              mode: "continuous",
+              ...CONTINUOUS_AXES[dir],
+            });
+            if (pressedAt.current === 0) {
+              void held.stop();
+              return;
+            }
+            holdRef.current = held;
+            setPtzError(null);
+          } catch (err) {
+            setPtzError(describePtzFailure(err));
           }
-          holdRef.current = held;
-        } catch (err) {
-          setPtzError(describePtzFailure(err));
-        }
-      })();
+        })();
+        return;
+      }
+
+      pendingDir.current = dir;
+      holdTimer.current = setTimeout(() => {
+        holdTimer.current = null;
+        if (pressedAt.current === 0) return;      // released on the boundary
+        void (async () => {
+          try {
+            /* CONTINUOUS hold: ONE ContinuousMove, kept alive by the SDK's
+               keepalive (which only refreshes the tower's ~3s link-death
+               deadman -- no per-tick movement, so nothing piles up at any
+               latency). Release is bounded by the prompt Stop (jogEnd), NOT the
+               deadman; the deadman only bites if the link genuinely drops. */
+            const held = await beginHold(feed, session, {
+              mode: "continuous",
+              ...CONTINUOUS_AXES[dir],
+            });
+            /* The release may already have happened while this was in flight.
+               Stop it immediately rather than storing a hold nobody will end --
+               the same late-success discipline the video seam uses. */
+            if (pressedAt.current === 0) {
+              void held.stop();
+              return;
+            }
+            holdRef.current = held;
+            setPtzError(null);
+          } catch (err) {
+            setPtzError(describePtzFailure(err));
+          }
+        })();
+      }, PTZ_CLICK_MS);
     },
-    [feed, localNudge, realPtz, session, tiltLimit],
+    [feed, localNudge, realPtz, session, setPtzError, tiltLimit],
   );
 
   /**
@@ -383,31 +512,73 @@ export function useTileControls({
     setZooming(false);
     setTiltHeld(null);        // stop polling tilt; the mark (if any) persists
     if (!realPtz) return;
-    const heldFor = Date.now() - pressedAt.current;
     pressedAt.current = 0;
-    const wait = Math.max(0, MIN_PRESS_MS - heldFor);
 
-    setTimeout(() => {
-      const held = holdRef.current;
-      holdRef.current = null;
-      void (async () => {
-        try {
-          /* THE PROMPT STOP — this is what bounds the release coast, not the
-             deadman. `held.stop()` sends an explicit Stop that the tower
-             expedites (it preempts the queue), stopping the head in ~1 link-
-             latency; the generous deadman is only a link-death backstop.
-             The second path covers a hold that never registered — a failure, or
-             a release that beat the round trip — because the tower may still
-             have started moving. Either way, always a real stop. */
-          if (held) await held.stop();
-          else await stopOrHome(feed, session, false);
-        } catch (err) {
-          const said = describePtzFailure(err);
-          if (said) setPtzError(said);
-        }
-      })();
-    }, wait);
-  }, [feed, realPtz, session]);
+    /* THE CLICK CASE. The hold never started, so nothing is moving and there is
+       nothing to stop -- send one step instead. Cancelling the timer first is
+       what makes this exclusive: a click must not also start a hold 40ms later. */
+    if (holdTimer.current !== null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+      const dir = pendingDir.current;
+      pendingDir.current = null;
+      if (dir !== null && isStepDirection(dir)) {
+        void (async () => {
+          try {
+            const res = await step(feed, session, dir);
+            /* A step the camera DECLINED is not a failure: it answered, and the
+               answer was "not that way". Its own words, which is better than
+               ours. */
+            const refused = describeStepRefusal(res);
+            setPtzError(refused);
+            /* A step pauses a running sweep at the device; the reply says so. */
+            applySweep(res);
+          } catch (err) {
+            const said = describePtzFailure(err);
+            if (said) setPtzError(said);
+          }
+        })();
+      }
+      return;
+    }
+
+    pendingDir.current = null;
+    const held = holdRef.current;
+    holdRef.current = null;
+    /* ⚠ WHICH STOP THIS IS DEPENDS ON THE AXIS AND ON THE SWEEP, and the
+       device cannot work it out. Releasing a TILT or ZOOM hold during a sweep
+       must drop only the held axes and leave the circle turning, which is what
+       `keep_sweep` says. A release and the sweep's own Stop button are the same
+       command on the wire, so forgetting the flag here would end the operator's
+       sweep every time they let go of tilt. A PAN release is an ordinary stop:
+       pan is the sweep's own axis and taking it over already paused the
+       circle. */
+    const sweeping = sweepRef.current?.state === "sweeping";
+    const axisKeepsSweep = sweeping && lastDir.current !== null
+      && (lastDir.current === "up" || lastDir.current === "down"
+          || lastDir.current === "in" || lastDir.current === "out");
+    lastDir.current = null;
+
+    void (async () => {
+      try {
+        /* THE PROMPT STOP -- this is what bounds the release coast, not the
+           deadman. It sends an explicit Stop that the tower expedites (it
+           preempts the queue), stopping the head in ~1 link-latency; the
+           generous deadman is only a link-death backstop. The last path covers
+           a hold that never registered -- a failure, or a release that beat the
+           round trip -- because the tower may still have started moving. Either
+           way, always a real stop. */
+        let res: PtzResult | null = null;
+        if (axisKeepsSweep) res = await stopKeepingSweep(feed, session);
+        else if (held) res = await held.stop();
+        else res = await stopOrHome(feed, session, false);
+        applySweep(res);
+      } catch (err) {
+        const said = describePtzFailure(err);
+        if (said) setPtzError(said);
+      }
+    })();
+  }, [applySweep, feed, realPtz, session, setPtzError]);
 
   /* Poll status WHILE a tilt is held and stop pushing into the stop the moment
      the tower reports the tilt at the limit we are driving toward. Only runs
@@ -423,9 +594,12 @@ export function useTileControls({
       try {
         const ref = sessionRef.current;
         if (!ref) return;
-        const res = await getClient().ptzStatus(ref, cam);
-        if (cancelled) return;
-        const lim = res.result?.["tilt_limit"];
+        /* Through ptz.ts for the same reason as the zoom readout -- and this
+           is the call that most needed it: it polls on a timer while a tilt is
+           held, so whatever a refusal means here, it must mean there too. */
+        const res = await readStatus(ref, cam);
+        if (cancelled || !res) return;
+        const lim = (res.result as Record<string, unknown> | undefined)?.["tilt_limit"];
         const held = tiltHeldRef.current;
         if ((held === "up" && lim === "max") || (held === "down" && lim === "min")) {
           setTiltLimit(lim as "max" | "min");
@@ -459,6 +633,99 @@ export function useTileControls({
       }
     })();
   }, [feed, localNudge, realPtz, session]);
+
+  /* ── DRIVING THE SWEEP ───────────────────────────────────────────────────
+
+     Every one of these is a SINGLE COMMAND to the device, never a loop: the
+     circle runs on the tower, so a closed tab, a navigation or a dropped link
+     leaves it turning. That is the whole design, and it is why there is no
+     progress timer here that advances anything -- the only numbers rendered are
+     the ones the device just reported. */
+  const [sweepBusy, setSweepBusy] = useState(false);
+
+  /**
+   * One button, three meanings, decided by what the device last said.
+   *
+   * ⚠ THE STATE COMES FROM THE DEVICE, NOT FROM WHAT WE PRESSED. Two
+   * operators can drive one camera, and a sweep somebody else started is
+   * already on this tile's status. So the cycle reads `sweep` rather than a
+   * local toggle -- pressing "start" on a sweep another tab is running answers
+   * with the sweep already in progress, which is the behaviour the contract
+   * promises rather than an error.
+   */
+  const cycleSweep = useCallback(async () => {
+    setSweepBusy(true);
+    try {
+      const current = sweepRef.current?.state;
+      const next =
+        current === "sweeping"
+          ? await sweepPause(feed, session)
+          : current === "paused"
+            ? await sweepResume(feed, session)
+            : await sweepStart(feed, session);
+      setSweep(next);
+      setPtzError(null);
+    } catch (err) {
+      const said = describePtzFailure(err);
+      if (said) setPtzError(said);
+    } finally {
+      setSweepBusy(false);
+    }
+  }, [feed, session, setPtzError]);
+
+  /**
+   * End the circle where the camera is.
+   *
+   * ⚠ NOT GATED AND NOT MARKED BUSY. Like every stop, it always sends:
+   * refusing to stop a turning camera can only leave it turning. A busy state
+   * here would mean a second press during a slow round trip does nothing, on
+   * the one control an operator may be pressing because something is wrong.
+   */
+  const endSweep = useCallback(async () => {
+    try {
+      const ended = await sweepStop(feed, session);
+      if (ended) setSweep(ended);
+      setPtzError(null);
+    } catch (err) {
+      const said = describePtzFailure(err);
+      if (said) setPtzError(said);
+    }
+  }, [feed, session, setPtzError]);
+
+  /* Progress, and the countdown to an auto-resume.
+
+     POLLED ONLY WHILE THERE IS A SWEEP, and only on a tile that may read one.
+     An idle camera asks nothing: this is a real round trip to a real tower over
+     a possibly-metered uplink, which is the same reason the zoom readout does
+     not poll continuously. A paused sweep is polled too -- its countdown is
+     the device's, and when it reaches zero the device resumes and the next tick
+     reports `sweeping` without anybody pressing anything. */
+  const canReadSweep = features.has("ptz") && realPtz;
+  const sweepActive = sweep !== null && sweep.state !== "idle";
+  useEffect(() => {
+    if (!canReadSweep || !sweepActive || !sessionId || feed.index === undefined) return;
+    let cancelled = false;
+    let inFlight = false;
+    const tick = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const now = await readSweep(feed, sessionRef.current);
+        if (!cancelled && now) setSweep(now);
+      } catch {
+        /* A refused or failed read is not a sweep state. Leave the last one
+           standing rather than claiming idle: the circle is the device's, and
+           one unanswered poll is no evidence it stopped. */
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = setInterval(() => void tick(), SWEEP_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [canReadSweep, sweepActive, sessionId, feed]);
 
   /**
    * Capture the current frame and hand it to the operator as a file.
@@ -633,6 +900,62 @@ export function useTileControls({
     },
   ];
 
+  /* ── THE SWEEP'S TWO CONTROLS ────────────────────────────────────────────
+
+     One button CYCLES (start -> pause -> resume) and a second STOPS, appearing
+     only while a sweep is in play. Two buttons rather than one because the two
+     gestures are not the same promise: pause is reversible and the device
+     resumes it by itself, stop ends the circle. An operator who wants it to
+     stop must not have to find that behind a cycle.
+
+     GATED ON `ptz`, AND NOT MERELY TO HIDE A BUTTON. `status` requires the
+     `ptz` permission, so a session without it cannot READ a sweep at all -- it
+     would render a control whose state is permanently unknowable. The honest
+     move is to show nothing, which is also why `sweep` stays `null` rather
+     than defaulting to idle. (A read-only badge for view-only operators needs a
+     coordination change and is deliberately not faked here.) */
+  const canSweep = features.has("ptz") && realPtz;
+  const sweeping = sweep?.state === "sweeping";
+  const paused = sweep?.state === "paused";
+
+  if (canSweep) {
+    controls.push({
+      id: "sweep",
+      label: sweeping
+        ? `Pause sweep (${sweep?.percent ?? 0}% round)`
+        : paused
+          ? `Resume sweep (${sweep?.percent ?? 0}% round)`
+          : "360\u00b0 Sweep",
+      icon: sweeping ? "/icons/clip-pause.svg" : "/icons/clip-play.svg",
+      active: sweeping || paused,
+      /* MEASURED OR ABSENT, per the badge contract. While sweeping it is the
+         degrees the DEVICE has observed; while paused it is the device's own
+         countdown to auto-resume. Neither is computed here, and nothing is
+         drawn when there is no sweep. */
+      badge: sweeping
+        ? `${sweep?.percent ?? 0}%`
+        : paused
+          ? formatCountdown(sweep?.resume_in_sec)
+          : null,
+      busy: sweepBusy,
+      disabled: sweepBusy,
+      onSelect: () => void cycleSweep(),
+    });
+
+    if (sweeping || paused) {
+      controls.push({
+        id: "sweep-stop",
+        label: "Stop sweep",
+        icon: "/icons/ctl-stop.svg",
+        /* `critical` and not `alarm`: this ends motion on a real site, which is
+           consequential, but it is not a speaker sounding in a yard. The siren
+           keeps `alarm` to itself. */
+        tone: "critical",
+        onSelect: () => void endSweep(),
+      });
+    }
+  }
+
   /* ── THREE OF THESE CONTROLS ACT ON NOTHING ─────────────────────────────
 
      `siren` plays a two-tone wail in THIS BROWSER (see useSiren — it is a
@@ -679,6 +1002,9 @@ export function useTileControls({
     zoomRatio,
     ptzError,
     dismissPtzError: () => setPtzError(null),
+    /** The camera's sweep as the DEVICE last reported it, or `null` for "we have
+        not been told" -- which is not idle, and must not be drawn as idle. */
+    sweep,
     flash,
     siren,
     alarming,

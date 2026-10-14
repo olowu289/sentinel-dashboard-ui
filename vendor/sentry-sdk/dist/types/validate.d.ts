@@ -36,7 +36,7 @@
  * else in §A.6's SHOULD-omit tier — `codec`, `calibrated`, internal health
  * detail — is tolerated in silence whether present or absent.
  */
-import type { CameraInfo, IceCandidatesResponse, PtzResult, TowerDetail, ViewerSessionStatus, TowerHealth, TowerInfo, TowerListResponse, ViewerSession } from "./models.js";
+import type { CameraInfo, IceCandidatesResponse, PtzResult, SweepStatus, TowerDetail, ViewerSessionStatus, TowerHealth, TowerInfo, TowerListResponse, ViewerSession } from "./models.js";
 /** Collects field paths that failed, so one error reports every problem. */
 declare class Check {
     readonly issues: string[];
@@ -125,6 +125,33 @@ export declare function parseIceCandidates(raw: unknown, ctx?: ValidateContext):
  * cannot add a diagnostic field.
  */
 export declare function parsePtzResult(raw: unknown, ctx?: ValidateContext): PtzResult;
+/**
+ * Validate a sweep block.
+ *
+ * TOLERANT ON EVERY FIELD BUT `state`, and deliberately. The three states are
+ * what a dashboard renders and a fourth would be unrenderable, so an unknown
+ * one is read as `idle` -- the safe reading, because it draws nothing rather
+ * than claiming a camera is turning. Everything else is optional on the wire
+ * (an idle block is `{"state":"idle"}` and nothing more), so a missing figure
+ * is absence and not an error: a progress bar with no percent must not take the
+ * whole reply down.
+ */
+export declare function parseSweepStatus(raw: unknown, ctx?: ValidateContext): SweepStatus;
+/**
+ * The sweep block carried by a PTZ reply, or `undefined` when there is none.
+ *
+ * ⚠ ABSENCE IS MEANINGFUL AND IS NOT AN ERROR. A `sweep` key appears only
+ * on a reply that reported or CHANGED a sweep; an ordinary move answers without
+ * one. So `undefined` means "this reply says nothing about a sweep", which is
+ * different from `{state:"idle"}` ("there is no sweep on this camera"), and a
+ * UI must not turn the first into the second -- that is how a running sweep
+ * started in another tab gets drawn as idle.
+ *
+ * Use this rather than reaching into `result.sweep`: `PtzResult.result` is a
+ * pass-through object, so a cast would skip validation on the one block whose
+ * numbers drive a progress indicator.
+ */
+export declare function sweepOf(result: PtzResult | undefined | null): SweepStatus | undefined;
 /**
  * Validate one camera of the **projected** inventory (§A.2).
  *

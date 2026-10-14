@@ -9,7 +9,7 @@
  * recording/playback (§9 — deferred, and unspecified).
  */
 
-export { SentryClient, clampMove } from "./client.js";
+export { SentryClient, clampMove, clampStep } from "./client.js";
 export type {
   CreateSessionOptions,
   SentryClientOptions,
@@ -58,6 +58,8 @@ export {
   parseCameraInfo,
   parseIceCandidates,
   parsePtzResult,
+  parseSweepStatus,
+  sweepOf,
   parseTowerDetail,
   parseTowerHealth,
   parseTowerInfo,
@@ -68,7 +70,15 @@ export {
 } from "./validate.js";
 export type { ValidateContext } from "./validate.js";
 
-export { PTZ_DEADMAN_MS, PTZ_KEEPALIVE_MS } from "./models.js";
+export {
+  PTZ_CLICK_MS,
+  PTZ_DEADMAN_MS,
+  PTZ_KEEPALIVE_MS,
+  PTZ_STEP_DEG_MAX,
+  PTZ_STEP_DEG_MIN,
+  SWEEP_SECONDS_MAX,
+  SWEEP_SECONDS_MIN,
+} from "./models.js";
 export type {
   ApiError,
   ApiErrorCode,
@@ -101,6 +111,12 @@ export type {
   PtzMoveParams,
   PtzResult,
   PtzSetHomeResult,
+  PtzStepParams,
+  PtzStepResult,
+  SweepOp,
+  SweepParams,
+  SweepPhase,
+  SweepStatus,
   RecordingSpan,
   RecordingWindow,
   ArchivedSegment,

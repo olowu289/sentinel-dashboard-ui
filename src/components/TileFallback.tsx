@@ -226,13 +226,32 @@ export function UnknownFallback({ since }: { since?: string }) {
  * `ErrorFallback` ("Stream unavailable … Retry") — the honest place to say it is
  * not coming back. Reconnecting is a WAIT, and a wait is a spinner.
  */
-export function ReconnectingFallback() {
+export function ReconnectingFallback({ onRetry }: { onRetry?: () => void }) {
   return (
     <div className="flex flex-col items-center gap-[12px]">
       <span className="text-body-ink/50">
         <Spinner />
       </span>
-      <p className="text-[0.8125rem] font-medium text-body-ink/75">Connecting…</p>
+      {/* "Reconnecting", not "Connecting": the operator was watching this
+          camera a moment ago and the picture behind this overlay is the last
+          frame it sent. Those are different sentences, and the wrong one reads
+          as a feed that never started. */}
+      <p className="text-[0.8125rem] font-medium text-body-ink/75">Reconnecting…</p>
+      {/* ⚠ KEPT EVEN THOUGH IT IS NEVER REQUIRED. A visible tile retries by
+          itself and no longer gives up, so this button is not the way the feed
+          comes back -- it is the way an operator who is standing there does not
+          have to wait out the current backoff. Removing it because the loop is
+          reliable would take away the only control on a screen that is
+          otherwise asking somebody to be patient. */}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-[4px] h-[28px] rounded-[6px] border border-overlay/12 px-[12px] text-[0.75rem] text-body-ink/70 transition-colors hover:border-overlay/25 hover:text-body-ink lg:text-[0.6875rem]"
+        >
+          Reconnect now
+        </button>
+      )}
     </div>
   );
 }

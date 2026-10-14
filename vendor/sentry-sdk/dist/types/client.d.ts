@@ -30,7 +30,7 @@
  * ```
  */
 import type { HttpOptions, RequestOptions } from "./http.js";
-import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStopParams, type RecordingWindow, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
+import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
 export type SessionRef = SessionId | Pick<ViewerSession, "session_id" | "offer_url" | "ice_url">;
 export interface SentryClientOptions extends HttpOptions {
@@ -293,6 +293,29 @@ export declare class SentryClient {
      */
     ptzMove(ref: SessionRef, camera: CameraIndex, params: PtzMoveParams, opts?: RequestOptions): Promise<PtzResult>;
     /**
+     * One fixed nudge -- a DISTANCE, not a duration (docs/ptz-api.md section 2).
+     *
+     * Executed as an ONVIF RelativeMove: the camera performs the translation and
+     * stops itself, so link delay changes WHEN it happens and never HOW FAR it
+     * goes. That is the whole reason to prefer this over a short held move, which
+     * travelled a different distance on every press and furthest on the worst
+     * link. Repeated clicks move the same amount every time.
+     *
+     * ⚠ CHECK `result.done`. A step blocked by the tilt limit answers HTTP
+     * 200 with `ok: true` and `done: false` plus a `reason` -- a refusal, not an
+     * error, so nothing is thrown. Read it as {@link PtzStepResult}. A caller
+     * that treats 200 as "it moved" reports a step that never happened.
+     *
+     * ⚠ A STEP PAUSES A RUNNING SWEEP. The reply then carries the new sweep
+     * block; read it with {@link sweepOf}.
+     *
+     * `pan`/`tilt` are signed multipliers in a jog's sense, clamped to -1..1, and
+     * at least one must be non-zero or the device refuses it as
+     * `invalid_request`. The optional `degrees` override is clamped here, because
+     * its bounds are fixed by the contract rather than by a camera's config.
+     */
+    ptzStep(ref: SessionRef, camera: CameraIndex, params: PtzStepParams, opts?: RequestOptions): Promise<PtzResult>;
+    /**
      * Stop (§5.1, §5.3).
      *
      * §5.3 makes stop unconditional on the tower: it is dispatched before any
@@ -472,6 +495,54 @@ export declare class SentryClient {
         stop: (stopParams?: PtzStopParams) => Promise<PtzResult>;
         started: PtzResult;
     }>;
+    /**
+     * Drive the sweep. One op per call; `status` changes nothing.
+     *
+     * Returns the sweep as it now stands, so a caller never has to poll to learn
+     * what its own command did.
+     */
+    private sweep;
+    /**
+     * Start a sweep: from the current pan position, one full circle, stopping at
+     * the pan angle it began on.
+     *
+     * ONE SWEEP PER CAMERA, and a second start is NOT an error -- two operators
+     * can both press the button. It simply reports the sweep already running, so
+     * a UI can treat start as idempotent.
+     *
+     * `seconds` is the duration for the full 360 (the camera's own default is
+     * 90). ⚠ The device REFUSES it outside {@link SWEEP_SECONDS_MIN}..{@link
+     * SWEEP_SECONDS_MAX} rather than clamping, and this does not pre-empt that:
+     * check against those constants first if you want to refuse without a round
+     * trip.
+     */
+    sweepStart(ref: SessionRef, camera: CameraIndex, params?: {
+        seconds?: number;
+    }, opts?: RequestOptions): Promise<SweepStatus>;
+    /** Suspend a sweep, keeping its place. It auto-resumes after the camera's quiet period. */
+    sweepPause(ref: SessionRef, camera: CameraIndex, opts?: RequestOptions): Promise<SweepStatus>;
+    /** Carry on from where a pause left it. */
+    sweepResume(ref: SessionRef, camera: CameraIndex, opts?: RequestOptions): Promise<SweepStatus>;
+    /**
+     * End a sweep where the camera is. No return to the start angle.
+     *
+     * ⚠ ALWAYS SEND IT, exactly as with {@link SentryClient.ptzStop}, and
+     * never gate it behind a client-side permission check: refusing a stop can
+     * only leave a camera turning, accepting one can only leave it still.
+     */
+    sweepStop(ref: SessionRef, camera: CameraIndex, opts?: RequestOptions): Promise<SweepStatus>;
+    /**
+     * Report the sweep, changing nothing.
+     *
+     * Needs the `ptz` permission, like every PTZ read -- a `view`-only session
+     * gets `403 ptz_forbidden` and can learn nothing about a sweep. Render
+     * NOTHING in that case rather than an idle state that would be a lie.
+     *
+     * A camera being watched for progress does not need this: the ordinary
+     * `status` reply already carries the block at `result.sweep` ({@link
+     * sweepOf}), so poll that and save a request.
+     */
+    sweepStatus(ref: SessionRef, camera: CameraIndex, opts?: RequestOptions): Promise<SweepStatus>;
 }
 /**
  * Clamp to the §5.1 normalized ranges.
@@ -481,5 +552,18 @@ export declare class SentryClient {
  * mode — which is exactly the kind of detail a call site should not have to
  * remember.
  */
+/**
+ * Clamp a step to the contract's bounds.
+ *
+ * `pan`/`tilt` are multipliers, -1..1 like a jog's velocity. `degrees` is an
+ * ANGLE and is clamped to the contract's own 0.05..45, which exists so a caller
+ * cannot ask for a sweep by sending a 300-degree step -- the device clamps it
+ * too and reports the clamp, this merely saves the round trip.
+ *
+ * A zero-direction step is NOT rejected here. The device refuses it with a
+ * message written for the purpose, and inventing a second refusal in this layer
+ * would give two different errors for one mistake.
+ */
+export declare function clampStep(params: PtzStepParams): PtzStepParams;
 export declare function clampMove(params: PtzMoveParams): PtzMoveParams;
 //# sourceMappingURL=client.d.ts.map

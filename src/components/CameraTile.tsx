@@ -378,7 +378,7 @@ export function CameraTile({
               reconnecting={reconnecting}
             />
           ) : dropped ? (
-            <ReconnectingFallback />
+            <ReconnectingFallback onRetry={onRetry} />
           ) : playbackFailure?.failure === "media_unreachable" ? (
             <NoMediaPathFallback onRetry={onRetry} />
           ) : playbackFailure?.failure === "session_expired" ? (

@@ -4,6 +4,7 @@ import {
   type PtzResult,
   type PtzStopParams,
   type SessionRef,
+  type SweepStatus,
 } from "@kallon/sentry-sdk";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
@@ -52,6 +53,43 @@ import { getClient } from "./client";
 export const MIN_PRESS_MS = 260;
 
 /**
+ * How long a direction must be held before it is a HOLD rather than a CLICK.
+ *
+ * Re-exported from the SDK so a component reaches for one PTZ module and not
+ * two. The threshold itself is a gesture reading and not on the wire -- the
+ * device knows nothing about it.
+ *
+ * ⚠ THIS SUPERSEDES {@link MIN_PRESS_MS} FOR CLICKS. That constant delayed
+ * the STOP so a brief tap still moved; the distance was then whatever velocity
+ * ran for whatever the round trip allowed, which is the unrepeatable nudge a
+ * step replaces. MIN_PRESS_MS is kept for the one thing it is still honest
+ * about -- press feel on a hold that is ending -- and is no longer what decides
+ * how far a tap moves a camera.
+ */
+export { PTZ_CLICK_MS } from "@kallon/sentry-sdk";
+
+/**
+ * How long a PTZ error stays on a tile before it clears itself.
+ *
+ * A PTZ fault is usually transient -- a REQUEST_TIMEOUT on one command, a
+ * SUPERSEDED from a fast direction change -- and a line that persists on a
+ * camera which is moving perfectly well is worse than no line at all: an
+ * operator cannot tell a stale message from a live one. Long enough to read,
+ * short enough that it cannot outlive the condition.
+ */
+export const PTZ_ERROR_LINGER_MS = 4000;
+
+/**
+ * How often a tile asks the device for sweep progress.
+ *
+ * Only ever while a sweep is actually in play -- an idle camera asks nothing.
+ * Every poll is a real round trip to a real tower over a possibly-metered
+ * uplink, so this is as slow as a progress bar can be without looking stuck:
+ * a 90-second circle advances about 2% a tick.
+ */
+export const SWEEP_POLL_MS = 2000;
+
+/**
  * The manual pad's directional velocities, spread into `{ mode: "continuous",
  * ...axis }`. CONTINUOUS is right and latency-independent: the tower runs ONE
  * ContinuousMove while keepalives arrive and stops when they cease or an explicit
@@ -76,6 +114,30 @@ export const CONTINUOUS_AXES = {
 } as const;
 
 export type JogDirection = keyof typeof CONTINUOUS_AXES;
+
+/** The directions a CLICK can step. Pan and tilt only -- zoom stays a hold. */
+export type StepDirection = "up" | "down" | "left" | "right";
+
+/**
+ * A step's signed multipliers, DERIVED from the hold's velocities.
+ *
+ * Only the sign is taken, because a step's `pan`/`tilt` are multipliers of the
+ * camera's configured `step_deg` rather than velocities -- the magnitude comes
+ * from the device. Derived rather than written out so the two cannot disagree
+ * about which way "left" is: a click and a hold on the same button must move
+ * the camera the same way, and a second hand-written table is how that drifts.
+ */
+export const STEP_AXES: Record<StepDirection, { pan: number; tilt: number }> = {
+  up: { pan: 0, tilt: Math.sign(CONTINUOUS_AXES.up.tilt) },
+  down: { pan: 0, tilt: Math.sign(CONTINUOUS_AXES.down.tilt) },
+  left: { pan: Math.sign(CONTINUOUS_AXES.left.pan), tilt: 0 },
+  right: { pan: Math.sign(CONTINUOUS_AXES.right.pan), tilt: 0 },
+};
+
+/** True for a direction a click can step; zoom is held, never stepped. */
+export function isStepDirection(dir: JogDirection): dir is StepDirection {
+  return dir === "up" || dir === "down" || dir === "left" || dir === "right";
+}
 
 /** Raised when a command cannot even be attempted. Never a fake success. */
 export class PtzUnavailableError extends Error {
@@ -198,6 +260,183 @@ export async function setHome(
     endSessionIfUnauthorized(err);
     throw err;
   }
+}
+
+/**
+ * ONE FIXED NUDGE -- what a CLICK on a direction sends.
+ *
+ * A step is a distance the camera executes and stops itself, so the same click
+ * moves the same amount every time and a slow link moves it no further. That is
+ * the whole reason a click is no longer "hold briefly, then stop": that moved
+ * whatever velocity ran for whatever the round trip allowed, which on a bad
+ * link was a long way.
+ *
+ * ⚠ THE REPLY CAN BE A REFUSAL THAT IS NOT AN ERROR. A step into the tilt
+ * limit answers `done: false` with a `reason`; nothing throws. Callers show
+ * {@link describeStepRefusal} rather than treating a 200 as movement.
+ *
+ * ⚠ A STEP PAUSES A RUNNING SWEEP, at the device. The reply carries the new
+ * sweep block, so a caller can reflect the pause without polling.
+ */
+export async function step(
+  feed: { index?: number; ptz?: boolean; state: string },
+  session: SessionRef | null | undefined,
+  dir: StepDirection,
+): Promise<PtzResult> {
+  requireCapability(feed);
+  const ref = requireSession(session);
+  if (feed.index === undefined) throw new PtzUnavailableError("NO CAMERA ADDRESS");
+
+  try {
+    return await getClient().ptzStep(ref, feed.index, STEP_AXES[dir]);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/**
+ * The line for a step the camera declined, or `null` when it moved.
+ *
+ * Separate from {@link describePtzFailure} because this is not a failure: the
+ * command arrived, the camera answered, and the answer was "not that way". The
+ * device writes `reason` for a person, so it is shown as-is.
+ */
+export function describeStepRefusal(res: PtzResult): string | null {
+  const result = res.result as { done?: unknown; reason?: unknown } | undefined;
+  if (!result || result.done !== false) return null;
+  const reason = typeof result.reason === "string" ? result.reason : null;
+  return reason ?? "THE CAMERA DID NOT MOVE";
+}
+
+/**
+ * Release a tilt/zoom hold taken DURING a sweep, leaving the sweep turning.
+ *
+ * ⚠ THIS IS THE ONE EASY WAY TO BREAK A SWEEP FROM THE UI. Letting go of a
+ * tilt button and pressing the sweep's Stop are the same `stop` on the wire,
+ * and during a sweep they must do opposite things. Only this app knows which
+ * button it was, so the flag is sent explicitly: forget it and every tilt
+ * release ends the operator's circle.
+ *
+ * Unconditional like every stop -- see the header.
+ */
+export async function stopKeepingSweep(
+  feed: { index?: number },
+  session: SessionRef | null | undefined,
+): Promise<PtzResult | null> {
+  if (!session || feed.index === undefined) return null;
+  const params: PtzStopParams = { keep_sweep: true };
+  return getClient().ptzStop(session, feed.index, params);
+}
+
+/* ---------------------------------------------------------------- *
+ * 360 SWEEP
+ *
+ * The sweep runs ON THE DEVICE. These are one-shot commands, not a loop: a
+ * closed tab, a navigation or a dropped link must not stall a circle that is
+ * already turning, which is exactly why none of this is a timer in the browser.
+ * ---------------------------------------------------------------- */
+
+/** Begin a circle from where the camera is now. A second start is not an error. */
+export async function sweepStart(
+  feed: { index?: number; ptz?: boolean; state: string },
+  session: SessionRef | null | undefined,
+): Promise<SweepStatus> {
+  requireCapability(feed);
+  const ref = requireSession(session);
+  if (feed.index === undefined) throw new PtzUnavailableError("NO CAMERA ADDRESS");
+  try {
+    return await getClient().sweepStart(ref, feed.index);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/** Suspend, keeping the place. The device resumes it itself after its quiet period. */
+export async function sweepPause(
+  feed: { index?: number; ptz?: boolean; state: string },
+  session: SessionRef | null | undefined,
+): Promise<SweepStatus> {
+  requireCapability(feed);
+  const ref = requireSession(session);
+  if (feed.index === undefined) throw new PtzUnavailableError("NO CAMERA ADDRESS");
+  try {
+    return await getClient().sweepPause(ref, feed.index);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/** Carry on from a pause. */
+export async function sweepResume(
+  feed: { index?: number; ptz?: boolean; state: string },
+  session: SessionRef | null | undefined,
+): Promise<SweepStatus> {
+  requireCapability(feed);
+  const ref = requireSession(session);
+  if (feed.index === undefined) throw new PtzUnavailableError("NO CAMERA ADDRESS");
+  try {
+    return await getClient().sweepResume(ref, feed.index);
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/**
+ * End the sweep where the camera is.
+ *
+ * ⚠ NEVER GATED, for the same reason a stop is not: refusing to stop a
+ * turning camera can only leave it turning. No capability check, no session
+ * freshness check, no early return beyond having somewhere to send it.
+ */
+export async function sweepStop(
+  feed: { index?: number },
+  session: SessionRef | null | undefined,
+): Promise<SweepStatus | null> {
+  if (!session || feed.index === undefined) return null;
+  return getClient().sweepStop(session, feed.index);
+}
+
+/**
+ * Read the sweep without changing it.
+ *
+ * ⚠ DOES NOT END THE SESSION ON A 403, unlike the movement calls. `status`
+ * needs the `ptz` permission, so a view-only session is refused here as a
+ * matter of what it may READ -- that is a permission fact about this one
+ * reading, not a dead session, and signing an operator out of a working video
+ * wall because a sweep poll was refused would be the wrong trade entirely. The
+ * caller renders nothing instead.
+ */
+export async function readSweep(
+  feed: { index?: number },
+  session: SessionRef | null | undefined,
+): Promise<SweepStatus | null> {
+  if (!session || feed.index === undefined) return null;
+  return getClient().sweepStatus(session, feed.index);
+}
+
+/**
+ * The camera's current pan/tilt/zoom, and whatever else `status` carries.
+ *
+ * ⚠ THE ONE PTZ READ, and it is here so there is not a second one. The
+ * tilt-limit watcher and the zoom readout both used to call
+ * `getClient().ptzStatus` directly, which put two call sites outside every
+ * policy this file exists to hold -- and they are the two that run on a timer,
+ * so they are the ones that most need to agree about what a refusal means.
+ *
+ * Like {@link readSweep} this does NOT end the session on a 403: both callers
+ * poll while a button is held, and a refused read must not sign anybody out.
+ * They already treat a throw as "no reading", which is the honest rendering.
+ */
+export async function readStatus(
+  session: SessionRef | null | undefined,
+  camera: number | undefined,
+): Promise<PtzResult | null> {
+  if (!session || camera === undefined) return null;
+  return getClient().ptzStatus(session, camera);
 }
 
 /**

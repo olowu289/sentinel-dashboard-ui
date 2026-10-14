@@ -99,17 +99,38 @@ import { CAMERAS_PER_TOWER } from "@/lib/types";
  * ⚠ THE CAP IS THE POINT, not the delays. Every attempt mints a grant on
  * coordination and claims a camera on an off-grid tower, so a client that
  * retried forever would be a client that quietly DDoSes its own control plane
- * from a phone in somebody's pocket. Five attempts over ~30 seconds is long
- * enough to ride out a lift, a tunnel or a cell handover, and short enough that
- * a genuinely dead path is reported while the operator still cares.
+ * from a phone in somebody's pocket.
+ *
+ * ⚠ THE ATTEMPT CAP IS GONE, AND THE CEILING IS WHAT REPLACES IT. Five
+ * attempts over ~30 seconds was long enough for a lift or a cell handover and
+ * far too short for the thing operators actually hit: a site whose uplink is
+ * down for minutes. The tile went terminal, and a wall left running overnight
+ * came back in the morning showing "Stream unavailable" on cameras that had
+ * been fine for hours -- a screen that has given up is worse than a screen
+ * still trying, because nobody is coming to press Retry on a wall nobody is
+ * standing at.
+ *
+ * So a VISIBLE tab retries for as long as it is visible. What bounds the cost
+ * is the ceiling, not a count: the last delay repeats, so a long outage settles
+ * into one attempt every 10 seconds per tile rather than an accelerating storm.
+ * The two things that already stopped a runaway client still do, and they are
+ * the ones that matter: a HIDDEN tab spends nothing (see the visibility guard
+ * in `backOff`), and a DETACHED tile is disposed rather than reconnected.
  *
  * Growing rather than fixed, because the failures that resolve resolve quickly
- * and the ones that do not should not be asked five times in five seconds.
+ * and the ones that do not should not be asked every two seconds forever.
  */
-export const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
+export const RECONNECT_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 10_000];
 
-/** After this many failed reconnects the honest terminal state is shown. */
-export const MAX_RECONNECTS = RECONNECT_DELAYS_MS.length;
+/**
+ * The longest a visible tile waits between attempts.
+ *
+ * Derived rather than written twice: the schedule's last step IS the ceiling,
+ * because `backOff` clamps its index to the end of the array and therefore
+ * repeats it forever.
+ */
+export const RECONNECT_MAX_DELAY_MS =
+  RECONNECT_DELAYS_MS[RECONNECT_DELAYS_MS.length - 1];
 
 /**
  * How long `disconnected` is given to sort itself out before it counts.
@@ -215,7 +236,11 @@ export type PlaybackPhase =
    * the difference between "give it a second" and "this is not coming back" is
    * exactly what an operator is trying to judge while they wait.
    */
-  | { kind: "reconnecting"; attempt: number; of: number }
+  /** `attempt` counts up and does NOT run out: a visible tab keeps trying.
+   *  There is deliberately no `of` -- a total would be a number we do not have,
+   *  and "attempt 3 of 5" was exactly the fabricated reassurance this grammar
+   *  exists to refuse. */
+  | { kind: "reconnecting"; attempt: number }
   | { kind: "failed"; error: PlaybackError };
 
 export interface PlaybackTarget {
@@ -516,9 +541,13 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
           dispose(entry);
           return;
         }
-        if (TERMINAL.has(why.failure) || entry.retries >= MAX_RECONNECTS) {
-          /* The honest terminal state, unchanged — reached AFTER the budget
-             rather than instead of it. */
+        /* ⚠ ONLY AN ANSWER IS TERMINAL NOW. A refusal (`not_permitted`) is
+           somebody telling us no, and asking again will not change it. A
+           TIMEOUT is not an answer, and it used to become one after five
+           attempts -- which turned "we cannot reach it yet" into "it is not
+           coming back" on no new information at all. Retrying is the honest
+           reading of silence, so the count is gone from this condition. */
+        if (TERMINAL.has(why.failure)) {
           releaseForRetry(entry, openHandles.current);
           set({ kind: "failed", error: why });
           return;
@@ -535,14 +564,14 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
            STOP. The return handler below reconnects from a full budget the
            moment there is a network and a person to see it. */
         if (document.visibilityState === "hidden") {
-          set({ kind: "reconnecting", attempt: entry.retries + 1, of: MAX_RECONNECTS });
+          set({ kind: "reconnecting", attempt: entry.retries + 1 });
           releaseForRetry(entry, openHandles.current);
           return;
         }
 
         const attempt = entry.retries + 1;
         entry.retries = attempt;
-        set({ kind: "reconnecting", attempt, of: MAX_RECONNECTS });
+        set({ kind: "reconnecting", attempt });
 
         /* The grant and the camera are given back BEFORE asking for another. A
            client that stacked sessions while reconnecting would hold two of a
@@ -574,7 +603,6 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
         : {
             kind: "reconnecting",
             attempt: Math.max(1, entry.retries),
-            of: MAX_RECONNECTS,
           });
 
       void (async () => {

@@ -12,7 +12,7 @@
  * vocabulary. A viewer knows about towers, cameras, sessions, PTZ and health.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RECORDING_MAX_CLIP_SEC = exports.RECORDING_MAX_SLICE_SEC = exports.PTZ_KEEPALIVE_MS = exports.PTZ_DEADMAN_MS = void 0;
+exports.RECORDING_MAX_CLIP_SEC = exports.RECORDING_MAX_SLICE_SEC = exports.SWEEP_SECONDS_MAX = exports.SWEEP_SECONDS_MIN = exports.PTZ_STEP_DEG_MAX = exports.PTZ_STEP_DEG_MIN = exports.PTZ_CLICK_MS = exports.PTZ_KEEPALIVE_MS = exports.PTZ_DEADMAN_MS = void 0;
 /**
  * The daemon's safety deadman (§5.1): a PURE LINK-DEATH safety net. If no
  * keepalive and no command reaches the tower for this long, the mount stops
@@ -34,6 +34,27 @@ exports.PTZ_DEADMAN_MS = 3000;
  * the deadman lapse during a genuine hold.
  */
 exports.PTZ_KEEPALIVE_MS = 600;
+/**
+ * How long a press has to be held before it is a HOLD rather than a CLICK.
+ *
+ * A click is one {@link SentryClient.ptzStep}; a hold is a continuous move kept
+ * alive until release. Not a device value and not on the wire -- it is purely
+ * how a pointer gesture is read, and it lives here so a dashboard and anything
+ * else driving this SDK read it the same way.
+ */
+exports.PTZ_CLICK_MS = 300;
+/** A step's size is clamped to these bounds, in degrees (docs/ptz-api.md §2). */
+exports.PTZ_STEP_DEG_MIN = 0.05;
+exports.PTZ_STEP_DEG_MAX = 45;
+/**
+ * A sweep's duration bounds, in seconds (docs/ptz-api.md §5).
+ *
+ * ⚠ THE DEVICE REFUSES OUTSIDE THESE, it does not clamp. Exported so a UI
+ * can refuse first and say so without a round trip; this SDK deliberately does
+ * not pre-empt the device, whose message is the authoritative one.
+ */
+exports.SWEEP_SECONDS_MIN = 10;
+exports.SWEEP_SECONDS_MAX = 1800;
 /**
  * The longest slice a single request may ask for (§12.6), in seconds.
  *

@@ -8,11 +8,11 @@
  * connection), the tower WSS link (§1–§3 is tower ↔ coordination), and
  * recording/playback (§9 — deferred, and unspecified).
  */
-export { SentryClient, clampMove } from "./client.js";
+export { SentryClient, clampMove, clampStep } from "./client.js";
 export { HttpTransport } from "./http.js";
 export { AuthError, GrantError, InvalidRequestError, MediaError, NetworkError, NotFoundError, ProjectionLeakError, PtzError, RateLimitedError, RequestAbortedError, RequestTimeoutError, SentryError, ServerError, SessionConflictError, TowerOfflineError, TowerTimeoutError, ValidationError, describeError, errorFromEnvelope, isNormalPtzOutcome, isPtzPermissionDenied, isSentryErrorCode, isSessionEnded, } from "./errors.js";
-export { assertNoProjectionLeak, parseCameraInfo, parseIceCandidates, parsePtzResult, parseTowerDetail, parseTowerHealth, parseTowerInfo, parseTowerList, parseSessionStatus, parseViewerSession, ValidationCheck, } from "./validate.js";
-export { PTZ_DEADMAN_MS, PTZ_KEEPALIVE_MS } from "./models.js";
+export { assertNoProjectionLeak, parseCameraInfo, parseIceCandidates, parsePtzResult, parseSweepStatus, sweepOf, parseTowerDetail, parseTowerHealth, parseTowerInfo, parseTowerList, parseSessionStatus, parseViewerSession, ValidationCheck, } from "./validate.js";
+export { PTZ_CLICK_MS, PTZ_DEADMAN_MS, PTZ_KEEPALIVE_MS, PTZ_STEP_DEG_MAX, PTZ_STEP_DEG_MIN, SWEEP_SECONDS_MAX, SWEEP_SECONDS_MIN, } from "./models.js";
 /** Protocol version this SDK is written against (§2.2 `v`). */
 export const PROTOCOL_VERSION = 1;
 /** Base path of the viewer-facing API (§4.2). One versioned base URL, as v1 had. */

@@ -31,6 +31,9 @@ import { AuthContextForHarness } from "@/components/AuthProvider";
 import { AdministrationView } from "@/components/AdministrationView";
 import { SharesView } from "@/components/SharesView";
 import { ShareRequestBanner } from "@/components/ShareRequestBanner";
+import { IconRail } from "@/components/IconRail";
+import { PtzPad } from "@/components/PtzPad";
+import { describeControl } from "@/lib/api/ptz";
 import { DEFAULT_FEATURES, type Feature } from "@/lib/features";
 import { resetCapabilities } from "@/lib/api/sites";
 import { resetClient } from "@/lib/api/client";
@@ -285,7 +288,53 @@ const SCREENS = [
   { id: "shares", label: "Shares", mode: "full" },
   { id: "shares-empty", label: "Shares · nothing waiting", mode: "empty" },
   { id: "banner", label: "Incoming request banner", mode: "full" },
+  /* THE RAIL IS HERE FOR ITS ICONS. Administration had no glyph of its own and
+     borrowed the Settings gear, so the rail carried two identical gears; the
+     drawn `nav-admin` is the fix, and a rail nobody photographs is a rail
+     where that regresses unnoticed. */
+  { id: "rail", label: "Icon rail (sites on)", mode: "full" },
+  /* The PTZ pad as a SHARED site sees it while the owning site is driving. */
+  { id: "ptz-yielded", label: "PTZ yielded to the owner", mode: "full" },
 ] as const;
+
+/**
+ * The pad, and the line that says why it will not move.
+ *
+ * ⚠ THE CHIP'S CLASSES ARE MIRRORED FROM `CameraTile`, not imported, and
+ * that is the one compromise in this file: the tile needs a live peer
+ * connection, a session and a fleet to mount, which is what this harness
+ * exists to avoid. The PAD is the real component and the TEXT comes from the
+ * real `describeControl`, so the two things worth reviewing here are the
+ * product's own. If the chip is restyled in the tile, restyle it here.
+ */
+function PtzYielded() {
+  const held = describeControl({
+    held: true,
+    yours: false,
+    holder_site: "North Gate",
+    holder_is_owner: true,
+    expires_in_sec: 41,
+  });
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-[28px] bg-ink">
+      <div className="relative h-[220px] w-[320px] rounded-[8px] bg-panel">
+        <div className="absolute bottom-[18px] left-[16px]">
+          <PtzPad disabled />
+        </div>
+        <div className="chip-blur absolute bottom-[18px] left-[104px] rounded-[4px] bg-black/60 px-[8px] py-[4px]">
+          <p className="font-display text-[0.75rem] tracking-[0.11px] text-body-ink lg:text-[0.6875rem]">
+            {held}
+          </p>
+        </div>
+      </div>
+      <p className="max-w-[420px] px-[24px] text-center text-[0.8125rem] leading-[20px] text-muted">
+        Ordinary ink, not red and not amber: nothing is wrong and nothing is
+        wanted. The camera's own site is driving a camera it owns, and the line
+        lasts as long as their hold rather than the four seconds a fault lasts.
+      </p>
+    </div>
+  );
+}
 
 function Harness() {
   const [which, setWhich] = useState<string>(
@@ -295,7 +344,20 @@ function Harness() {
   install(screen.mode as Mode);
 
   const body =
-    which === "banner" ? (
+    which === "rail" ? (
+      <div className="flex h-full w-full bg-ink">
+        <IconRail active="admin" sites admin />
+        <div className="flex flex-1 items-center justify-center">
+          <p className="max-w-[420px] px-[24px] text-center text-[0.8125rem] leading-[20px] text-muted">
+            Shares and Administration appear only when the server has sites.
+            Administration is the lower glyph: one node above two, joined. One
+            gear in the rail, not two.
+          </p>
+        </div>
+      </div>
+    ) : which === "ptz-yielded" ? (
+      <PtzYielded />
+    ) : which === "banner" ? (
       <div className="flex h-full w-full flex-col bg-ink">
         <ShareRequestBanner
           shares={SHARES.filter((s) => s.status === "pending" && s.incoming) as never}

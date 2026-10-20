@@ -594,14 +594,15 @@ export class SentryClient {
         }));
     }
     async getSegmentUrl(deviceId, camera, key, opts = {}) {
-        const q = new URLSearchParams({
-            device_id: deviceId,
-            camera: String(camera),
-            key,
-        });
+        // Hand-built, for the reason given on listArchivedRecordings below.
+        const q = [
+            `device_id=${encodeURIComponent(deviceId)}`,
+            `camera=${encodeURIComponent(String(camera))}`,
+            `key=${encodeURIComponent(key)}`,
+        ].join("&");
         const { body } = await this.http.send({
             method: "GET",
-            path: `/v1/viewer/recordings/segment-url?${q.toString()}`,
+            path: `/v1/viewer/recordings/segment-url?${q}`,
             accept: "json",
             ...pick(opts),
         });
@@ -667,8 +668,14 @@ export class SentryClient {
      */
     async listArchivedRecordings(deviceId, camera, range = {}) {
         const { from, to, ...opts } = range;
-        // Hand-built query (no URLSearchParams dependency, matching the rest of this
-        // file). Only the parameters that are set are sent.
+        // HAND-BUILT, NOT URLSearchParams. This package compiles against
+        // `lib: ["ES2022"]` with no DOM and no `@types/node`, so that global does
+        // not typecheck here. It only APPEARS to when this source is read from
+        // inside an app whose node_modules supplies the types, which is how two
+        // uses of it reached the vendored copy and left it unable to build in its
+        // own repo.
+        // Only the parameters that are set are sent, so an unfiltered call asks for
+        // the whole range rather than for `from=undefined`.
         const parts = [`device_id=${encodeURIComponent(deviceId)}`];
         if (camera)
             parts.push(`camera=${encodeURIComponent(camera)}`);
@@ -1210,22 +1217,24 @@ export class SentryClient {
      * PREFIX, so `"share."` matches every share action.
      */
     async adminAudit(filter = {}, opts = {}) {
-        const params = new URLSearchParams();
-        if (filter.action)
-            params.set("action", filter.action);
-        if (filter.accountId)
-            params.set("account_id", filter.accountId);
-        if (filter.deviceId)
-            params.set("device_id", filter.deviceId);
-        if (filter.since)
-            params.set("since", filter.since);
-        if (filter.until)
-            params.set("until", filter.until);
-        if (filter.limit !== undefined)
-            params.set("limit", String(filter.limit));
-        if (filter.offset !== undefined)
-            params.set("offset", String(filter.offset));
-        const query = params.toString();
+        // BUILT BY HAND, not with URLSearchParams: this package targets
+        // `lib: ES2022` with no DOM, so URLSearchParams is not in scope. Pulling
+        // the DOM lib in for one query string would widen the type surface of a
+        // package that deliberately has no runtime dependencies.
+        const parts = [];
+        const add = (k, v) => {
+            if (v === undefined || v === "")
+                return;
+            parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+        };
+        add("action", filter.action);
+        add("account_id", filter.accountId);
+        add("device_id", filter.deviceId);
+        add("since", filter.since);
+        add("until", filter.until);
+        add("limit", filter.limit);
+        add("offset", filter.offset);
+        const query = parts.join("&");
         const path = query ? `/v1/admin/audit?${query}` : "/v1/admin/audit";
         const { status, body } = await this.http.send({
             method: "GET",

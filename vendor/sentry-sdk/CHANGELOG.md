@@ -1,5 +1,98 @@
 # Changelog
 
+## 0.4.0
+
+Additive. Nothing in 0.3.0 changed shape.
+
+Two things happened at once here, and the second is the more important: this
+version adds sites and sharing, AND it makes this repo the single source of
+truth again. Before it, `sentry-sdk` and the vendored copy inside the dashboard
+were two different packages both calling themselves `0.2.0` -- the copy was a
+whole feature ahead (hub archive playback), the repo had sites work the copy
+never saw, and the copy carried two uses of `URLSearchParams` that this package
+cannot compile at all. See "Reconciled" below, and `VENDOR.json`.
+
+### Added - sites, people, sharing and the audit log
+
+An organization now has SITES (a place, with its hubs and towers), people who
+belong to one, and SHARES, which lend one site's cameras to another for a
+while. Authorization for all of it is the server's: these methods carry no
+claim a caller could choose, which is why none of them takes a role or a
+permission as an argument.
+
+- **`capabilities()`** - `GET /v1/capabilities`. What this deployment can do.
+  Read it before rendering anything site-shaped: the SAME BUNDLE runs against
+  the cloud and against a hub on a LAN, and on a hub there are no sites, so the
+  UI gates on this answer rather than on a build flag.
+- **`listSites()` / `getSite(id)`** - the sites this account may see, which is
+  its own plus any shared with it, and one site with its hubs, towers and cells.
+- **`listShares()`**, **`createShare(...)`**, **`acceptShare(id, scope?)`**,
+  **`declineShare(id)`**, **`revokeShare(id)`** - the share lifecycle.
+  ⚠ **`acceptShare` NARROWS, it never widens.** A site accepting a share may
+  drop cameras or permissions from what was offered and may not add any; the
+  server enforces that, and a UI that offers "accept all" on a scope it edited
+  is asking for a refusal.
+  ⚠ **Revocation BITES AT ONCE**, including on sessions already open. A
+  revoked share is not "no new sessions" -- it is "that view goes dark now".
+- **`isShareLive(share, now?)`** - whether a share is in force at an instant.
+  Status alone is not enough: an `active` share whose window has passed is not
+  live, and that is the state a list is most often rendered in.
+- **Admin:** `adminListShares()`, `adminCreateSite(name)`,
+  `adminUpdateSite(...)`, `adminSetSiteHubs(...)`, `adminListPeople()`,
+  `adminCreatePerson(...)`, `adminUpdatePerson(...)`,
+  `adminResetPassword(...)`, `adminAudit(filter?)`.
+  `adminAudit`'s `action` is a PREFIX, so `"share."` matches every share action.
+- **`isAdminRole(role)`**, and types `Capabilities`, `Site`, `SiteStatus`,
+  `Cell`, `Share`, `ShareStatus`, `ShareDirection`, `ShareScopeEntry`,
+  `Person`, `AuditEntry` with their list responses, and parsers for each.
+
+### Added - PTZ priority between sites
+
+THE CAMERA'S OWN SITE ALWAYS WINS. An operator at the site a camera belongs to
+must never find it being driven by somebody they lent it to.
+
+- **`PtzResult.control`** (the new `PtzControl`) - now on EVERY ptz reply: `held`,
+  `yours`, and when somebody has it, `holder_site`, `holder_is_owner` and
+  `expires_in_sec`. Gate controls on `yours` and nothing else; it already
+  accounts for a free camera, for your own hold, and for a hold that lapsed.
+  Its ABSENCE is not an error -- it means the server does not arbitrate
+  control, which is the behaviour every earlier version had.
+- **`ptz_yielded`** (`409`) and **`PtzYieldedError`**, with `holderSite` and
+  `retryAfterSec`, plus **`isPtzYielded(err)`**. Mapped explicitly, because a
+  `409` with no mapping arrives as a `SessionConflictError` -- a session fault,
+  for what is the normal outcome of sharing a camera.
+  ⚠ **Not `isPtzPermissionDenied`.** That one means this viewer may NEVER
+  drive this camera (disable it for the session); this means NOT NOW (name the
+  site, leave the controls able to come back).
+  ⚠ **Do not retry on a timer.** `retryAfterSec` is a countdown for a person:
+  the owning side refreshes its hold with every command.
+- `ApiError` gains `holder_site` and `retry_after_sec`, set by that one code,
+  so the detail survives the envelope being rebuilt on the way to the
+  exception.
+- The five sweep helpers still return `SweepStatus` and so do not carry
+  `control`; read it from a `status` poll or from `sendPtz` directly. Widening
+  them would break callers for a field they do not need.
+
+### Reconciled - one source of truth, enforced
+
+- **`VENDOR.json`** plus `npm run vendor:manifest` / `vendor:check` and
+  `scripts/vendor-sync.mjs <dest>`: a sha256 of every file in the package,
+  carried INTO the vendored copy. `npm test` fails if this tree does not match
+  it, and the consuming app fails if its copy does not. Re-vendoring is one
+  command and removes stale files, so a copy can no longer quietly become a
+  fork. What it cannot catch is a change made identically in both places; it is
+  a smoke alarm for accidents, and every drift so far has been an accident.
+- **Fixed: this package did not compile in its own repo.** `getSegmentUrl` and
+  `adminAudit` used `URLSearchParams`, which is neither in `lib: ["ES2022"]`
+  nor in any `@types` this package depends on. It only looked fine from inside
+  the dashboard, whose node_modules supplied the types. Both now build their
+  query by hand, as the rest of the file always did, and `npm run typecheck` is
+  clean.
+- The hub archive playback methods (`listArchivedRecordings`,
+  `getSegmentUrl`, `listReviewableTowers`) and PTZ step/sweep, which existed
+  only in the vendored copy, are recorded in 0.3.0 above and are now here.
+- `npm test` runs all four suites. It ran two.
+
 ## 0.3.0
 
 Additive. Nothing in 0.2.0 changed shape, so a 0.2.0 consumer keeps working --

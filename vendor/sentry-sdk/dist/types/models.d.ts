@@ -462,6 +462,48 @@ export interface PtzResult {
     ok: boolean;
     result?: PtzStatusResult | Record<string, unknown>;
     error?: ApiError;
+    /**
+     * Who is allowed to drive this camera right now. On EVERY ptz reply.
+     *
+     * Read it from whatever reply you already have -- a status poll, a keepalive,
+     * the move you just sent -- rather than asking a separate question, so the
+     * controls cannot sit enabled while somebody else holds the camera.
+     */
+    control?: PtzControl;
+}
+/**
+ * WHO HOLDS THIS CAMERA, and whether you may drive it.
+ *
+ * The camera's own site always wins. An operator at the site a camera belongs
+ * to must never find it being driven by somebody they lent it to, so a shared
+ * controller yields the moment the owning side commands it, and is told by whom
+ * (`ptz_yielded`, see {@link ApiError.holder_site}).
+ *
+ * Control is a LEASE, not a lock: it is held for a period after the holder's
+ * last command and then lapses on its own, because the thing most likely to
+ * hold a lock for ever is a browser tab that was closed. Nothing has to be
+ * released.
+ *
+ * ⚠ `yours` IS THE ONLY FIELD A UI SHOULD GATE ON. It already accounts for
+ * nobody holding the camera, for holding it yourself, and for holding a lease
+ * that has just lapsed; re-deriving that from the other fields is how two
+ * screens come to disagree about whether a control is live.
+ */
+export interface PtzControl {
+    /** Is anyone holding it. `false` means free: the next command takes it. */
+    held: boolean;
+    /** May YOU command it. Gate the controls on this and nothing else. */
+    yours: boolean;
+    /** The holder's site, by name. Absent when nobody holds it. */
+    holder_site?: string;
+    /**
+     * Is the holder the camera's own site (including an admin, and the hub's own
+     * kiosk). Shown to explain WHY a control is disabled: a shared user cannot
+     * take it back from the owning side, but can from another shared user.
+     */
+    holder_is_owner?: boolean;
+    /** Seconds until the lease lapses if the holder sends nothing more. */
+    expires_in_sec?: number;
 }
 /**
  * `result` of `action: "status"` (§5.1): current pan/tilt/zoom, plus
@@ -1063,11 +1105,26 @@ export interface TowerStateEvent {
  * layer adds). The `(string & {})` arm keeps an unknown future code assignable
  * without losing autocomplete on the known ones.
  */
-export type ApiErrorCode = "unknown_type" | "unsupported_version" | "malformed" | "unauthorized" | "invalid_request" | "grant_invalid" | "grant_wrong_tower" | "grant_expired" | "grant_scope" | "grant_permission" | "grant_replay" | "session_unknown" | "session_duplicate" | "camera_unknown" | "camera_offline" | "mediamtx_unavailable" | "whep_failed" | "ptz_unavailable" | "rate_limited" | "internal" | "tower_offline" | "tower_timeout" | "not_authorized" | "tower_unknown" | "invalid_label" | (string & {});
+export type ApiErrorCode = "unknown_type" | "unsupported_version" | "malformed" | "unauthorized" | "invalid_request" | "grant_invalid" | "grant_wrong_tower" | "grant_expired" | "grant_scope" | "grant_permission" | "grant_replay" | "session_unknown" | "session_duplicate" | "camera_unknown" | "camera_offline" | "mediamtx_unavailable" | "whep_failed" | "ptz_unavailable" | "rate_limited" | "internal" | "tower_offline" | "tower_timeout" | "not_authorized" | "tower_unknown" | "invalid_label" | "ptz_yielded" | (string & {});
 /** The `error` object inside the envelope (§4.2, §7.1). */
 export interface ApiError {
     code: ApiErrorCode;
     message: string;
+    /**
+     * The site driving the camera, by NAME, on a `ptz_yielded` refusal.
+     *
+     * Sites know each other by the names an admin gave them and by nothing else,
+     * so the refusal carries the name rather than an id and a consumer renders it
+     * verbatim. Absent on every other code.
+     */
+    holder_site?: string;
+    /**
+     * Seconds until the holder's lease lapses, on `ptz_yielded`. A countdown
+     * for a person, not a retry budget for a loop: the owning side refreshes the
+     * lease with every command, so a client that waits exactly this long and
+     * retries can be refused again. Absent on every other code.
+     */
+    retry_after_sec?: number;
 }
 /**
  * The one error envelope used everywhere (§4.2):

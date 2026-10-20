@@ -36,6 +36,7 @@ export {
   NotFoundError,
   ProjectionLeakError,
   PtzError,
+  PtzYieldedError,
   RateLimitedError,
   RequestAbortedError,
   RequestTimeoutError,
@@ -49,6 +50,7 @@ export {
   errorFromEnvelope,
   isNormalPtzOutcome,
   isPtzPermissionDenied,
+  isPtzYielded,
   isSentryErrorCode,
   isSessionEnded,
 } from "./errors.js";
@@ -111,6 +113,7 @@ export type {
   PtzMoveParams,
   PtzResult,
   PtzSetHomeResult,
+  PtzControl,
   PtzStepParams,
   PtzStepResult,
   SweepOp,

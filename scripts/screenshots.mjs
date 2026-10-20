@@ -42,6 +42,8 @@ const SCREENS = [
   ["shares", "shares"],
   ["shares-empty", "shares-empty"],
   ["banner", "incoming-request-banner"],
+  ["rail", "icon-rail"],
+  ["ptz-yielded", "ptz-yielded-to-owner"],
 ];
 
 /** The two widths the brief asks for. Heights are generous; shots are full page. */

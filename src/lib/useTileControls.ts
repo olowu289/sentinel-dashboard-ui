@@ -14,6 +14,7 @@ import {
   SWEEP_POLL_MS,
   CONTINUOUS_AXES,
   beginHold,
+  describeControl,
   describePtzFailure,
   describeStepRefusal,
   isStepDirection,
@@ -29,7 +30,14 @@ import {
   type JogDirection,
   type PtzHold,
 } from "@/lib/api/ptz";
-import { sweepOf, type PtzResult, type SweepStatus, type ViewerSession } from "@kallon/sentry-sdk";
+import {
+  isPtzYielded,
+  sweepOf,
+  type PtzControl,
+  type PtzResult,
+  type SweepStatus,
+  type ViewerSession,
+} from "@kallon/sentry-sdk";
 import { SweepRadar } from "@/components/SweepRadar";
 
 /**
@@ -352,6 +360,7 @@ export function useTileControls({
   useEffect(() => () => {
     if (errorTimer.current !== null) clearTimeout(errorTimer.current);
     if (holdTimer.current !== null) clearTimeout(holdTimer.current);
+    if (controlTimer.current !== null) clearTimeout(controlTimer.current);
   }, []);
 
   /* The camera's sweep, as the DEVICE reports it -- never inferred here.
@@ -367,6 +376,76 @@ export function useTileControls({
     const block = sweepOf(res ?? undefined);
     if (block) setSweep(block);
   }, []);
+
+  /* ── WHO MAY DRIVE THIS CAMERA ───────────────────────────────────────────
+
+     THE CAMERA'S OWN SITE ALWAYS WINS. An operator at the site a camera
+     belongs to must never find it being driven by somebody they lent it to, so
+     a shared user's commands are refused while the owning side is driving.
+     The server decides that; this is only the tile reflecting it.
+
+     `null` means WE HAVE NOT BEEN TOLD, and the controls are live -- which is
+     also what a deployment that does not arbitrate control looks like, and what
+     a hub on a LAN looks like. It is deliberately not "nobody has it".
+
+     ⚠ NO POLLING. Every ptz reply carries this block, and a refusal carries
+     the same facts, so the tile learns from traffic it was sending anyway. A
+     control poll on every tile of a four-up wall would be four round trips to
+     real towers over a possibly-metered uplink, every few seconds, forever --
+     the cost the sweep poll and the zoom readout are both careful to avoid. */
+  const [control, setControl] = useState<PtzControl | null>(null);
+  const controlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* The hold LAPSES, and the controls have to come back on their own.
+     Disabling a pad with no way back would be a deadlock: the thing that would
+     re-enable it is a command, and a disabled pad cannot send one. The server
+     told us when the hold runs out, so the tile forgets it then (a second's
+     grace for the round trip) and the next press finds out for itself -- either
+     it works, or it is refused and the line comes back. */
+  const holdControl = useCallback((next: PtzControl | null) => {
+    if (controlTimer.current !== null) {
+      clearTimeout(controlTimer.current);
+      controlTimer.current = null;
+    }
+    setControl(next);
+    if (next && !next.yours && typeof next.expires_in_sec === "number") {
+      const ms = Math.max(0, next.expires_in_sec) * 1000 + 1000;
+      controlTimer.current = setTimeout(() => {
+        controlTimer.current = null;
+        setControl(null);
+      }, ms);
+    }
+  }, []);
+
+  /** Every reply carries it. Absent means "this server does not arbitrate". */
+  const applyControl = useCallback((res: PtzResult | null | undefined) => {
+    if (res?.control) holdControl(res.control);
+  }, [holdControl]);
+
+  /**
+   * A refusal says the same things a reply would, so read it the same way.
+   *
+   * This is the case that matters most: the FIRST a shared operator hears of
+   * the owning site taking a camera is their own command coming back refused,
+   * and if that does not reach the tile the pad stays live and every press is
+   * refused in silence.
+   */
+  const applyYield = useCallback((err: unknown): boolean => {
+    if (!isPtzYielded(err)) return false;
+    holdControl({
+      held: true,
+      yours: false,
+      holder_site: err.holderSite,
+      /* The owning side is the only one that can refuse us, by the rule. */
+      holder_is_owner: true,
+      expires_in_sec: err.retryAfterSec,
+    });
+    return true;
+  }, [holdControl]);
+
+  /** True when somebody else has it. The ONE thing a control gates on. */
+  const yielded = control !== null && !control.yours;
+  const controlledBy = describeControl(control);
 
   /* Whether the lens is being zoomed RIGHT NOW, which is the only time the
      magnification is worth asking the camera for. Separate from `holdRef`
@@ -410,6 +489,12 @@ export function useTileControls({
         localNudge(dir === "in" || dir === "out" ? "home" : dir);
         return;
       }
+      /* SOMEBODY ELSE IS DRIVING. The pad is already disabled, so this is the
+         keyboard path and anything else that can reach a handler without a
+         pointer. Not sending is not the enforcement -- the server refuses it
+         either way -- it is declining to spend a round trip to be told
+         something the tile already knows. */
+      if (yielded) return;
       pressedAt.current = Date.now();
       if (dir === "in" || dir === "out") {
         setZoomSide(dir === "in" ? "zoom-in" : "zoom-out");
@@ -457,6 +542,10 @@ export function useTileControls({
             holdRef.current = held;
             setPtzError(null);
           } catch (err) {
+            /* A yield is read for its holder and then says nothing more:
+               `describePtzFailure` returns null for it, so the chip clears and
+               the "controlled by" line is the one message. */
+            applyYield(err);
             setPtzError(describePtzFailure(err));
           }
         })();
@@ -488,12 +577,16 @@ export function useTileControls({
             holdRef.current = held;
             setPtzError(null);
           } catch (err) {
+            /* A yield is read for its holder and then says nothing more:
+               `describePtzFailure` returns null for it, so the chip clears and
+               the "controlled by" line is the one message. */
+            applyYield(err);
             setPtzError(describePtzFailure(err));
           }
         })();
       }, PTZ_CLICK_MS);
     },
-    [feed, localNudge, realPtz, session, setPtzError, tiltLimit],
+    [applyYield, feed, localNudge, realPtz, session, setPtzError, tiltLimit, yielded],
   );
 
   /**
@@ -534,7 +627,9 @@ export function useTileControls({
             setPtzError(refused);
             /* A step pauses a running sweep at the device; the reply says so. */
             applySweep(res);
+            applyControl(res);
           } catch (err) {
+            applyYield(err);
             const said = describePtzFailure(err);
             if (said) setPtzError(said);
           }
@@ -574,12 +669,17 @@ export function useTileControls({
         else if (held) res = await held.stop();
         else res = await stopOrHome(feed, session, false);
         applySweep(res);
+        /* A STOP IS ALWAYS ALLOWED, so its reply is the one that most reliably
+           reports who holds the camera -- including "you do", which is how the
+           tile learns it took control back. */
+        applyControl(res);
       } catch (err) {
+        applyYield(err);
         const said = describePtzFailure(err);
         if (said) setPtzError(said);
       }
     })();
-  }, [applySweep, feed, realPtz, session, setPtzError]);
+  }, [applyControl, applySweep, applyYield, feed, realPtz, session, setPtzError]);
 
   /* Poll status WHILE a tilt is held and stop pushing into the stop the moment
      the tower reports the tilt at the limit we are driving toward. Only runs
@@ -626,14 +726,19 @@ export function useTileControls({
       localNudge("home");
       return;
     }
+    /* Home is a MOVE, so it yields like any other. The stop half of it is not
+       lost: a release still sends its own unconditional stop. */
+    if (yielded) return;
     void (async () => {
       try {
-        await stopOrHome(feed, session, true);
+        const res = await stopOrHome(feed, session, true);
+        applyControl(res);
       } catch (err) {
+        applyYield(err);
         setPtzError(describePtzFailure(err));
       }
     })();
-  }, [feed, localNudge, realPtz, session]);
+  }, [applyControl, applyYield, feed, localNudge, realPtz, session, setPtzError, yielded]);
 
   /* ── DRIVING THE SWEEP ───────────────────────────────────────────────────
 
@@ -655,6 +760,9 @@ export function useTileControls({
    * promises rather than an error.
    */
   const cycleSweep = useCallback(async () => {
+    /* Starting, pausing or resuming a circle is driving the camera, so the
+       owning site's hold covers it too. Their sweep is not ours to pause. */
+    if (yielded) return;
     setSweepBusy(true);
     try {
       const current = sweepRef.current?.state;
@@ -667,12 +775,13 @@ export function useTileControls({
       setSweep(next);
       setPtzError(null);
     } catch (err) {
+      applyYield(err);
       const said = describePtzFailure(err);
       if (said) setPtzError(said);
     } finally {
       setSweepBusy(false);
     }
-  }, [feed, session, setPtzError]);
+  }, [applyYield, feed, session, setPtzError, yielded]);
 
   /**
    * End the circle where the camera is.
@@ -688,10 +797,15 @@ export function useTileControls({
       if (ended) setSweep(ended);
       setPtzError(null);
     } catch (err) {
+      /* ⚠ NOT GATED ABOVE, unlike the others, because every other stop in
+         this file is unconditional -- but the SERVER does refuse this one,
+         since ending somebody else's circle is not a de-escalation of our own
+         command. So it can come back a yield, and that has to show. */
+      applyYield(err);
       const said = describePtzFailure(err);
       if (said) setPtzError(said);
     }
-  }, [feed, session, setPtzError]);
+  }, [applyYield, feed, session, setPtzError]);
 
   /* Progress, and the countdown to an auto-resume.
 
@@ -922,11 +1036,17 @@ export function useTileControls({
   if (canSweep) {
     controls.push({
       id: "sweep",
-      label: sweeping
-        ? `Pause sweep (${sweep?.percent ?? 0}% round)`
-        : paused
-          ? `Resume sweep (${sweep?.percent ?? 0}% round)`
-          : "360\u00b0 Sweep",
+      /* The label is also the hover title and the accessible name, which on the
+         fleet wall is the ONLY explanation there is: `MonitorTile` renders no
+         message line of its own, so a chip that had merely stopped working
+         would say nothing at all there. */
+      label: yielded
+        ? `Sweep held by ${control?.holder_site ?? "another site"}`
+        : sweeping
+          ? `Pause sweep (${sweep?.percent ?? 0}% round)`
+          : paused
+            ? `Resume sweep (${sweep?.percent ?? 0}% round)`
+            : "360\u00b0 Sweep",
       /* ONE ICON IN EVERY STATE. It was a play/pause pair, which read as a
          video transport -- press it and you expect footage, not a camera to
          start turning. A radar says what this does: a head sweeping a circle.
@@ -963,14 +1083,19 @@ export function useTileControls({
           ? formatCountdown(sweep?.resume_in_sec)
           : null,
       busy: sweepBusy,
-      disabled: sweepBusy,
+      /* `yielded`: the owning site is driving, so this circle is not ours to
+         start, pause or resume. The label beside the pad says who has it --
+         `disabled` alone would be a chip that stopped working for no stated
+         reason, which is the failure this whole block is written against. */
+      disabled: sweepBusy || yielded,
       onSelect: () => void cycleSweep(),
     });
 
     if (sweeping || paused) {
       controls.push({
         id: "sweep-stop",
-        label: "Stop sweep",
+        label: yielded ? `Sweep held by ${control?.holder_site ?? "another site"}` : "Stop sweep",
+        disabled: yielded,
         icon: "/icons/ctl-stop.svg",
         /* `critical` and not `alarm`: this ends motion on a real site, which is
            consequential, but it is not a speaker sounding in a yard. The siren
@@ -1030,6 +1155,12 @@ export function useTileControls({
     /** The camera's sweep as the DEVICE last reported it, or `null` for "we have
         not been told" -- which is not idle, and must not be drawn as idle. */
     sweep,
+    /** Who is driving this camera when it is not you, ready to render, or
+        `null` whenever the controls are live. Already accounts for a free
+        camera, your own hold, and a deployment that does not arbitrate. */
+    controlledBy,
+    /** Somebody else has the camera. The one flag a control gates on. */
+    yielded,
     flash,
     siren,
     alarming,

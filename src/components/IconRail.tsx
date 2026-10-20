@@ -55,15 +55,21 @@ const NAV: {
      in this product is the watchlist -- the note above says why that reading
      matters, and a share is between sites, not about a person.
 
-     ADMINISTRATION has no glyph of its own and currently borrows the gear,
-     which means there are TWO gears in this rail. That is a known gap, not a
-     choice: no icon in public/icons says "the organization's structure", and
-     inventing a meaning for an existing one is what the note above warns
-     against. It sits next to Settings so the pair reads as related, and it
-     needs a drawn icon. Recorded in docs/design/sites-and-sharing.md. */
+     ADMINISTRATION gets `nav-admin`, drawn for it: one node above two,
+     joined -- the organization's structure, which is exactly what this screen
+     edits (sites, their hubs, and the people in them). It used to borrow the
+     gear, which put TWO GEARS in this rail with nothing to tell them apart.
+
+     It is deliberately the SAME DOT as `group-grid` above it, on the same
+     rows, so the two read as a pair and the difference between them carries
+     the meaning: group-grid is two separate groups, which is what a share is
+     between; this is one structure with the lines drawn in, which is what an
+     organization is. Reusing the set's own primitive is also why it looks
+     drawn by the same hand -- the 24 grid, the 2px stroke, round joins, and
+     nothing inside the 2px margin. */
   { id: "shares", label: "Shares", icon: "/icons/group-grid.svg" },
   { id: "settings", label: "Settings", icon: "/icons/nav-settings.svg" },
-  { id: "admin", label: "Administration", icon: "/icons/nav-settings.svg" },
+  { id: "admin", label: "Administration", icon: "/icons/nav-admin.svg" },
 ];
 
 /** The two ids above that depend on the server rather than on the account. */

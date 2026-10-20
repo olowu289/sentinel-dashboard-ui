@@ -45,6 +45,7 @@ import type {
   IceCandidate,
   IceCandidatesResponse,
   IceServer,
+  PtzControl,
   PtzResult,
   SensorInfo,
   SweepStatus,
@@ -398,6 +399,35 @@ export function parsePtzResult(raw: unknown, ctx: ValidateContext = {}): PtzResu
         code: c.str("error.code", e["code"]),
         message: c.str("error.message", e["message"]),
       };
+      // The yield refusal's detail, when it is there. Optional and untyped on
+      // the wire for every other code, so a missing one is not an issue.
+      if (typeof e["holder_site"] === "string") {
+        value.error.holder_site = e["holder_site"];
+      }
+      if (typeof e["retry_after_sec"] === "number") {
+        value.error.retry_after_sec = e["retry_after_sec"];
+      }
+    }
+  }
+  // WHO MAY DRIVE IT, on every reply. Older coordination sends nothing here and
+  // that is NOT an issue to report: its absence means "this server does not
+  // arbitrate control", which a caller reads as the unrestricted behaviour it
+  // had before leases existed.
+  if (o["control"] !== undefined && o["control"] !== null) {
+    const k = c.obj("control", o["control"]);
+    if (k) {
+      const control: PtzControl = {
+        held: c.bool("control.held", k["held"]),
+        yours: c.bool("control.yours", k["yours"]),
+      };
+      if (typeof k["holder_site"] === "string") control.holder_site = k["holder_site"];
+      if (typeof k["holder_is_owner"] === "boolean") {
+        control.holder_is_owner = k["holder_is_owner"];
+      }
+      if (typeof k["expires_in_sec"] === "number") {
+        control.expires_in_sec = k["expires_in_sec"];
+      }
+      value.control = control;
     }
   }
   return c.done(value, "PTZ result", ctx);

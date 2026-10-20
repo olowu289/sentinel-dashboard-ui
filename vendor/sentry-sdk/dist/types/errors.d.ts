@@ -178,6 +178,29 @@ export declare class MediaError extends SentryError {
  */
 export declare class PtzError extends SentryError {
 }
+/**
+ * `ptz_yielded` (`409`) — the camera's OWN site is driving it.
+ *
+ * A NORMAL OUTCOME OF SHARING, not a fault. The camera's own site always wins:
+ * an operator at the site a camera belongs to must never find it being driven
+ * by somebody they lent it to, so a shared controller's command is refused
+ * while the owning side holds control, and the hold lapses on its own.
+ *
+ * Narrower than {@link isPtzPermissionDenied} on purpose, and the two want
+ * opposite treatment: `grant_permission` means this viewer may NEVER drive
+ * this camera (disable it for the session), while this means NOT NOW (say who
+ * has it, and let the controls come back).
+ *
+ * ⚠ DO NOT RETRY ON A TIMER. {@link retryAfterSec} is a countdown for a
+ * person: the owning side refreshes its hold with every command, so a loop that
+ * waits it out and retries is refused again and achieves nothing but load.
+ */
+export declare class PtzYieldedError extends PtzError {
+    /** The site driving the camera, by name. `""` if the server sent none. */
+    get holderSite(): string;
+    /** Seconds until the hold lapses if its holder sends nothing more. */
+    get retryAfterSec(): number;
+}
 /** `rate_limited` (§7.8). Bound your PTZ command rate; the limit is per session. */
 export declare class RateLimitedError extends SentryError {
     get retryable(): boolean;
@@ -221,6 +244,14 @@ export declare function isSentryErrorCode(err: unknown, code: ApiErrorCode): boo
  * ({@link isSessionEnded}), not a disabled control.
  */
 export declare function isPtzPermissionDenied(err: unknown): boolean;
+/**
+ * True for the PTZ yield — the camera's own site is driving it.
+ *
+ * Distinct from {@link isPtzPermissionDenied}, and treated differently: that
+ * one means never, this one means not now. Render the site from
+ * {@link PtzYieldedError.holderSite} and leave the controls able to come back.
+ */
+export declare function isPtzYielded(err: unknown): err is PtzYieldedError;
 /**
  * Convenience for the §10.1 rule — grant expiry ends a live session. A viewer
  * that sees this must create a new session, not renew client-side.

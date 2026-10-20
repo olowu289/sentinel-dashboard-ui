@@ -182,11 +182,23 @@ describe("a login is shown once and a name everywhere else", () => {
     assert.match(admin, /No dots: the dot is what separates/);
   });
 
-  test("only a PERSON gets a rename button", () => {
+  test("only a PERSON, and never yourself, gets a rename button", () => {
     /* An organization's own login is not somebody's name, and the slug behind
-       it is in every person's login in the organization. */
-    assert.match(admin, /\{p\.name \? \(/);
+       it is in every person's login in the organization.
+
+       AND NEVER YOUR OWN ROW. `may_manage_person` refuses the caller's own id
+       -- which is what stops an administrator disabling the only
+       administrator -- so a button there is a 404 waiting for somebody to
+       press it. The screenshots caught the row offering Disable on itself. */
+    assert.match(admin, /\{p\.name && p\.account_id !== meId \? \(/);
     assert.match(admin, /Fix a typo/);
+  });
+
+  test("your own row offers nothing it cannot do, and says why", () => {
+    assert.match(admin, /p\.account_id === meId \? \(/);
+    assert.match(admin, /This is you\. Change your password in Settings\./);
+    /* Disable and Enable are behind the same check. */
+    assert.match(admin, /\{p\.account_id === meId \? null : disabled \? \(/);
   });
 
   test("the rename box says the login changes", () => {

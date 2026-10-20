@@ -36,6 +36,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { IconRail } from "@/components/IconRail";
+import { useSession } from "@/components/AuthProvider";
 import { useCallback, useMemo, useState } from "react";
 import type { Person, Share, Site } from "@kallon/sentry-sdk";
 import { isShareLive } from "@kallon/sentry-sdk";
@@ -275,10 +276,19 @@ function SitesPane() {
                 ) : (
                   <h3 className="font-display text-[0.9375rem] leading-[20px] text-body-ink">
                     {site.name}
+                    {/* ⚠ COUNTED FROM THE LIST BELOW IT, not from
+                        `site.hubs`. The header read /v1/sites and the body
+                        reads /v1/cells, and the screenshots caught them
+                        disagreeing: "West Yard · 0 cells" with Yard Shed
+                        listed underneath it. Two sources for one number is how
+                        a heading lies about what is under it. */}
                     <span className="ml-[8px] font-mono text-[0.6875rem] text-muted">
-                      {(site.hubs ?? []).length === 1
-                        ? "1 cell"
-                        : `${(site.hubs ?? []).length} cells`}
+                      {(() => {
+                        const n = (cells.value?.cells ?? []).filter(
+                          (c) => c.site_id === site.site_id,
+                        ).length;
+                        return n === 1 ? "1 cell" : `${n} cells`;
+                      })()}
                     </span>
                   </h3>
                 )}
@@ -415,6 +425,12 @@ function SitesPane() {
 function PeoplePane() {
   const people = usePeople();
   const sites = useSites();
+  /* WHO IS SIGNED IN, so this screen does not offer an administrator a
+     Disable button for itself. The server refuses it -- that is what stops
+     an admin disabling the only admin -- and a button that cannot work is
+     not a safeguard, it is a 404 waiting for somebody to press it. */
+  const { account } = useSession();
+  const meId = account?.account_id ?? null;
   const [adding, setAdding] = useState(false);
   /* A NAME, not a login. Their login is `name.organization` and the
      organization half is this admin's own, so there is nothing to type and
@@ -719,6 +735,16 @@ function PeoplePane() {
                     ) : null}
                   </span>
                   <span className="flex gap-[8px]">
+                    {p.account_id === meId ? (
+                      /* YOUR OWN ROW. Nothing here is yours to press: the
+                         password is changed in Settings, where it asks for
+                         the current one, and disabling yourself is refused
+                         by the server. */
+                      <span className="text-[0.75rem] text-muted">
+                        This is you. Change your password in Settings.
+                      </span>
+                    ) : null}
+                    {p.account_id === meId ? null : (
                     <QuietButton
                       onClick={() =>
                         setResetting(
@@ -728,11 +754,12 @@ function PeoplePane() {
                     >
                       Reset password
                     </QuietButton>
+                    )}
                     {/* ONLY A PERSON CAN BE RENAMED, and only to fix a
                         typo. An organization's own login is not somebody's
                         name, and the slug behind it is in every person's
                         login in the organization. */}
-                    {p.name ? (
+                    {p.name && p.account_id !== meId ? (
                       <QuietButton
                         onClick={() => {
                           setRenaming(
@@ -744,7 +771,7 @@ function PeoplePane() {
                         Fix a typo
                       </QuietButton>
                     ) : null}
-                    {disabled ? (
+                    {p.account_id === meId ? null : disabled ? (
                       <QuietButton
                         disabled={busy}
                         onClick={() => setStatus(p, "active")}

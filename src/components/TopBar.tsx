@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { ENTER, FADE } from "@/lib/motion";
 import { MaskIcon } from "./Icon";
+import { ActingSiteChip } from "./ActingSiteChip";
 import { batteryFill, batteryTone } from "./TowerBattery";
 
 export type WallLayout = "landscape" | "portrait";
@@ -118,7 +119,10 @@ export function TopBar({
           match the axis the tiles are stacked on. It shows the current view
           rather than the one you would switch to, so the bar always reads as a
           statement of what is on screen; the label carries the same word. */}
-      <div className="flex items-center gap-[8px]">
+      <div className="flex items-center gap-[10px]">
+        {/* WHICH SITE YOU ARE, on the screen where sharing a camera starts.
+            Hidden below sm, where the bar has barely room for the tower. */}
+        <ActingSiteChip className="hidden sm:flex" />
         <button
           type="button"
           onClick={onToggleLayout}

@@ -103,6 +103,9 @@ const SHARES = [
        is on screen: the site being asked has nothing else to decide on. */
     message:
       "Two of our trucks are at your gate until about four. Could we watch the mast while they are on your side?",
+    can_answer: true,
+    can_end: true,
+    can_extend: false,
   },
   {
     share_id: "shr_active",
@@ -126,6 +129,9 @@ const SHARES = [
     decided_at: hourAgo(3),
     incoming: true,
     outgoing: false,
+    can_answer: false,
+    can_end: true,
+    can_extend: true,
   },
   {
     share_id: "shr_out",
@@ -146,6 +152,9 @@ const SHARES = [
     decided_at: null,
     incoming: false,
     outgoing: true,
+    can_answer: false,
+    can_end: true,
+    can_extend: false,
   },
   {
     share_id: "shr_revoked",
@@ -166,6 +175,9 @@ const SHARES = [
     decided_at: hourAgo(26),
     incoming: true,
     outgoing: false,
+    can_answer: false,
+    can_end: false,
+    can_extend: false,
   },
 ];
 
@@ -332,12 +344,21 @@ function install(mode: Mode) {
   }) as typeof window.fetch;
 }
 
-const SESSION = {
+/**
+ * The signed-in person, BY ROLE.
+ *
+ * ⚠ THE SCREENS DIFFER BY ROLE NOW, so the harness has to be able to be
+ * both. An administrator sees every share and answers none of them; a site
+ * user sees their own and answers the ones addressed to their site. A harness
+ * stuck as an admin would photograph an Accept button that no administrator
+ * can press, which is the bug these screens exist to document the fix for.
+ */
+const sessionAs = (role: "owner" | "site_user", login: string) => ({
   status: "signed-in" as const,
   account: {
-    account_id: "acct_admin",
-    login: "kaduna-mine",
-    role: "owner",
+    account_id: role === "owner" ? "acct_admin" : "acct_ada",
+    login,
+    role,
     status: "active",
   },
   features: new Set<Feature>(DEFAULT_FEATURES),
@@ -345,7 +366,10 @@ const SESSION = {
   pending: false,
   signIn: async () => {},
   signOut: async () => {},
-};
+});
+
+const SESSION = sessionAs("owner", "kaduna-mine");
+const SESSION_SITE_USER = sessionAs("site_user", "ada");
 
 /* ------------------------------------------------------------------ *
  * The harness page
@@ -383,6 +407,8 @@ const SCREENS = [
   { id: "sharing-active", label: "Sharing: active", mode: "full" },
   { id: "sharing-history", label: "Sharing: history", mode: "full" },
   { id: "sharing-empty", label: "Sharing: nothing yet", mode: "empty" },
+  /* The same page as an ADMINISTRATOR: every share, and nothing to answer. */
+  { id: "sharing-admin-all", label: "Sharing: admin, all shares", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -595,7 +621,12 @@ function Harness() {
     which.startsWith("card-") ? (
       which === "card-undo" ? <UndoCard /> : <Cards which={which} />
     ) : which.startsWith("sharing-") ? (
-      <SharingScreen tab={which.slice("sharing-".length).replace("empty", "incoming")} />
+      <SharingScreen
+        tab={which
+          .slice("sharing-".length)
+          .replace("empty", "incoming")
+          .replace("admin-all", "all")}
+      />
     ) : which === "rail" ? (
       <div className="flex h-full w-full bg-ink">
         <IconRail active="admin" sites admin />
@@ -616,7 +647,13 @@ function Harness() {
     );
 
   return (
-    <AuthContextForHarness.Provider value={SESSION as never}>
+    <AuthContextForHarness.Provider
+      value={
+        (which.startsWith("sharing-admin") || !which.startsWith("sharing-")
+          ? SESSION
+          : SESSION_SITE_USER) as never
+      }
+    >
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-ink">
         {/* The picker is the harness, not the product. Deliberately plain, so
             nothing here can be mistaken for a screen under review. */}

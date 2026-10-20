@@ -27,9 +27,9 @@
  * everything finished, because "did we ever lend them that" is a real question.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import type { Share, Site } from "@kallon/sentry-sdk";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import type { Share } from "@kallon/sentry-sdk";
 import { SHARE_DEFAULT_SEC } from "@kallon/sentry-sdk";
 import { ENTER, FADE } from "@/lib/motion";
 import { timeLeftLabel } from "@/lib/notifications";
@@ -39,6 +39,7 @@ import {
   useShareFeed,
 } from "@/lib/useShareFeed";
 import { useSites } from "@/lib/useSites";
+import { useActingSite } from "@/lib/useActingSite";
 import { useSiteTowers } from "@/lib/useSiteTowers";
 import {
   Allowances,
@@ -47,6 +48,7 @@ import {
   Loading,
   PrimaryButton,
   QuietButton,
+  inputClass,
   StatusPill,
 } from "@/components/SitesPrimitives";
 import {
@@ -65,7 +67,14 @@ import {
   type DecisionState,
 } from "./ShareControls";
 
-type SectionId = "new" | "offer" | "incoming" | "outgoing" | "active" | "history";
+type SectionId =
+  | "new"
+  | "offer"
+  | "incoming"
+  | "outgoing"
+  | "all"
+  | "active"
+  | "history";
 
 const SECTIONS: readonly { id: SectionId; label: string }[] = [
   { id: "new", label: "New request" },
@@ -76,6 +85,87 @@ const SECTIONS: readonly { id: SectionId; label: string }[] = [
   { id: "history", label: "History" },
 ];
 
+/**
+ * An administrator's sections, which are deliberately not the same five.
+ *
+ * There is no Incoming for them, because an admin answers nothing: a share is
+ * an agreement between two sites and administration is not a party to it. What
+ * replaces it is ALL -- every share in the organization, which is the thing an
+ * admin actually needs and the thing nobody else can see.
+ *
+ * They keep New request and Share a feed, because starting one on a site's
+ * behalf is a reasonable administrative act, and Active, because ending one is
+ * the authority administration does have here.
+ */
+const ADMIN_SECTIONS: readonly { id: SectionId; label: string }[] = [
+  { id: "new", label: "New request" },
+  { id: "offer", label: "Share a feed" },
+  { id: "all", label: "All shares" },
+  { id: "active", label: "Active" },
+  { id: "history", label: "History" },
+];
+
+/**
+ * "Requesting as North Gate", and a way to change it when there is a choice.
+ *
+ * ⚠ ALWAYS ON SCREEN WHERE A SHARE IS STARTED OR ANSWERED. Every share is
+ * between two sites, so which one you are is half of what the thing means --
+ * and a site user could not tell which site they were in at all.
+ */
+function ActingAs({
+  verb,
+  acting,
+}: {
+  verb: string;
+  acting: ReturnType<typeof useActingSite>;
+}) {
+  if (acting.loading) return null;
+  if (acting.candidates.length === 0) {
+    return (
+      <p className="text-[0.8125rem] leading-[18px] text-muted">
+        You are not in a site yet, so there is nothing to share from. An
+        administrator adds people to sites in Administration.
+      </p>
+    );
+  }
+  if (acting.candidates.length === 1 && acting.site) {
+    return (
+      <p className="text-[0.8125rem] text-muted">
+        {verb} as{" "}
+        <span className="font-display text-body-ink">{acting.site.name}</span>
+      </p>
+    );
+  }
+  return (
+    <label className="flex flex-col gap-[6px]">
+      <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
+        {verb} as
+      </span>
+      <select
+        aria-label={`${verb} as`}
+        value={acting.site?.site_id ?? ""}
+        onChange={(e) => acting.choose(e.target.value)}
+        className={`${inputClass} text-[0.8125rem]`}
+      >
+        {/* An ADMIN starts with nothing chosen on purpose: acting on behalf of
+            a site is a deliberate act, and defaulting to whichever site sorted
+            first is how a request gets sent by accident. */}
+        <option value="">Choose a site...</option>
+        {acting.candidates.map((s) => (
+          <option key={s.site_id} value={s.site_id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+      {acting.isAdmin ? (
+        <span className="text-[0.75rem] text-muted">
+          On behalf of that site. Whoever is there answers it, not you.
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * Shared row furniture
  * ------------------------------------------------------------------ */
@@ -84,10 +174,20 @@ function ShareRow({
   share,
   children,
   subtitle,
+  asOnlooker,
 }: {
   share: Share;
   children?: React.ReactNode;
   subtitle?: React.ReactNode;
+  /**
+   * The reader is not a party to this share -- an administrator looking at
+   * the organization's list.
+   *
+   * ⚠ WITHOUT THIS THE ROW SAYS "YOURS", and an administrator has no
+   * "yours": every site is theirs to see and none is theirs to be. It read
+   * "South Pit is asking for yours" on a share between two other sites.
+   */
+  asOnlooker?: boolean;
 }) {
   return (
     <motion.li
@@ -99,25 +199,43 @@ function ShareRow({
       className="rounded-[10px] border border-card-line bg-card p-[12px]"
     >
       <div className="flex flex-wrap items-center gap-[8px]">
-        <span className="font-display text-[0.8125rem] text-body-ink">
-          {otherSiteName(share)}
-        </span>
-        {/* WHAT THIS SITE IS TO ME, which depends on the status as much as on
-            the direction: "wants yours" is true of a request nobody has
-            answered and false of the share it became. */}
-        <span className="text-[0.75rem] text-muted">
-          {share.status === "pending"
-            ? share.incoming
-              ? share.direction === "request"
-                ? "is asking for yours"
-                : "is offering theirs"
-              : share.direction === "request"
-                ? "you asked them"
-                : "you offered yours"
-            : share.incoming
-              ? "has yours"
-              : "lending to you"}
-        </span>
+        {asOnlooker ? (
+          /* Both sites, in the direction the cameras travel: the lender on
+             the left, the borrower on the right. Nothing is "yours". */
+          <span className="flex items-center gap-[6px] text-[0.8125rem]">
+            <span className="font-display text-body-ink">
+              {share.owner_site_name}
+            </span>
+            <span className="text-muted" aria-label="lends to">
+              &rarr;
+            </span>
+            <span className="font-display text-body-ink">
+              {share.viewer_site_name}
+            </span>
+          </span>
+        ) : (
+          <>
+            <span className="font-display text-[0.8125rem] text-body-ink">
+              {otherSiteName(share)}
+            </span>
+            {/* WHAT THIS SITE IS TO ME, which depends on the status as much
+                as on the direction: "wants yours" is true of a request nobody
+                has answered and false of the share it became. */}
+            <span className="text-[0.75rem] text-muted">
+              {share.status === "pending"
+                ? share.incoming
+                  ? share.direction === "request"
+                    ? "is asking for yours"
+                    : "is offering theirs"
+                  : share.direction === "request"
+                    ? "you asked them"
+                    : "you offered yours"
+                : share.incoming
+                  ? "has yours"
+                  : "lending to you"}
+            </span>
+          </>
+        )}
         <span className="ml-auto flex items-center gap-[8px]">
           <StatusPill status={share.status} />
         </span>
@@ -167,44 +285,18 @@ function Section({
  * Starting something
  * ------------------------------------------------------------------ */
 
-/** Which of my sites is party to this. One site: settled. Several: asked. */
-function MySitePicker({
-  sites,
-  value,
-  onChange,
-}: {
-  sites: readonly Site[];
-  value: string;
-  onChange: (id: string) => void;
-}) {
-  if (sites.length <= 1) return null;
-  return (
-    <label className="flex flex-col gap-[6px]">
-      <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-        On behalf of
-      </span>
-      <SitePicker sites={sites} value={value} onChange={onChange} label="My site" />
-    </label>
-  );
-}
-
-function NewRequest({
-  mine,
-  others,
-}: {
-  mine: readonly Site[];
-  others: readonly Site[];
-}) {
+function NewRequest({ acting }: { acting: ReturnType<typeof useActingSite> }) {
   const feed = useShareFeed();
   const [state, setState] = useState<ComposeState>(initialCompose);
-  const [mySite, setMySite] = useState(mine[0]?.site_id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
-  useEffect(() => {
-    if (!mySite && mine[0]) setMySite(mine[0].site_id);
-  }, [mine, mySite]);
+  /* WHO I AM AND WHO I MAY ASK both come from one place, and the second
+     never contains the first: a site cannot share with itself, and it
+     appeared in its own list until this was the only list. */
+  const mySite = acting.site?.site_id ?? "";
+  const others = acting.others;
 
   const ready = Boolean(mySite && state.otherSiteId && state.message.trim());
 
@@ -227,14 +319,14 @@ function NewRequest({
       title="Ask another site"
       blurb="You cannot see their cameras, so you cannot name them. Say what you need and they choose what to lend."
     >
-      {others.length === 0 ? (
+      {others.length === 0 && acting.candidates.length > 0 ? (
         <Empty
           title="No other sites"
           why="There is nobody to ask yet. An administrator adds sites in Administration."
         />
       ) : (
         <div className="flex flex-col gap-[14px]">
-          <MySitePicker sites={mine} value={mySite} onChange={setMySite} />
+          <ActingAs verb="Requesting" acting={acting} />
           <label className="flex flex-col gap-[6px]">
             <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
               Ask
@@ -299,17 +391,16 @@ function NewRequest({
 }
 
 function OfferFeed({
-  mine,
-  others,
+  acting,
   initialScope,
 }: {
-  mine: readonly Site[];
-  others: readonly Site[];
+  acting: ReturnType<typeof useActingSite>;
   /** Pre-chosen cameras, when this was opened from a camera's own settings. */
   initialScope?: readonly { device_id: string; cameras?: readonly number[] }[];
 }) {
   const feed = useShareFeed();
-  const [mySite, setMySite] = useState(mine[0]?.site_id ?? "");
+  const mySite = acting.site?.site_id ?? "";
+  const others = acting.others;
   const [state, setState] = useState<ComposeState>(() => ({
     ...initialCompose(),
     scope: initialScope ?? [],
@@ -318,10 +409,6 @@ function OfferFeed({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-
-  useEffect(() => {
-    if (!mySite && mine[0]) setMySite(mine[0].site_id);
-  }, [mine, mySite]);
 
   const ready = Boolean(mySite && state.otherSiteId && state.scope.length > 0);
 
@@ -345,7 +432,7 @@ function OfferFeed({
       blurb="Pick what to lend, what they can do with it and for how long. They still have to accept."
     >
       <div className="flex flex-col gap-[14px]">
-        <MySitePicker sites={mine} value={mySite} onChange={setMySite} />
+        <ActingAs verb="Sharing" acting={acting} />
         <label className="flex flex-col gap-[6px]">
           <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
             Share with
@@ -490,20 +577,37 @@ function IncomingRow({ share }: { share: Share }) {
           {error}
         </p>
       ) : null}
-      <div className="mt-[12px] flex flex-wrap gap-[8px]">
-        {open ? (
-          <PrimaryButton
-            onClick={() => void act("accept")}
-            disabled={busy || state.scope.length === 0}
-          >
-            {state.scope.length === 0 ? "Choose towers" : "Accept"}
-          </PrimaryButton>
+      {/* ⚠ THE SERVER DECIDES WHO ANSWERS, and this list can contain a
+          share that is not mine to answer (an admin sees every share; a
+          pending one can be answered by somebody else while this page is
+          open). Drawing the buttons anyway produces a 403 and a person who
+          thinks the product is broken. */}
+      <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
+        {share.can_answer ? (
+          <>
+            {open ? (
+              <PrimaryButton
+                onClick={() => void act("accept")}
+                disabled={busy || state.scope.length === 0}
+              >
+                {state.scope.length === 0 ? "Choose towers" : "Accept"}
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton onClick={() => setOpen(true)}>
+                Choose and accept
+              </PrimaryButton>
+            )}
+            <QuietButton onClick={() => void act("decline")} disabled={busy}>
+              Decline
+            </QuietButton>
+          </>
         ) : (
-          <PrimaryButton onClick={() => setOpen(true)}>Choose and accept</PrimaryButton>
+          <p className="text-[0.8125rem] text-muted">
+            {share.direction === "request"
+              ? `${share.owner_site_name} answers this.`
+              : `${share.viewer_site_name} answers this.`}
+          </p>
         )}
-        <QuietButton onClick={() => void act("decline")} disabled={busy}>
-          Decline
-        </QuietButton>
       </div>
     </ShareRow>
   );
@@ -529,9 +633,10 @@ function ActiveRow({ share }: { share: Share }) {
       }
     >
       <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
-        {/* EXTEND IS THE LENDER'S, and the server says so too: the side that
-            gave something up is the side that decides to give more. */}
-        {share.incoming ? (
+        {/* EXTEND IS THE LENDER'S, END IS EITHER SIDE'S OR AN ADMIN'S, and
+            both answers come from the server rather than from `incoming` --
+            which is true of every share in the organization for an admin. */}
+        {share.can_extend ? (
           <QuietButton
             disabled={busy}
             onClick={() => {
@@ -544,16 +649,18 @@ function ActiveRow({ share }: { share: Share }) {
             +15 min
           </QuietButton>
         ) : null}
-        <QuietButton
-          danger
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            void feed.revoke(share.share_id).finally(() => setBusy(false));
-          }}
-        >
-          End now
-        </QuietButton>
+        {share.can_end ? (
+          <QuietButton
+            danger
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void feed.revoke(share.share_id).finally(() => setBusy(false));
+            }}
+          >
+            End now
+          </QuietButton>
+        ) : null}
       </div>
     </ShareRow>
   );
@@ -572,26 +679,14 @@ export function SharingPane({
 }) {
   const feed = useShareFeed();
   const sites = useSites();
-  const [tab, setTab] = useState<SectionId>(startOn);
-
-  const mine = useMemo<readonly Site[]>(() => sites.value?.sites ?? [], [sites.value]);
-  /* THE SITES I MAY ASK. The server sends them as NAME AND ID ONLY -- a site
-     cannot be asked for cameras it has no way to name, and nothing else about
-     it is any of this screen's business. An ADMIN sees every site in `sites`
-     already, so their `others` is empty and the pickers fall back to it. */
-  const others = useMemo<readonly Site[]>(() => {
-    const directory = sites.value?.others ?? [];
-    if (directory.length > 0) {
-      return directory.map((o) => ({
-        site_id: o.site_id,
-        name: o.name,
-        status: "active" as const,
-        created_at: "",
-        hubs: [],
-      }));
-    }
-    return mine;
-  }, [sites.value, mine]);
+  /* WHO I AM ACTING AS, and therefore who I may share WITH. One source, so a
+     form cannot assemble a list that includes the site it is acting for. */
+  const acting = useActingSite();
+  const sections = acting.isAdmin ? ADMIN_SECTIONS : SECTIONS;
+  const [tab, setTab] = useState<SectionId>(
+    acting.isAdmin && startOn === "incoming" ? "all" : startOn,
+  );
+  const mine = acting.candidates;
 
   if (sites.loading && mine.length === 0) {
     return <Loading rows={3} label="Loading sharing" />;
@@ -603,10 +698,33 @@ export function SharingPane({
   const pane = () => {
     switch (tab) {
       case "new":
-        return <NewRequest mine={mine} others={others} />;
+        return <NewRequest acting={acting} />;
       case "offer":
+        return <OfferFeed acting={acting} initialScope={initialOfferScope} />;
+      case "all":
         return (
-          <OfferFeed mine={mine} others={others} initialScope={initialOfferScope} />
+          <Section
+            title="Every share in the organization"
+            blurb="Administration sees all of them and can end any of them. Answering one is for the site it is addressed to."
+          >
+            {feed.shares.length === 0 ? (
+              <Empty title="No shares yet" why="Nobody has asked for or offered anything." />
+            ) : (
+              <ul className="flex flex-col gap-[10px]">
+                {feed.shares.map((s) => (
+                  <ShareRow key={s.share_id} share={s} asOnlooker>
+                    {s.can_end ? (
+                      <div className="mt-[12px]">
+                        <QuietButton danger onClick={() => void feed.revoke(s.share_id)}>
+                          {s.status === "pending" ? "Withdraw" : "End now"}
+                        </QuietButton>
+                      </div>
+                    ) : null}
+                  </ShareRow>
+                ))}
+              </ul>
+            )}
+          </Section>
         );
       case "incoming":
         return (
@@ -614,12 +732,12 @@ export function SharingPane({
             title="Waiting for you"
             blurb="Requests for your cameras, and offers of somebody else's."
           >
-            {feed.incomingPending.length === 0 ? (
+            {feed.awaitingMe.length === 0 ? (
               <Empty title="Nothing waiting" why="Nobody is asking you for anything." />
             ) : (
               <ul className="flex flex-col gap-[10px]">
                 <AnimatePresence initial={false}>
-                  {feed.incomingPending.map((s) => (
+                  {feed.awaitingMe.map((s) => (
                     <IncomingRow key={s.share_id} share={s} />
                   ))}
                 </AnimatePresence>
@@ -633,7 +751,7 @@ export function SharingPane({
             title="Waiting on them"
             blurb="What you have asked for or offered, and where it got to."
           >
-            {feed.outgoingPending.length === 0 ? (
+            {feed.awaitingThem.length === 0 ? (
               <Empty
                 title="Nothing outstanding"
                 why="Start one from New request or Share a feed."
@@ -641,13 +759,19 @@ export function SharingPane({
             ) : (
               <ul className="flex flex-col gap-[10px]">
                 <AnimatePresence initial={false}>
-                  {feed.outgoingPending.map((s) => (
+                  {feed.awaitingThem.map((s) => (
                     <ShareRow key={s.share_id} share={s}>
-                      <div className="mt-[12px]">
-                        <QuietButton onClick={() => void feed.revoke(s.share_id)}>
-                          Withdraw
-                        </QuietButton>
-                      </div>
+                      {/* ⚠ WITHDRAW ONLY WHEN THE SERVER SAYS SO. This list
+                          holds anything pending that is not mine to answer,
+                          which includes a share between two other sites that
+                          I can see but have no part in. */}
+                      {s.can_end ? (
+                        <div className="mt-[12px]">
+                          <QuietButton onClick={() => void feed.revoke(s.share_id)}>
+                            Withdraw
+                          </QuietButton>
+                        </div>
+                      ) : null}
                     </ShareRow>
                   ))}
                 </AnimatePresence>
@@ -697,16 +821,18 @@ export function SharingPane({
   return (
     <div className="flex flex-col gap-[20px]">
       <div className="flex flex-wrap gap-[6px]">
-        {SECTIONS.map((s) => {
+        {sections.map((s) => {
           const on = s.id === tab;
           const count =
             s.id === "incoming"
-              ? feed.incomingPending.length
+              ? feed.awaitingMe.length
               : s.id === "outgoing"
-                ? feed.outgoingPending.length
-                : s.id === "active"
-                  ? feed.active.length
-                  : 0;
+                ? feed.awaitingThem.length
+                : s.id === "all"
+                  ? feed.shares.length
+                  : s.id === "active"
+                    ? feed.active.length
+                    : 0;
           return (
             <button
               key={s.id}

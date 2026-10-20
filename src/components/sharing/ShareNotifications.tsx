@@ -27,10 +27,15 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import type { Share } from "@kallon/sentry-sdk";
+import { AnimatePresence, motion } from "motion/react";
+import { isAdminRole, type Share } from "@kallon/sentry-sdk";
+import { useSession } from "@/components/AuthProvider";
 import { ENTER, FADE } from "@/lib/motion";
-import { timeLeftLabel, useNotifications } from "@/lib/notifications";
+import {
+  ACTIONABLE_TTL_MS,
+  timeLeftLabel,
+  useNotifications,
+} from "@/lib/notifications";
 import {
   otherSiteName,
   scopeSummary,
@@ -137,6 +142,11 @@ export function PendingCard({
 
   const isRequest = share.direction === "request";
   const who = otherSiteName(share);
+  /* DEFENCE IN DEPTH, AND NOTHING MORE. The deck only raises this card when
+     the server says this account may answer, so this should always be true --
+     but a card that outlives the share it is about (somebody else answered
+     while it sat there) must not offer buttons the server will refuse. */
+  const mayAnswer = share.can_answer === true;
 
   useEffect(() => () => {
     if (timer.current) clearInterval(timer.current);
@@ -254,17 +264,31 @@ export function PendingCard({
       ) : null}
 
       <Buttons>
-        {open ? (
-          <Accept
-            onClick={() => void send("accept")}
-            busy={busy}
-            label={state.scope.length === 0 ? "Choose towers" : "Accept"}
-          />
+        {!mayAnswer ? (
+          <>
+            <p className="text-[0.75rem] leading-[16px] text-muted">
+              Somebody at {share.direction === "request"
+                ? share.owner_site_name
+                : share.viewer_site_name}{" "}
+              answers this.
+            </p>
+            <Quiet onClick={onDone}>Close</Quiet>
+          </>
         ) : (
-          <Accept onClick={() => setOpen(true)} label="Choose and accept" />
+          <>
+            {open ? (
+              <Accept
+                onClick={() => void send("accept")}
+                busy={busy}
+                label={state.scope.length === 0 ? "Choose towers" : "Accept"}
+              />
+            ) : (
+              <Accept onClick={() => setOpen(true)} label="Choose and accept" />
+            )}
+            <Quiet onClick={startDecline}>Decline</Quiet>
+            {open ? <Quiet onClick={() => setOpen(false)}>Collapse</Quiet> : null}
+          </>
         )}
-        <Quiet onClick={startDecline}>Decline</Quiet>
-        {open ? <Quiet onClick={() => setOpen(false)}>Collapse</Quiet> : null}
       </Buttons>
     </div>
   );
@@ -330,12 +354,25 @@ const shareCardId = (share: Share) => `share:${share.share_id}`;
 export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void }) {
   const feed = useShareFeed();
   const { notify, dismiss, resolve } = useNotifications();
+  const { account } = useSession();
+  /* ── AN ADMINISTRATOR GETS NO CARDS AT ALL ─────────────────────────────
+
+     Not "fewer cards": none. An admin is in every site, so every share in the
+     organization looked like one of theirs to answer -- and one of them did
+     answer a request they had sent themselves, on behalf of a site, without
+     anybody at that site seeing it.
+
+     Administration sees every share on the Sharing page and in the audit log,
+     and can END any of them. It does not agree to things on a site's behalf,
+     so there is nothing here for it to be interrupted about. */
+  const isAdmin = isAdminRole(account?.role);
   /* The first poll is the state of the world, not news about it. */
   const seeded = useRef(false);
 
   useEffect(
     () =>
       feed.subscribe((next, prev) => {
+        if (isAdmin) return;
         if (!seeded.current) {
           seeded.current = true;
           return;
@@ -346,9 +383,17 @@ export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void })
           const was = before.get(share.share_id);
           const id = shareCardId(share);
 
-          /* NEW AND WAITING FOR ME. Persistent: a question that fades is a
-             question answered by whoever was looking elsewhere. */
-          if (share.status === "pending" && share.incoming && !was) {
+          /* NEW AND WAITING FOR ME. `can_answer` is the SERVER's answer and
+             the only thing this gates on.
+
+             ⚠ IT USED TO BE `share.incoming`, which is a fact about SITES:
+             true for an admin (in every site), and true for the OWNER of an
+             offer -- who is the side that SENT it. That one word put every
+             offer's card back in front of the person who made it.
+
+             Persistent: a question that fades is a question answered by
+             whoever was looking elsewhere. */
+          if (share.status === "pending" && share.can_answer && !was) {
             notify({
               id,
               kind: "share",
@@ -370,17 +415,25 @@ export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void })
              worth one short statement. */
           if (was?.status === "pending" && share.status !== "pending") {
             dismiss(id, "resolved");
-            if (!share.incoming && share.status === "active") {
+            /* THE ANSWER GOES BACK TO THE SIDE THAT ASKED, which is the side
+               that could not answer it. `was.can_answer` is false for them by
+               definition, and true for the people who just decided -- who do
+               not need telling what they have this second done. */
+            const iAsked = was.can_answer === false;
+            if (iAsked && share.status === "active") {
               notify({
                 id: `${id}:accepted`,
                 kind: "share",
                 at: Date.now(),
+                /* It carries a Watch now, so it waits to be used rather than
+                   to be read. See ACTIONABLE_TTL_MS. */
+                ttlMs: ACTIONABLE_TTL_MS,
                 title: `${share.owner_site_name} accepted`,
                 render: ({ dismiss: close }) => (
                   <AcceptedCard share={share} onWatch={onWatch} onDone={close} />
                 ),
               });
-            } else if (!share.incoming && share.status === "declined") {
+            } else if (iAsked && share.status === "declined") {
               notify({
                 id: `${id}:declined`,
                 kind: "system",
@@ -432,7 +485,7 @@ export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void })
         const ids = new Set(next.map((s) => shareCardId(s)));
         resolve((n) => n.id.startsWith("share:") && !ids.has(n.id.split(":").slice(0, 2).join(":")));
       }),
-    [feed, notify, dismiss, resolve, onWatch],
+    [feed, notify, dismiss, resolve, onWatch, isAdmin],
   );
 
   return null;

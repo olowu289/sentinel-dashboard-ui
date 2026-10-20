@@ -8,6 +8,7 @@ import { storageHint, storageTone } from "@/lib/storage";
 import { useNow } from "@/lib/useNow";
 import type { Alert, CameraFeed, Tower, TowerStatus } from "@/lib/types";
 import { IconRail } from "./IconRail";
+import { ActingSiteChip } from "./ActingSiteChip";
 import { MaskIcon } from "./Icon";
 import { CABINET_CRITICAL_C, CABINET_WARN_C, STATUS } from "./TowerCard";
 import { batteryFill, TowerBattery } from "./TowerBattery";
@@ -901,7 +902,13 @@ export function TowersView({
           <h1 className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             TOWERS
           </h1>
-          {towers.length > 0 && <Tally towers={towers} />}
+          <div className="ml-auto flex items-center gap-[14px]">
+            {/* WHICH SITE YOU ARE. Not a filter: nothing on this wall changes
+                when it changes. It is here because every share is between two
+                sites, and a site user could not tell which one they were. */}
+            <ActingSiteChip />
+            {towers.length > 0 && <Tally towers={towers} />}
+          </div>
         </header>
 
         {/* Scrolls both ways: down through the fleet, and sideways on a screen

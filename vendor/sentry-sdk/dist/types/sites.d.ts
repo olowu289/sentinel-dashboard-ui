@@ -146,10 +146,38 @@ export interface Share {
      * Render it verbatim. It is a person writing to another person.
      */
     readonly message: string | null;
-    /** True when one of my sites OWNS the cameras. Only on `/v1/shares`. */
+    /**
+     * True when one of my sites OWNS the cameras. Only on `/v1/shares`.
+     *
+     * ⚠ A FACT ABOUT SITES, NOT A PERMISSION. Do not gate a button on it.
+     * An admin is in every site, so it is true of every share in the
+     * organization; and for an OFFER the side that answers is the VIEWER, not
+     * the owner. Deriving "may I answer this" from it put an offer's card back
+     * in front of the site that sent it, and gave an administrator an Accept
+     * button on an agreement between two other sites. Use {@link can_answer}.
+     */
     readonly incoming?: boolean;
-    /** True when one of my sites RECEIVES the access. Only on `/v1/shares`. */
+    /** True when one of my sites RECEIVES the access. See {@link incoming}. */
     readonly outgoing?: boolean;
+    /**
+     * May THIS account accept or decline it, right now.
+     *
+     * The server's answer, not a derivable one: it is false for an admin (who
+     * may start a share and end one, but never agree on a site's behalf), false
+     * for whoever created it, false unless this account is in the site that must
+     * answer, and false if they are in BOTH sites -- they already see both, so
+     * there is nothing to agree to.
+     *
+     * ⚠ THE CARD AND THE BUTTONS GATE ON THIS AND NOTHING ELSE. Absent from a
+     * server that predates it, which a caller reads as "cannot": the restrictive
+     * direction, because the cost of being wrong the other way is one person
+     * negotiating both halves of an agreement.
+     */
+    readonly can_answer?: boolean;
+    /** May this account cut it off (or withdraw it while pending). */
+    readonly can_end?: boolean;
+    /** May this account give it longer. The lending side, and an admin. */
+    readonly can_extend?: boolean;
 }
 export interface ShareListResponse {
     readonly shares: readonly Share[];

@@ -237,6 +237,12 @@ function shareOne(c, path, raw) {
         out.incoming = c.bool(`${path}.incoming`, o.incoming);
     if (o.outgoing !== undefined)
         out.outgoing = c.bool(`${path}.outgoing`, o.outgoing);
+    for (const k of ["can_answer", "can_end", "can_extend"]) {
+        // Absent reads as FALSE rather than as undefined, so a caller that writes
+        // `share.can_answer` against an older server gets the restrictive answer
+        // instead of a falsy value that happens to work by accident.
+        out[k] = o[k] === undefined ? false : c.bool(`${path}.${k}`, o[k]);
+    }
     return out;
 }
 export function parseShare(raw, ctx = {}) {

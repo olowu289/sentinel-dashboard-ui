@@ -404,3 +404,35 @@ test("the two share constants are exported, so a UI need not re-state them", () 
   assert.equal(SHARE_DEFAULT_SEC, 900, "fifteen minutes");
   assert.equal(SHARE_MESSAGE_MAX, 500);
 });
+
+/* ======================================================================
+ * Who may act on a share: the SERVER's answer, carried
+ * ====================================================================== */
+
+test("the can_* flags are read as given, and as FALSE when absent", () => {
+  /* ⚠ ABSENT MEANS CANNOT. A caller writing `share.can_answer` against an
+     older server has to get the restrictive answer; a falsy `undefined` that
+     happens to work is a rule that holds by accident. */
+  const given = parseShare({
+    share: { ...SHARE, can_answer: true, can_end: true, can_extend: false },
+  });
+  assert.equal(given.can_answer, true);
+  assert.equal(given.can_end, true);
+  assert.equal(given.can_extend, false);
+
+  const older = { ...SHARE };
+  const got = parseShare({ share: older });
+  assert.equal(got.can_answer, false);
+  assert.equal(got.can_end, false);
+  assert.equal(got.can_extend, false);
+});
+
+test("incoming and outgoing stay facts about SITES, not permissions", () => {
+  /* They are both true for an admin (in every site) and the answering side of
+     an OFFER is the viewer, not the owner. The SDK carries them because the
+     Sharing page groups by them; nothing should gate a button on them. */
+  const s = parseShare({ share: { ...SHARE, incoming: true, outgoing: true } });
+  assert.equal(s.incoming, true);
+  assert.equal(s.outgoing, true);
+  assert.equal(s.can_answer, false, "and permission is still its own field");
+});

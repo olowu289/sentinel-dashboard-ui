@@ -78,7 +78,17 @@ export interface AcceptChoices {
 
 export interface NewShare {
   direction: "request" | "offer";
-  mySiteId: string;
+  /**
+   * Which of MY sites is party to this.
+   *
+   * ⚠ OPTIONAL ON AN OFFER, AND DELIBERATELY. "Share this camera" starts
+   * from a camera, and a browser cannot know which of your sites owns it: the
+   * fleet projection carries no site. The server derives it from the scope,
+   * which it has to check anyway, and refuses when none of your sites owns
+   * those cameras or when more than one does. A REQUEST must name it: it
+   * names no cameras, so there is nothing to derive it from.
+   */
+  mySiteId?: string;
   otherSiteId: string;
   scope?: readonly ShareScopeEntry[];
   message?: string;
@@ -96,10 +106,17 @@ interface Feed {
   /** A sentence for a person, or null. Never an exception. */
   readonly error: string | null;
   readonly reload: () => Promise<void>;
-  /** Everything waiting for MY answer. */
-  readonly incomingPending: readonly Share[];
-  /** Everything I asked for or offered that has not been answered. */
-  readonly outgoingPending: readonly Share[];
+  /**
+   * Everything waiting for MY answer, as the SERVER sees it.
+   *
+   * ⚠ NOT "pending and incoming". `incoming` means one of my sites owns the
+   * cameras, which is true for an admin of every share in the organization,
+   * and true of the side that SENT an offer. Both of those got an Accept
+   * button they should never have had.
+   */
+  readonly awaitingMe: readonly Share[];
+  /** Pending, and not mine to answer: I asked, or somebody else decides. */
+  readonly awaitingThem: readonly Share[];
   /** In force right now, both directions. */
   readonly active: readonly Share[];
   /** Finished: declined, revoked, expired. */
@@ -206,8 +223,8 @@ export function ShareFeedProvider({
       loading,
       error,
       reload,
-      incomingPending: shares.filter((s) => s.status === "pending" && s.incoming),
-      outgoingPending: shares.filter((s) => s.status === "pending" && !s.incoming),
+      awaitingMe: shares.filter((s) => s.status === "pending" && s.can_answer),
+      awaitingThem: shares.filter((s) => s.status === "pending" && !s.can_answer),
       active: live,
       finished: shares.filter((s) => s.status !== "pending" && !isShareLive(s)),
       create: (req) => after(createShare(req)),
@@ -230,8 +247,8 @@ const EMPTY: Feed = {
   loading: false,
   error: null,
   reload: async () => {},
-  incomingPending: [],
-  outgoingPending: [],
+  awaitingMe: [],
+  awaitingThem: [],
   active: [],
   finished: [],
   create: async () => {

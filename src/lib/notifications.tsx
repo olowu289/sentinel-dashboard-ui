@@ -115,6 +115,18 @@ export interface HistoryEntry {
 const DEFAULT_TTL_MS = 9000;
 
 /**
+ * How long a card that CAN BE ACTED ON lives.
+ *
+ * ⚠ A STATEMENT AND AN OFFER OF SOMETHING TO DO ARE NOT THE SAME CARD.
+ * "The share ended" is read and forgotten; "North Gate accepted -- watch now"
+ * is a button somebody might want, and the share feed polls every 20 seconds,
+ * so a nine-second card can be gone before the person who asked has looked up.
+ * Found in a browser: the answer card had expired before the test could see
+ * it, which is exactly what would happen to an operator watching a wall.
+ */
+export const ACTIONABLE_TTL_MS = 45_000;
+
+/**
  * How many cards are visible at once. The rest wait, newest first.
  *
  * THREE, BECAUSE THE FOURTH COVERS THE PICTURE. These sit over live video and

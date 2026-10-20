@@ -18,7 +18,7 @@
  * and the reason this can be two taps: a mistake costs a message, not access.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { SHARE_DEFAULT_SEC } from "@kallon/sentry-sdk";
 import type { Site } from "@kallon/sentry-sdk";
 import { useShareFeed } from "@/lib/useShareFeed";
@@ -55,38 +55,41 @@ export function QuickShare({
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
-  /* WHOSE CAMERA THIS IS. The offer has to be made on behalf of the site that
-     owns the mast, and the server refuses an offer of cameras the named site
-     does not own -- so this is worked out rather than asked. One site: it is
-     that one. Several: the first, and the Sharing page is where somebody
-     chooses deliberately. */
+  /* ── WHOSE CAMERA IS THIS? THE SERVER ANSWERS ───────────────────────────
+
+     An offer has to be made on behalf of the site that OWNS the mast, and a
+     browser cannot know which site that is: the fleet projection carries no
+     site, deliberately, and joining it here would mean a request per site to
+     find out. It used to send `mine[0]` and hope -- which is right for a
+     person in one site and wrong for everybody else.
+
+     So the offer names no site of its own and the server derives it from the
+     cameras, which it has to check anyway. What comes back carries the name,
+     and that is what gets shown. */
   const mine = useMemo<readonly Site[]>(() => sites.value?.sites ?? [], [sites.value]);
-  const [mySiteId, setMySite] = useState("");
-  useEffect(() => {
-    if (!mySiteId && mine[0]) setMySite(mine[0].site_id);
-  }, [mine, mySiteId]);
+  const [sharedAs, setSharedAs] = useState<string>("");
 
   const others = useMemo<readonly Site[]>(() => {
-    const directory = sites.value?.others ?? [];
-    return directory.length > 0
-      ? directory.map((o) => ({
-          site_id: o.site_id,
-          name: o.name,
-          status: "active" as const,
-          created_at: "",
-          hubs: [],
-        }))
-      : mine.filter((s) => s.site_id !== mySiteId);
-  }, [sites.value, mine, mySiteId]);
+    const directory = (sites.value?.others ?? []).map((o) => ({
+      site_id: o.site_id,
+      name: o.name,
+      status: "active" as const,
+      created_at: "",
+      hubs: [] as readonly string[],
+    }));
+    /* An admin is in every site, so their directory is empty and the list is
+       their own sites instead. Either way a site that owns this camera is
+       filtered out by the server, which refuses a share with itself. */
+    return directory.length > 0 ? directory : mine;
+  }, [sites.value, mine]);
 
   const send = async () => {
     setBusy(true);
     setError(null);
     const window_ = lastHour();
     try {
-      await feed.create({
+      const made = await feed.create({
         direction: "offer",
-        mySiteId,
         otherSiteId,
         scope: [
           camera === undefined
@@ -104,10 +107,14 @@ export function QuickShare({
         ...(playback ? { playbackFrom: window_.from, playbackTo: window_.to } : {}),
         durationSec,
       });
+      /* WHICH SITE IT WENT AS, from the share the server just made. Rule:
+         always show who you are acting as -- and after the fact is the only
+         honest moment for it here, because before the fact nobody knew. */
+      setSharedAs(made.owner_site_name);
       setSent(true);
-      /* A moment on screen saying it went, then out of the way. The card
-         that matters next is the other site's answer. */
-      setTimeout(() => onDone?.(), 1600);
+      /* A moment on screen saying it went, then out of the way. The card that
+         matters next is the other site's answer. */
+      setTimeout(() => onDone?.(), 2400);
     } catch (err) {
       setError((err as { message?: string })?.message ?? "That did not send.");
       setBusy(false);
@@ -117,7 +124,8 @@ export function QuickShare({
   if (sent) {
     return (
       <p className="text-[0.8125rem] leading-[18px] text-notify-share" role="status">
-        Offered. They have to accept before anything changes.
+        Offered{sharedAs ? ` as ${sharedAs}` : ""}. They have to accept before
+        anything changes.
       </p>
     );
   }
@@ -176,7 +184,7 @@ export function QuickShare({
         <button
           type="button"
           onClick={() => void send()}
-          disabled={busy || !otherSiteId || !mySiteId}
+          disabled={busy || !otherSiteId}
           className="rounded-[6px] bg-notify-share px-[12px] py-[6px] font-display text-[0.75rem] tracking-[0.12px] text-notify-share-ink transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-notify-share"
         >
           {busy ? "Sending..." : "Offer"}

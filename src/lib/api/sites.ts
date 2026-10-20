@@ -90,7 +90,8 @@ export function listShares(): Promise<ShareListResponse> {
 
 export function createShare(req: {
   direction: "request" | "offer";
-  mySiteId: string;
+  /** Optional on an OFFER: the server derives it from the cameras. */
+  mySiteId?: string;
   otherSiteId: string;
   /** Omitted on a REQUEST: the asking site cannot know the other's cameras. */
   scope?: readonly ShareScopeEntry[];

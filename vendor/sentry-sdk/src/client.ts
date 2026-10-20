@@ -1246,7 +1246,20 @@ export class SentryClient {
   async createShare(
     req: {
       direction: ShareDirection;
-      mySiteId: string;
+      /**
+       * Which of the caller's sites is party to this.
+       *
+       * ⚠ OPTIONAL ON AN OFFER. "Share this camera" starts from a camera,
+       * and a client cannot know which of its sites owns it: the fleet
+       * projection carries no site, by design. The server derives it from the
+       * scope, which it has to validate anyway, and refuses when none of your
+       * sites owns those cameras (`403`) or when more than one does (`422`).
+       *
+       * A REQUEST must name it: a request names no cameras, so there is
+       * nothing to derive it from, and which of your sites is asking is a
+       * choice rather than a fact.
+       */
+      mySiteId?: string;
       otherSiteId: string;
       /**
        * ⚠ OMIT IT ON A REQUEST. The site asking does not know what the

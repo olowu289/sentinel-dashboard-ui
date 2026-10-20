@@ -59,6 +59,7 @@ const SCREENS = [
   ["sharing-active", "sharing-active"],
   ["sharing-history", "sharing-history"],
   ["sharing-empty", "sharing-empty"],
+  ["sharing-admin-all", "sharing-admin-all-shares"],
 ];
 
 /** The two widths the brief asks for. Heights are generous; shots are full page. */

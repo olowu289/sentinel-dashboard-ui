@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { SHARE_MESSAGE_MAX } from "@kallon/sentry-sdk";
 import type { Share, ShareScopeEntry, Site } from "@kallon/sentry-sdk";
 import { ENTER, FADE } from "@/lib/motion";

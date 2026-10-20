@@ -40,7 +40,9 @@ import {
 } from "@/lib/useShareFeed";
 import { useSites } from "@/lib/useSites";
 import { useActingSite } from "@/lib/useActingSite";
+import { otherSiteRole } from "@/lib/shareRules";
 import { useSiteTowers } from "@/lib/useSiteTowers";
+import { useWatch } from "@/lib/watch";
 import {
   Allowances,
   Empty,
@@ -54,11 +56,14 @@ import {
 import {
   DurationPicker,
   MessageBox,
+  OfferTerms,
   ShareDecision,
+  acceptOffer,
   SitePicker,
   TowerPicker,
   Allow,
   PlaybackWindow,
+  composeIsReady,
   composeToRequest,
   decisionToChoices,
   initialCompose,
@@ -221,19 +226,7 @@ function ShareRow({
             {/* WHAT THIS SITE IS TO ME, which depends on the status as much
                 as on the direction: "wants yours" is true of a request nobody
                 has answered and false of the share it became. */}
-            <span className="text-[0.75rem] text-muted">
-              {share.status === "pending"
-                ? share.incoming
-                  ? share.direction === "request"
-                    ? "is asking for yours"
-                    : "is offering theirs"
-                  : share.direction === "request"
-                    ? "you asked them"
-                    : "you offered yours"
-                : share.incoming
-                  ? "has yours"
-                  : "lending to you"}
-            </span>
+            <span className="text-[0.75rem] text-muted">{otherSiteRole(share)}</span>
           </>
         )}
         <span className="ml-auto flex items-center gap-[8px]">
@@ -298,7 +291,11 @@ function NewRequest({ acting }: { acting: ReturnType<typeof useActingSite> }) {
   const mySite = acting.site?.site_id ?? "";
   const others = acting.others;
 
-  const ready = Boolean(mySite && state.otherSiteId && state.message.trim());
+  /* ONE RULE, FOR BOTH FORMS. See `composeIsReady`: the length used to be
+     pre-filled, so "ready" never had to mention it and every share somebody
+     sent without touching the picker went out at fifteen minutes by accident.
+     Two copies of this condition is how one of them forgets a field. */
+  const ready = composeIsReady(state, mySite, "request");
 
   const send = async () => {
     setBusy(true);
@@ -410,7 +407,7 @@ function OfferFeed({
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
-  const ready = Boolean(mySite && state.otherSiteId && state.scope.length > 0);
+  const ready = composeIsReady(state, mySite, "offer");
 
   const send = async () => {
     setBusy(true);
@@ -531,7 +528,11 @@ function IncomingRow({ share }: { share: Share }) {
   const feed = useShareFeed();
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DecisionState>(() => initialDecision(share));
-  const towers = useSiteTowers(open ? share.owner_site_id : null);
+  const isRequest = share.direction === "request";
+  /* ⚠ A REQUEST ONLY. For an OFFER the owner site is THEIRS, this account
+     is not in it, and `GET /v1/sites/{id}` answers 404 "no such site" by
+     design. See `OfferTerms` for what that 404 looked like on screen. */
+  const towers = useSiteTowers(open && isRequest ? share.owner_site_id : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -540,7 +541,10 @@ function IncomingRow({ share }: { share: Share }) {
     setError(null);
     try {
       if (what === "accept")
-        await feed.accept(share.share_id, decisionToChoices(state));
+        await feed.accept(
+          share.share_id,
+          isRequest ? decisionToChoices(state) : acceptOffer(),
+        );
       else await feed.decline(share.share_id);
     } catch (err) {
       setError((err as { message?: string })?.message ?? "That did not go through.");
@@ -561,13 +565,17 @@ function IncomingRow({ share }: { share: Share }) {
             className="overflow-hidden"
           >
             <div className="mt-[12px] border-t border-row-line pt-[12px]">
-              <ShareDecision
-                share={share}
-                towers={towers.towers}
-                loadingTowers={towers.loading}
-                state={state}
-                onChange={setState}
-              />
+              {isRequest ? (
+                <ShareDecision
+                  share={share}
+                  towers={towers.towers}
+                  loadingTowers={towers.loading}
+                  state={state}
+                  onChange={setState}
+                />
+              ) : (
+                <OfferTerms share={share} />
+              )}
             </div>
           </motion.div>
         ) : null}
@@ -588,13 +596,23 @@ function IncomingRow({ share }: { share: Share }) {
             {open ? (
               <PrimaryButton
                 onClick={() => void act("accept")}
-                disabled={busy || state.scope.length === 0}
+                disabled={
+                  busy ||
+                  (isRequest &&
+                    (state.scope.length === 0 || state.durationSec <= 0))
+                }
               >
-                {state.scope.length === 0 ? "Choose towers" : "Accept"}
+                {!isRequest
+                  ? "Accept"
+                  : state.scope.length === 0
+                    ? "Choose towers"
+                    : state.durationSec <= 0
+                      ? "Choose how long"
+                      : "Accept"}
               </PrimaryButton>
             ) : (
               <PrimaryButton onClick={() => setOpen(true)}>
-                Choose and accept
+                {isRequest ? "Choose and accept" : "See what is offered"}
               </PrimaryButton>
             )}
             <QuietButton onClick={() => void act("decline")} disabled={busy}>
@@ -615,6 +633,7 @@ function IncomingRow({ share }: { share: Share }) {
 
 function ActiveRow({ share }: { share: Share }) {
   const feed = useShareFeed();
+  const { watch, ready } = useWatch();
   const [busy, setBusy] = useState(false);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -622,6 +641,12 @@ function ActiveRow({ share }: { share: Share }) {
     return () => clearInterval(t);
   }, []);
   const left = timeLeftLabel(share.expires_at);
+  /* ⚠ ONLY A SHARE COMING TO ME GETS A WATCH BUTTON. `incoming` is true
+     when one of MY sites owns the cameras, so for those this row is about
+     something I have lent out -- it is already on my own wall and "watch the
+     camera they borrowed" is not a thing anybody means. */
+  const borrowed = share.incoming === false;
+  const first = share.scope[0]?.device_id;
 
   return (
     <ShareRow
@@ -633,6 +658,18 @@ function ActiveRow({ share }: { share: Share }) {
       }
     >
       <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
+        {/* ── GOING BACK IN ───────────────────────────────────────────
+
+            Somebody who leaves a borrowed feed had no way back to it except
+            to find the mast on the wall, and a share's clock runs whether or
+            not anybody is watching -- so leaving it to look something up was
+            spending time they had been lent. The row already counts down; now
+            it also reopens. */}
+        {borrowed && first && ready ? (
+          <PrimaryButton onClick={() => void watch(first)} disabled={busy}>
+            {left ? `Watch (${left} left)` : "Watch"}
+          </PrimaryButton>
+        ) : null}
         {/* EXTEND IS THE LENDER'S, END IS EITHER SIDE'S OR AN ADMIN'S, and
             both answers come from the server rather than from `incoming` --
             which is true of every share in the organization for an admin. */}

@@ -40,6 +40,26 @@ export const SHARE_MESSAGE_MAX = 500;
  * runs out on its own; anything longer should be a decision somebody typed.
  */
 export const SHARE_DEFAULT_SEC = 15 * 60;
+/**
+ * The shortest and longest a share may last, which the server enforces.
+ *
+ * Exported so a box can refuse an impossible number where somebody typed it,
+ * with the same limits the server would answer with, instead of sending it and
+ * explaining a 422.
+ *
+ * ⚠ FIVE MINUTES IS A FLOOR, NOT A PREFERENCE. A share shorter than that can
+ * expire while a browser is still negotiating WebRTC, and the renewal the
+ * session layer runs on works in fifteen-minute grants -- so a two-minute share
+ * is a share nobody can finish opening.
+ *
+ * ⚠ THIRTY DAYS IS A CEILING FOR THE SAME REASON THE DEFAULT IS SHORT. Past
+ * that, lending stops being the thing this is for: a camera somebody should see
+ * for a month is a camera their site should be given, in Administration, where
+ * it is visible and reviewable. The server's old limit was a year and a day,
+ * which was a guard against a typo rather than a policy about sharing.
+ */
+export const SHARE_MIN_SEC = 5 * 60;
+export const SHARE_MAX_SEC = 30 * 24 * 60 * 60;
 /** `owner` is every pre-sites account's role and means admin. One place. */
 export function isAdminRole(role) {
     if (typeof role !== "string")
@@ -229,6 +249,10 @@ function shareOne(c, path, raw) {
         expires_at: c.str(`${path}.expires_at`, o.expires_at),
         created_at: c.str(`${path}.created_at`, o.created_at),
         decided_at: c.strOrNull(`${path}.decided_at`, o.decided_at),
+        // Absent on an older server, and null rather than derived. See the field.
+        asked_duration_sec: o.asked_duration_sec === undefined || o.asked_duration_sec === null
+            ? null
+            : c.num(`${path}.asked_duration_sec`, o.asked_duration_sec),
         // Tolerated as absent for a server that predates it, and read as null,
         // which is the same thing an offer with nothing to say sends.
         message: o.message === undefined ? null : c.strOrNull(`${path}.message`, o.message),

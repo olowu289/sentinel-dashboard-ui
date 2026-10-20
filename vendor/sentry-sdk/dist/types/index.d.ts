@@ -21,6 +21,6 @@ export type { ApiError, ApiErrorCode, ApiErrorEnvelope, BatteryHealth, UplinkHea
 export declare const PROTOCOL_VERSION = 1;
 /** Base path of the viewer-facing API (§4.2). One versioned base URL, as v1 had. */
 export declare const API_PREFIX = "/v1";
-export { SHARE_DEFAULT_SEC, SHARE_MESSAGE_MAX, isAdminRole, isShareLive, parseAddDevice, parseAudit, parseCapabilities, parseCellDetail, parseCellList, parseMoveCell, parsePeopleList, parseRemoveTower, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
+export { SHARE_DEFAULT_SEC, SHARE_MAX_SEC, SHARE_MESSAGE_MAX, SHARE_MIN_SEC, isAdminRole, isShareLive, parseAddDevice, parseAudit, parseCapabilities, parseCellDetail, parseCellList, parseMoveCell, parsePeopleList, parseRemoveTower, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
 export type { AuditEntry, AuditResponse, Capabilities, Cell, CellDetailResponse, CellListResponse, CellTower, AddDeviceResponse, ManagedCell, MoveCellResponse, PendingDevice, RemoveCellResponse, RemoveSiteResponse, RemoveTowerResponse, PeopleListResponse, Person, Share, ShareDirection, ShareListResponse, ShareScopeEntry, ShareStatus, Site, SiteDetailResponse, SiteListResponse, SiteName, SiteStatus, } from "./sites.js";
 //# sourceMappingURL=index.d.ts.map

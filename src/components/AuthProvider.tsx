@@ -79,7 +79,21 @@ export interface AuthContextValue {
   unlocked: boolean;
 }
 
+/**
+ * EXPORTED FOR THE SCREENSHOT HARNESS, and for nothing else in the app.
+ *
+ * `src/screens.tsx` renders the Administration and Shares screens against
+ * fixture data so their design can be reviewed without a server, and those
+ * screens reach `useSession` through `IconRail`. The alternative was to export
+ * a second `useSession` that takes an override, which would be a real seam in
+ * the app's auth for a reason that is not about auth at all.
+ *
+ * Nothing in `src/` outside the harness may consume this directly: use
+ * `useSession`, which refuses to work outside a provider and is the reason that
+ * refusal exists.
+ */
 const AuthContext = createContext<AuthContextValue | null>(null);
+export { AuthContext as AuthContextForHarness };
 
 export function useSession(): AuthContextValue {
   const ctx = useContext(AuthContext);

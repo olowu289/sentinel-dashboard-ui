@@ -15,6 +15,11 @@ import {
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { SettingsView } from "@/components/SettingsView";
+import { AdministrationView } from "@/components/AdministrationView";
+import { ShareRequestBanner } from "@/components/ShareRequestBanner";
+import { SharesView } from "@/components/SharesView";
+import { useCapabilities, useShares } from "@/lib/useSites";
+import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
@@ -412,6 +417,25 @@ export function SentinelApp() {
      the others rather than a modal, because a forced re-login lands on the sign-in
      screen and a modal would have had to survive the app unmounting under it. */
   const [onSettings, setOnSettings] = useState(false);
+  /* SHARES and ADMINISTRATION. Screens like the others, and gated on what the
+     SERVER is rather than on what the account bought: `useCapabilities` asks
+     `GET /v1/capabilities`, and a hub answers `sites: false` for ever. See
+     `lib/api/sites.ts` for why that is not a build flag. */
+  const [onShares, setOnShares] = useState(false);
+  const [onAdmin, setOnAdmin] = useState(false);
+  /* WHAT THIS SERVER IS, and whether this account administers it. `null` from
+     `useCapabilities` means "not answered yet", and is treated as NO: showing
+     the destinations and then removing them a moment later looks like a bug
+     even though it is only a race. */
+  const caps = useCapabilities();
+  const sitesEnabled = caps?.features.sites === true;
+  const isAdmin = sitesEnabled && isAdminRole(account?.role);
+  /* Pending shares on MY cameras, for the banner. Only asked for when this
+     server has sites, so a hub puts no request on the wire. */
+  const incoming = useShares(sitesEnabled);
+  const pendingForMe = (incoming.value?.shares ?? []).filter(
+    (sh) => sh.status === "pending" && sh.incoming === true,
+  );
   /**
    * Which Settings section is open, and the ONE piece of this app's state that
    * lives in the URL.
@@ -887,6 +911,21 @@ export function SentinelApp() {
          way Playback is, and a settings screen that survived navigating away
          would keep a half-typed password in state behind another view. */
       if (id !== "settings") setOnSettings(false);
+      /* Same rule as Settings, for the same reason: these screens hold
+         half-finished forms (a share being composed, a password being set) and
+         one that survived navigating away would keep them behind another view. */
+      if (id !== "shares") setOnShares(false);
+      if (id !== "admin") setOnAdmin(false);
+      if (id === "shares" || id === "admin") {
+        setOnPlayback(false);
+        setOnPeople(false);
+        setAdding(false);
+        setOnAlerts(false);
+        show(null);
+        if (id === "shares") setOnShares(true);
+        else setOnAdmin(true);
+        return;
+      }
       if (id === "dashboard") {
         setOnPlayback(false);
         setOnPeople(false);
@@ -1568,8 +1607,36 @@ export function SentinelApp() {
             />
           )}
         </AnimatePresence>
+        {/* AN INCOMING SHARE REQUEST, ABOVE EVERYTHING AND BLOCKING NOTHING.
+            The same slot and the same posture as the coordination banner above
+            it: it pushes the content down, it is not a modal, it does not take
+            focus, and it never covers a camera. An operator watching a feed
+            because something is happening must not have a permissions question
+            put in front of it.
+
+            Not rendered on the Shares screen itself: the list is right there,
+            and a banner about a row three inches below it is noise. */}
+        {sitesEnabled && !onShares && pendingForMe.length ? (
+          <ShareRequestBanner
+            shares={pendingForMe}
+            onReview={() => navigate("shares")}
+            onAnswered={() => incoming.reload()}
+          />
+        ) : null}
         <div className="min-h-0 flex-1">
-      {onSettings ? (
+      {onAdmin ? (
+        <AdministrationView
+          onNavigate={navigate}
+          sites={sitesEnabled}
+          admin={isAdmin}
+        />
+      ) : onShares ? (
+        <SharesView
+          onNavigate={navigate}
+          hasSites={sitesEnabled}
+          admin={isAdmin}
+        />
+      ) : onSettings ? (
         <SettingsView
           onNavigate={navigate}
           onBack={() => setOnSettings(false)}

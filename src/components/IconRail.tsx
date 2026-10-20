@@ -44,8 +44,30 @@ const NAV: {
      given a branch in `App.tsx`'s `navigate`, which is both halves of the note
      that used to live here. One without the other is an item that lights up
      and goes nowhere. */
+  /* SHARES and ADMINISTRATION: present only when the SERVER has sites.
+     Unlike every other item here, these are not gated on the account's feature
+     list but on `GET /v1/capabilities` -- a hub has no sites, no people and no
+     shares, and this same bundle is what the hub serves. See
+     `lib/api/sites.ts`. Administration additionally needs an admin role, which
+     the server enforces with a 403 whatever this rail shows. */
+  /* SHARES gets `group-grid`: two groups, which is literally what a share is
+     between. It is NOT `nav-team`, whose glyph is a person and whose meaning
+     in this product is the watchlist -- the note above says why that reading
+     matters, and a share is between sites, not about a person.
+
+     ADMINISTRATION has no glyph of its own and currently borrows the gear,
+     which means there are TWO gears in this rail. That is a known gap, not a
+     choice: no icon in public/icons says "the organization's structure", and
+     inventing a meaning for an existing one is what the note above warns
+     against. It sits next to Settings so the pair reads as related, and it
+     needs a drawn icon. Recorded in docs/design/sites-and-sharing.md. */
+  { id: "shares", label: "Shares", icon: "/icons/group-grid.svg" },
   { id: "settings", label: "Settings", icon: "/icons/nav-settings.svg" },
+  { id: "admin", label: "Administration", icon: "/icons/nav-settings.svg" },
 ];
+
+/** The two ids above that depend on the server rather than on the account. */
+const SITE_NAV = new Set(["shares", "admin"]);
 
 export function IconRail({
   active = "towers",
@@ -53,12 +75,18 @@ export function IconRail({
   onMore,
   moreOpen = false,
   className = "",
+  sites = false,
+  admin = false,
 }: {
   active?: string;
   onSelect?: (id: string) => void;
   onMore?: () => void;
   moreOpen?: boolean;
   className?: string;
+  /** Does this SERVER have sites? From `GET /v1/capabilities`. */
+  sites?: boolean;
+  /** Is this account an administrator? `owner` counts. */
+  admin?: boolean;
 }) {
   /* ── WHAT THIS ACCOUNT MAY SEE ──────────────────────────────────────────
      A destination this account does not have is REMOVED, not dimmed. Dimming
@@ -94,7 +122,18 @@ export function IconRail({
           centred on the 24px glyphs so the hit target clears WCAG 2.2 without
           disturbing the spacing. */}
       <ul className="absolute left-1/2 top-[233px] flex -translate-x-1/2 flex-col items-center gap-[24px]">
-        {NAV.filter((item) => navAllowed(features, item.id)).map((item) => {
+        {NAV.filter((item) => {
+          // THE SERVER-DEPENDENT TWO, FIRST. `navAllowed` reads the account's
+          // feature list, which says nothing about whether this node has sites,
+          // so these two are answered before it: on a hub both are absent
+          // however many features the account has.
+          if (SITE_NAV.has(item.id)) {
+            if (!sites) return false;
+            if (item.id === "admin") return admin;
+            return true;
+          }
+          return navAllowed(features, item.id);
+        }).map((item) => {
           const isActive = active === item.id && !item.unavailable;
           return (
             <li key={item.id} className="flex h-[24px] items-center">

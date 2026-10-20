@@ -29,6 +29,7 @@
  * await client.closeSession(session);
  * ```
  */
+import type { AuditResponse, Capabilities, PeopleListResponse, Share, ShareDirection, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
 import type { HttpOptions, RequestOptions } from "./http.js";
 import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
@@ -543,6 +544,136 @@ export declare class SentryClient {
      * sweepOf}), so poll that and save a request.
      */
     sweepStatus(ref: SessionRef, camera: CameraIndex, opts?: RequestOptions): Promise<SweepStatus>;
+    /**
+     * What this node can do — `GET /v1/capabilities`. **No token needed.**
+     *
+     * **Call this before drawing anything that assumes sites exist.** The same
+     * bundle serves a hub (no sites, every path below answers 404) and the cloud
+     * (all of them), and this is the only honest way to tell them apart. Gating
+     * an Administration area on a build flag puts it on the hub too.
+     */
+    capabilities(opts?: RequestOptions): Promise<Capabilities>;
+    /**
+     * The sites this account may see — `GET /v1/sites`.
+     *
+     * An admin gets every site in the organization plus `unassigned_hubs`; a site
+     * user gets the sites they are a member of and NO `unassigned_hubs` key at
+     * all. Check for the key's presence, not its length.
+     */
+    listSites(opts?: RequestOptions): Promise<SiteListResponse>;
+    /**
+     * One site with its cells — `GET /v1/sites/{site_id}`.
+     *
+     * @throws {NotFoundError} `404 site_unknown` — no such site, **or** not one
+     *   of yours. Indistinguishable on purpose, the same rule §4.2.3 sets for
+     *   towers, so a site id cannot be probed for existence.
+     */
+    getSite(siteId: string, opts?: RequestOptions): Promise<SiteDetailResponse>;
+    /** Incoming, outgoing, active and historical shares — `GET /v1/shares`. */
+    listShares(opts?: RequestOptions): Promise<ShareListResponse>;
+    /**
+     * Ask for access, or offer your own cameras — `POST /v1/shares`.
+     *
+     * `direction: "request"` asks another site for theirs; `"offer"` hands them
+     * yours. Either way the result is **pending**: an offer is not permission to
+     * be looked at, and the other side has to answer.
+     *
+     * `myS iteId` must be one of your own sites (403 otherwise), and an offer may
+     * only name cameras your own site owns — without that a site could pass on
+     * access it was lent.
+     */
+    createShare(req: {
+        direction: ShareDirection;
+        mySiteId: string;
+        otherSiteId: string;
+        scope: readonly ShareScopeEntry[];
+        live?: boolean;
+        ptz?: boolean;
+        playback?: boolean;
+        playbackFrom?: string;
+        playbackTo?: string;
+        durationSec?: number;
+    }, opts?: RequestOptions): Promise<Share>;
+    /**
+     * Accept a share, narrowing it first — `POST /v1/shares/{id}/accept`.
+     *
+     * Every field is optional and omitting one keeps what was asked for. The
+     * party giving something up is the one answering, which is why they may
+     * change the scope, the permissions and the duration here.
+     */
+    acceptShare(shareId: string, changes?: {
+        scope?: readonly ShareScopeEntry[];
+        live?: boolean;
+        ptz?: boolean;
+        playback?: boolean;
+        playbackFrom?: string;
+        playbackTo?: string;
+        durationSec?: number;
+    }, opts?: RequestOptions): Promise<Share>;
+    /** Decline a pending share — `POST /v1/shares/{id}/decline`. */
+    declineShare(shareId: string, opts?: RequestOptions): Promise<Share>;
+    /**
+     * Cut a share off — `POST /v1/shares/{id}/revoke`.
+     *
+     * **This closes live sessions before it answers.** The server does not wait
+     * for the next grant renewal, so by the time this resolves the other site's
+     * open feeds on those cameras are gone. Either side may revoke, and so may
+     * an admin; revoking twice is not an error.
+     */
+    revokeShare(shareId: string, opts?: RequestOptions): Promise<Share>;
+    /** Every share in the organization — `GET /v1/admin/shares`. Admins only. */
+    adminListShares(opts?: RequestOptions): Promise<ShareListResponse>;
+    /** `POST /v1/admin/sites` with `{name}`. Admins only. */
+    adminCreateSite(name: string, opts?: RequestOptions): Promise<SiteDetailResponse["site"]>;
+    /** Rename or archive a site — `PATCH /v1/admin/sites/{id}`. Admins only. */
+    adminUpdateSite(siteId: string, changes: {
+        name?: string;
+        status?: "archived" | "active";
+    }, opts?: RequestOptions): Promise<SiteDetailResponse["site"]>;
+    /**
+     * Set a site's hubs — `PUT /v1/admin/sites/{id}/hubs`. Admins only.
+     *
+     * **The whole set, not a delta.** A hub missing from the list is unassigned,
+     * and a hub belongs to at most one site, so assigning one moves it.
+     */
+    adminSetSiteHubs(siteId: string, hubs: readonly string[], opts?: RequestOptions): Promise<SiteDetailResponse["site"]>;
+    /** The organization's people — `GET /v1/admin/people`. Admins only. */
+    adminListPeople(opts?: RequestOptions): Promise<PeopleListResponse>;
+    /** `POST /v1/admin/people`. Admins only. The person can log in at once. */
+    adminCreatePerson(req: {
+        login: string;
+        password: string;
+        role?: "admin" | "site_user";
+        sites?: readonly string[];
+    }, opts?: RequestOptions): Promise<void>;
+    /**
+     * Disable, enable, or set site membership — `PATCH /v1/admin/people/{id}`.
+     *
+     * `sites` is the WHOLE set when given. Disabling stops their live feeds
+     * within one renewal window, because the server re-checks the account on
+     * every renewal.
+     */
+    adminUpdatePerson(accountId: string, changes: {
+        status?: "active" | "disabled";
+        sites?: readonly string[];
+    }, opts?: RequestOptions): Promise<void>;
+    /** `POST /v1/admin/people/{id}/password`. Admins only. */
+    adminResetPassword(accountId: string, password: string, opts?: RequestOptions): Promise<void>;
+    /**
+     * The audit log — `GET /v1/admin/audit`. Admins only.
+     *
+     * Scoped to the organization by the server, row by row. `action` is a
+     * PREFIX, so `"share."` matches every share action.
+     */
+    adminAudit(filter?: {
+        action?: string;
+        accountId?: string;
+        deviceId?: string;
+        since?: string;
+        until?: string;
+        limit?: number;
+        offset?: number;
+    }, opts?: RequestOptions): Promise<AuditResponse>;
 }
 /**
  * Clamp to the §5.1 normalized ranges.

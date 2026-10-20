@@ -148,3 +148,36 @@ export const PROTOCOL_VERSION = 1;
 
 /** Base path of the viewer-facing API (§4.2). One versioned base URL, as v1 had. */
 export const API_PREFIX = "/v1";
+
+/* ------------------------------------------------------------------ *
+ * Sites, people and sharing
+ * ------------------------------------------------------------------ */
+
+export {
+  isAdminRole,
+  isShareLive,
+  parseAudit,
+  parseCapabilities,
+  parsePeopleList,
+  parseShare,
+  parseShareList,
+  parseSiteDetail,
+  parseSiteList,
+} from "./sites.js";
+export type {
+  AuditEntry,
+  AuditResponse,
+  Capabilities,
+  Cell,
+  PeopleListResponse,
+  Person,
+  Share,
+  ShareDirection,
+  ShareListResponse,
+  ShareScopeEntry,
+  ShareStatus,
+  Site,
+  SiteDetailResponse,
+  SiteListResponse,
+  SiteStatus,
+} from "./sites.js";

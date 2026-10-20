@@ -10,7 +10,8 @@
  * recording/playback (§9 — deferred, and unspecified).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.API_PREFIX = exports.PROTOCOL_VERSION = exports.SWEEP_SECONDS_MIN = exports.SWEEP_SECONDS_MAX = exports.PTZ_STEP_DEG_MIN = exports.PTZ_STEP_DEG_MAX = exports.PTZ_KEEPALIVE_MS = exports.PTZ_DEADMAN_MS = exports.PTZ_CLICK_MS = exports.ValidationCheck = exports.parseViewerSession = exports.parseSessionStatus = exports.parseTowerList = exports.parseTowerInfo = exports.parseTowerHealth = exports.parseTowerDetail = exports.sweepOf = exports.parseSweepStatus = exports.parsePtzResult = exports.parseIceCandidates = exports.parseCameraInfo = exports.assertNoProjectionLeak = exports.isSessionEnded = exports.isSentryErrorCode = exports.isPtzPermissionDenied = exports.isNormalPtzOutcome = exports.errorFromEnvelope = exports.describeError = exports.ValidationError = exports.TowerTimeoutError = exports.TowerOfflineError = exports.SessionConflictError = exports.ServerError = exports.SentryError = exports.RequestTimeoutError = exports.RequestAbortedError = exports.RateLimitedError = exports.PtzError = exports.ProjectionLeakError = exports.NotFoundError = exports.NetworkError = exports.MediaError = exports.InvalidRequestError = exports.GrantError = exports.AuthError = exports.HttpTransport = exports.clampStep = exports.clampMove = exports.SentryClient = void 0;
+exports.isAdminRole = exports.API_PREFIX = exports.PROTOCOL_VERSION = exports.SWEEP_SECONDS_MIN = exports.SWEEP_SECONDS_MAX = exports.PTZ_STEP_DEG_MIN = exports.PTZ_STEP_DEG_MAX = exports.PTZ_KEEPALIVE_MS = exports.PTZ_DEADMAN_MS = exports.PTZ_CLICK_MS = exports.ValidationCheck = exports.parseViewerSession = exports.parseSessionStatus = exports.parseTowerList = exports.parseTowerInfo = exports.parseTowerHealth = exports.parseTowerDetail = exports.sweepOf = exports.parseSweepStatus = exports.parsePtzResult = exports.parseIceCandidates = exports.parseCameraInfo = exports.assertNoProjectionLeak = exports.isSessionEnded = exports.isSentryErrorCode = exports.isPtzPermissionDenied = exports.isNormalPtzOutcome = exports.errorFromEnvelope = exports.describeError = exports.ValidationError = exports.TowerTimeoutError = exports.TowerOfflineError = exports.SessionConflictError = exports.ServerError = exports.SentryError = exports.RequestTimeoutError = exports.RequestAbortedError = exports.RateLimitedError = exports.PtzError = exports.ProjectionLeakError = exports.NotFoundError = exports.NetworkError = exports.MediaError = exports.InvalidRequestError = exports.GrantError = exports.AuthError = exports.HttpTransport = exports.clampStep = exports.clampMove = exports.SentryClient = void 0;
+exports.parseSiteList = exports.parseSiteDetail = exports.parseShareList = exports.parseShare = exports.parsePeopleList = exports.parseCapabilities = exports.parseAudit = exports.isShareLive = void 0;
 var client_js_1 = require("./client.js");
 Object.defineProperty(exports, "SentryClient", { enumerable: true, get: function () { return client_js_1.SentryClient; } });
 Object.defineProperty(exports, "clampMove", { enumerable: true, get: function () { return client_js_1.clampMove; } });
@@ -67,4 +68,17 @@ Object.defineProperty(exports, "SWEEP_SECONDS_MIN", { enumerable: true, get: fun
 exports.PROTOCOL_VERSION = 1;
 /** Base path of the viewer-facing API (§4.2). One versioned base URL, as v1 had. */
 exports.API_PREFIX = "/v1";
+/* ------------------------------------------------------------------ *
+ * Sites, people and sharing
+ * ------------------------------------------------------------------ */
+var sites_js_1 = require("./sites.js");
+Object.defineProperty(exports, "isAdminRole", { enumerable: true, get: function () { return sites_js_1.isAdminRole; } });
+Object.defineProperty(exports, "isShareLive", { enumerable: true, get: function () { return sites_js_1.isShareLive; } });
+Object.defineProperty(exports, "parseAudit", { enumerable: true, get: function () { return sites_js_1.parseAudit; } });
+Object.defineProperty(exports, "parseCapabilities", { enumerable: true, get: function () { return sites_js_1.parseCapabilities; } });
+Object.defineProperty(exports, "parsePeopleList", { enumerable: true, get: function () { return sites_js_1.parsePeopleList; } });
+Object.defineProperty(exports, "parseShare", { enumerable: true, get: function () { return sites_js_1.parseShare; } });
+Object.defineProperty(exports, "parseShareList", { enumerable: true, get: function () { return sites_js_1.parseShareList; } });
+Object.defineProperty(exports, "parseSiteDetail", { enumerable: true, get: function () { return sites_js_1.parseSiteDetail; } });
+Object.defineProperty(exports, "parseSiteList", { enumerable: true, get: function () { return sites_js_1.parseSiteList; } });
 //# sourceMappingURL=index.js.map

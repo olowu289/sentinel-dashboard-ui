@@ -85,6 +85,16 @@ export type {
   ApiError,
   ApiErrorCode,
   ApiErrorEnvelope,
+  /* THE HEALTH MEMBERS, as a group, because this list had quietly stopped
+     covering them. `BatteryHealth` and `UplinkHealth` were in models.ts and
+     missing from here, so neither was nameable by a consumer even though both
+     cross the wire -- which is the same gap the two new ones would have fallen
+     into. A type nobody can import is a type every consumer re-declares by
+     hand, and then disagrees about. */
+  BatteryHealth,
+  UplinkHealth,
+  RadioHealth,
+  SectorHealth,
   CameraIndex,
   CameraInfo,
   CameraLens,

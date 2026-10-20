@@ -221,7 +221,83 @@ function toHealth(raw: TowerDetail["health"] | undefined): TowerHealthReading | 
         : {}),
     };
   }
+  /* THE HUB'S VIEW OF THE RADIO, including which sector this mast is on.
+     `sector` is spread conditionally like everything else here, for the
+     sharpest version of the usual reason: every absence is real. A mast with no
+     letter is a mast nobody could place — no sector radios, no station reader,
+     a silent radio, or a mast mid-roam claimed by two — and a default would put
+     it confidently on sector A. */
+  if (raw.radio) {
+    out.radio = {
+      associated: raw.radio.associated === true,
+      ...(typeof raw.radio.node_id === "number" ? { nodeId: raw.radio.node_id } : {}),
+      ...(raw.radio.state ? { state: raw.radio.state } : {}),
+      ...(typeof raw.radio.last_seen_sec === "number"
+        ? { lastSeenSec: raw.radio.last_seen_sec }
+        : {}),
+      ...(typeof raw.radio.quality === "number" ? { quality: raw.radio.quality } : {}),
+      ...(raw.radio.sector ? { sector: raw.radio.sector } : {}),
+    };
+  }
+  /* THE HUB'S OWN SECTORS. `associations` says whether the tower list means
+     anything, so it crosses unconditionally and falls back to "unknown": a
+     sector block that arrived without it must not read as observed. The lists
+     cross only when they WERE observed, so "absent" survives the mapping
+     instead of becoming an empty array that reads as "no masts here". */
+  if (Array.isArray(raw.sectors) && raw.sectors.length > 0) {
+    out.sectors = raw.sectors.map((s) => {
+      const observed = s.associations === "observed";
+      return {
+        id: s.id,
+        state: s.state,
+        associations: observed ? "observed" : "unknown",
+        ...(typeof s.azimuth === "number" ? { azimuth: s.azimuth } : {}),
+        ...(s.ssid ? { ssid: s.ssid } : {}),
+        ...(s.mgmt ? { mgmt: s.mgmt } : {}),
+        ...(typeof s.signal_dbm === "number" ? { signalDbm: s.signal_dbm } : {}),
+        ...(observed && Array.isArray(s.towers) ? { towers: s.towers } : {}),
+        ...(observed && Array.isArray(s.stations) ? { stations: s.stations } : {}),
+      };
+    });
+  }
   return out;
+}
+
+/** What the Sector column should say, and never a letter without an observation. */
+export type SectorReading =
+  /** The hub's radios were asked, and this mast was on one of them. */
+  | { kind: "on"; sector: string }
+  /**
+   * The hub holds a radio link to this mast but cannot say which sector.
+   *
+   * ONE WORD FOR FOUR CAUSES, deliberately: no station reader configured, a
+   * radio that would not answer one, a radio of this mast's own that has not
+   * answered ARP, or a mast mid-roam claimed by two sectors at once. They
+   * differ in the journal and in `/run/kallon/sectors.json`; to somebody
+   * reading a fleet board they are one fact, which is that the board does not
+   * know.
+   */
+  | { kind: "unobserved" }
+  /** No radio link at all: a wired mast, or a tower on WireGuard. */
+  | { kind: "none" };
+
+/**
+ * Which sector radio a mast is on, or honestly decline to say.
+ *
+ * The rule this exists to enforce in one place: the column it feeds may print a
+ * LETTER only when the hub observed the association. There is no arrangement of
+ * missing data that produces a sector, because a mast shown confidently on the
+ * wrong antenna sends a technician up the wrong mast.
+ */
+export function sectorReading(
+  radio: TowerHealthReading["radio"] | undefined,
+): SectorReading {
+  if (!radio) return { kind: "none" };
+  const sector = radio.sector;
+  if (typeof sector === "string" && /^[A-Za-z]$/.test(sector.trim())) {
+    return { kind: "on", sector: sector.trim().toUpperCase() };
+  }
+  return { kind: "unobserved" };
 }
 
 /**

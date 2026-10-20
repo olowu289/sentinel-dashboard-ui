@@ -1,6 +1,11 @@
 import { AnimatePresence, motion } from "motion/react";
 import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
-import { uplinkReading, type UplinkReading } from "@/lib/api/map";
+import {
+  sectorReading,
+  uplinkReading,
+  type SectorReading,
+  type UplinkReading,
+} from "@/lib/api/map";
 import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
 import { batteryFlow, batteryHint, batteryTone } from "@/lib/battery";
@@ -223,6 +228,49 @@ function uplinkCell(online: boolean, reading: UplinkReading): Cell {
   }
 }
 
+/**
+ * Which of the hub's sector radios this mast is on.
+ *
+ * ⚠ A LETTER ONLY WHEN IT WAS OBSERVED. The hub asks its own radios which
+ * stations are associated with each of them; all three carry one SSID on
+ * different channels, so a mast roams between them by itself and nothing on the
+ * tower knows. "Roaming" is this column's word for every way of not knowing,
+ * and it is not a fault: a hub whose radio credentials nobody has set reads
+ * that way permanently, which is the default. Printing "A" there would send
+ * somebody up the wrong mast.
+ */
+function sectorCell(online: boolean, reading: SectorReading): Cell {
+  if (!online) return OFFLINE;
+  switch (reading.kind) {
+    case "on":
+      return {
+        /* NO TONE. A sector letter is not a status: being on B is neither
+           better nor worse than being on A, and colouring it would make the
+           board look as though something had happened. */
+        value: `Sector ${reading.sector}`,
+        hint:
+          `Associated with sector radio ${reading.sector}, as the hub's radios report it. `
+          + "A mast moves between sectors on its own; nothing is configured.",
+      };
+    case "unobserved":
+      return {
+        value: "Roaming",
+        hint:
+          "On the hub's radio network, on an unknown sector. Either no sector radios "
+          + "are declared, nobody has given the hub the radios' credentials, or this "
+          + "mast is mid-roam between two of them.",
+      };
+    default:
+      return {
+        value: "—",
+        empty: true,
+        hint:
+          "No radio link reported — a wired mast, or one on WireGuard rather than "
+          + "the hub's radios.",
+      };
+  }
+}
+
 function connectedCell(tower: Tower, now: number): Cell {
   if (tower.connectedAt !== undefined) {
     return {
@@ -428,6 +476,7 @@ function alertsCell(alerts: Alert[], feed: boolean): Cell {
 const COLUMNS = [
   ["cameras", "Cameras"],
   ["uplink", "Uplink"],
+  ["sector", "Sector"],
   ["connected", "Connected"],
   ["door", "Door"],
   ["cover", "Cover"],
@@ -470,12 +519,16 @@ const GLYPH: Partial<Record<ColumnId, string>> = {
 /* One grid for the header and every row, so the columns line up down the
    whole board. The identity column takes the slack; the readings share the
    rest evenly and never drop below what a glyph and its figure need. */
-const GRID = "grid grid-cols-[minmax(232px,1.7fr)_repeat(9,minmax(96px,1fr))_124px]";
+/* The repeat count is COLUMNS.length, and it is written out because Tailwind
+   scans source text for class names: a template literal would produce a class
+   that is never generated. If you add a column, change the number. */
+const GRID = "grid grid-cols-[minmax(232px,1.7fr)_repeat(10,minmax(96px,1fr))_124px]";
 
 interface Assessed {
   tower: Tower;
   cells: Record<ColumnId, Cell>;
   uplink: UplinkReading;
+  sector: SectorReading;
   rank: number;
   order: number;
 }
@@ -492,9 +545,11 @@ function assess(
      pending cell keeps its own reason: it was never a reading to go stale. */
   const current = (c: Cell): Cell => (tower.online || c.pending ? c : OFFLINE);
   const uplink = uplinkReading(tower.health?.uplink);
+  const sector = sectorReading(tower.health?.radio);
   const cells: Record<ColumnId, Cell> = {
     cameras: camerasCell(feeds),
     uplink: uplinkCell(tower.online, uplink),
+    sector: sectorCell(tower.online, sector),
     connected: connectedCell(tower, now),
     door: current(doorCell(tower)),
     cover: current(coverCell(tower)),
@@ -514,7 +569,7 @@ function assess(
           : tones.includes("text-warn")
             ? 3
             : 4;
-  return { tower, cells, uplink, rank, order };
+  return { tower, cells, uplink, sector, rank, order };
 }
 
 /**

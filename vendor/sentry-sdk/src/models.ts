@@ -1170,6 +1170,92 @@ export interface BatteryHealth {
   temp_c?: number;
 }
 
+/**
+ * §3.1 `health.radio` — the radio link to this mast, **as the hub sees it**.
+ *
+ * Unlike every other member of `TowerHealth`, this does not come from the
+ * tower, and that is the point. `link: up|down` is coordination's view of the
+ * tower's WebSocket, and on a radio-only mast that socket runs THROUGH the
+ * radio, so a dropped radio and a dead tower look identical from the far end.
+ * The hub holds the association and can tell them apart. Absent entirely when
+ * the hub knows nothing, rather than faked.
+ */
+export interface RadioHealth {
+  /** The one field always present when the hub knows this tower at all. */
+  associated: boolean;
+  /** The mast's sinew node id, which also fixes its radio's address. */
+  node_id?: number;
+  state?: "up" | "degraded" | "down";
+  last_seen_sec?: number;
+  /** 0..1. Absent means there is no probe, NOT a perfect link. */
+  quality?: number;
+  /**
+   * Which of the hub's sector radios this mast is associated with, as a single
+   * letter.
+   *
+   * ⚠ OBSERVED, NEVER DECLARED. The hub asks its own radios which stations are
+   * associated with each of them. All three sector radios carry one SSID on
+   * different channels, so a mast associates with whichever it hears best and
+   * re-associates by itself when it is moved or a sector loses power. Nothing
+   * on the tower can know this, and a tower still sending a declared sector is
+   * ignored.
+   *
+   * Absent for every shape of "we cannot say": a single radio hub, a hub with
+   * no station reader configured, a radio that would not answer one, a mast
+   * whose own radio has not answered ARP, or a mast mid-roam that two sectors
+   * both claim. Absent is rendered as unknown, never guessed into a letter.
+   */
+  sector?: string;
+}
+
+/**
+ * §3.1 `health.sectors[]` — the hub's own radio sectors. Hub mast only.
+ *
+ * A tower has no sectors; it is ON one, which is `RadioHealth.sector`. An
+ * absent or empty array means a single radio hub, which is every hub built
+ * before sectors existed.
+ */
+export interface SectorHealth {
+  /** A single letter, A upward, naming the RADIO. */
+  id: string;
+  /**
+   * Does the radio answer on the radio subnet.
+   *
+   * ⚠ `unknown` IS NEVER RENDERED AS UP. A sector that did not answer is
+   * `down`; one that could not be tested, or whose reading is older than the
+   * staleness window, is `unknown`.
+   */
+  state: "up" | "down" | "unknown";
+  /** Centre of the wedge, degrees true. */
+  azimuth?: number;
+  /** The hub's SSID. The same on all three sectors, by design. */
+  ssid?: string;
+  mgmt?: string;
+  mac?: string;
+  freq_mhz?: number;
+  width_mhz?: number;
+  signal_dbm?: number;
+  /**
+   * Whether anybody managed to ask this radio who is on it.
+   *
+   * ⚠ `"unknown"` AND "no towers" ARE DIFFERENT FACTS. `towers: []` with
+   * `"observed"` is a radio no mast is on; `"unknown"` means no station reader
+   * is configured on this hub, or this radio would not answer one, and then
+   * `towers` and `stations` are ABSENT rather than empty. Only `"observed"`
+   * licenses a screen to present the list as fact. Somebody deciding whether to
+   * drive to a site reads this.
+   */
+  associations: "observed" | "unknown";
+  /**
+   * Every associated station's MAC, lower cased, including ones that match no
+   * tower this hub knows. A station it cannot name is still a station, and
+   * seeing it is how somebody works out that a mast's radio was swapped.
+   */
+  stations?: string[];
+  /** The device ids of the masts those MACs belong to. */
+  towers?: string[];
+}
+
 export interface TowerHealth {
   door?: DoorHealth;
   cover?: CoverHealth;
@@ -1179,6 +1265,10 @@ export interface TowerHealth {
   feeds?: FeedHealth[];
   uplink?: UplinkHealth;
   battery?: BatteryHealth;
+  /** The hub's view of the radio link to this mast. Not from the tower. */
+  radio?: RadioHealth;
+  /** The hub's own sector radios. Hub mast only. */
+  sectors?: SectorHealth[];
 }
 
 /** §3.4 `tower.state.reason` — why an unsolicited health push was sent. */

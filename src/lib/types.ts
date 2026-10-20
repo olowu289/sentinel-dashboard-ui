@@ -114,6 +114,50 @@ export interface TowerHealthReading {
    * rendered as a grade.
    */
   uplink?: { signalDbm?: number; type?: string; associated?: boolean };
+  /**
+   * The radio link to this mast, **as the hub sees it** — not as the tower
+   * reports it. `online` is the WebSocket, which on a radio-only mast runs
+   * through the radio, so a dropped radio and a dead tower look the same from
+   * here. The hub holds the association and can tell them apart.
+   *
+   * ⚠ `sector` IS OBSERVED, NOT CONFIGURED. All three of a hub's sector radios
+   * carry one SSID on different channels, and a mast associates with whichever
+   * it hears best, so the hub reads the answer from its own radios' station
+   * lists. Absent for every shape of "nobody can say": a single radio hub, a
+   * hub with no station reader configured, a radio that would not answer one, a
+   * mast whose radio has not answered ARP, or a mast mid-roam that two sectors
+   * both claim. Absent must render as unknown and never as a letter — a mast
+   * shown confidently on the wrong sector sends somebody to the wrong antenna.
+   */
+  radio?: {
+    associated: boolean;
+    nodeId?: number;
+    state?: string;
+    lastSeenSec?: number;
+    quality?: number;
+    sector?: string;
+  };
+  /**
+   * The hub's own radio sectors. Hub mast only — a tower has no sectors, it is
+   * ON one, which is `radio.sector` above. Absent on every single radio hub,
+   * which is every hub built before sectors existed.
+   *
+   * ⚠ `associations: "unknown"` IS NOT "no towers". Under `"unknown"` the
+   * `towers` list is ABSENT, because nothing was observed; under `"observed"`
+   * an empty list is a real answer, a radio that no mast is on. Read
+   * `associations` first, never `towers ?? []`.
+   */
+  sectors?: {
+    id: string;
+    state: string;
+    azimuth?: number;
+    ssid?: string;
+    mgmt?: string;
+    signalDbm?: number;
+    associations: string;
+    stations?: string[];
+    towers?: string[];
+  }[];
 }
 
 /**

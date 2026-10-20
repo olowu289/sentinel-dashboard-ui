@@ -11,7 +11,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PROTOCOL_VERSION = exports.SWEEP_SECONDS_MIN = exports.SWEEP_SECONDS_MAX = exports.PTZ_STEP_DEG_MIN = exports.PTZ_STEP_DEG_MAX = exports.PTZ_KEEPALIVE_MS = exports.PTZ_DEADMAN_MS = exports.PTZ_CLICK_MS = exports.ValidationCheck = exports.parseViewerSession = exports.parseSessionStatus = exports.parseTowerList = exports.parseTowerInfo = exports.parseTowerHealth = exports.parseTowerDetail = exports.sweepOf = exports.parseSweepStatus = exports.parsePtzResult = exports.parseIceCandidates = exports.parseCameraInfo = exports.assertNoProjectionLeak = exports.isSessionEnded = exports.isSentryErrorCode = exports.isPtzYielded = exports.isPtzPermissionDenied = exports.isNormalPtzOutcome = exports.errorFromEnvelope = exports.describeError = exports.ValidationError = exports.TowerTimeoutError = exports.TowerOfflineError = exports.SessionConflictError = exports.ServerError = exports.SentryError = exports.RequestTimeoutError = exports.RequestAbortedError = exports.RateLimitedError = exports.PtzYieldedError = exports.PtzError = exports.ProjectionLeakError = exports.NotFoundError = exports.NetworkError = exports.MediaError = exports.InvalidRequestError = exports.GrantError = exports.AuthError = exports.HttpTransport = exports.clampStep = exports.clampMove = exports.SentryClient = void 0;
-exports.parseSiteList = exports.parseSiteDetail = exports.parseShareList = exports.parseShare = exports.parsePeopleList = exports.parseCapabilities = exports.parseAudit = exports.isShareLive = exports.isAdminRole = exports.SHARE_MESSAGE_MAX = exports.SHARE_DEFAULT_SEC = exports.API_PREFIX = void 0;
+exports.parseSiteList = exports.parseSiteDetail = exports.parseShareList = exports.parseShare = exports.parseRemoveTower = exports.parsePeopleList = exports.parseMoveCell = exports.parseCellList = exports.parseCellDetail = exports.parseCapabilities = exports.parseAudit = exports.parseAddDevice = exports.isShareLive = exports.isAdminRole = exports.SHARE_MESSAGE_MAX = exports.SHARE_DEFAULT_SEC = exports.API_PREFIX = void 0;
 var client_js_1 = require("./client.js");
 Object.defineProperty(exports, "SentryClient", { enumerable: true, get: function () { return client_js_1.SentryClient; } });
 Object.defineProperty(exports, "clampMove", { enumerable: true, get: function () { return client_js_1.clampMove; } });
@@ -78,9 +78,14 @@ Object.defineProperty(exports, "SHARE_DEFAULT_SEC", { enumerable: true, get: fun
 Object.defineProperty(exports, "SHARE_MESSAGE_MAX", { enumerable: true, get: function () { return sites_js_1.SHARE_MESSAGE_MAX; } });
 Object.defineProperty(exports, "isAdminRole", { enumerable: true, get: function () { return sites_js_1.isAdminRole; } });
 Object.defineProperty(exports, "isShareLive", { enumerable: true, get: function () { return sites_js_1.isShareLive; } });
+Object.defineProperty(exports, "parseAddDevice", { enumerable: true, get: function () { return sites_js_1.parseAddDevice; } });
 Object.defineProperty(exports, "parseAudit", { enumerable: true, get: function () { return sites_js_1.parseAudit; } });
 Object.defineProperty(exports, "parseCapabilities", { enumerable: true, get: function () { return sites_js_1.parseCapabilities; } });
+Object.defineProperty(exports, "parseCellDetail", { enumerable: true, get: function () { return sites_js_1.parseCellDetail; } });
+Object.defineProperty(exports, "parseCellList", { enumerable: true, get: function () { return sites_js_1.parseCellList; } });
+Object.defineProperty(exports, "parseMoveCell", { enumerable: true, get: function () { return sites_js_1.parseMoveCell; } });
 Object.defineProperty(exports, "parsePeopleList", { enumerable: true, get: function () { return sites_js_1.parsePeopleList; } });
+Object.defineProperty(exports, "parseRemoveTower", { enumerable: true, get: function () { return sites_js_1.parseRemoveTower; } });
 Object.defineProperty(exports, "parseShare", { enumerable: true, get: function () { return sites_js_1.parseShare; } });
 Object.defineProperty(exports, "parseShareList", { enumerable: true, get: function () { return sites_js_1.parseShareList; } });
 Object.defineProperty(exports, "parseSiteDetail", { enumerable: true, get: function () { return sites_js_1.parseSiteDetail; } });

@@ -30,9 +30,13 @@
 
 import { getClient } from "@/lib/api/client";
 import type {
+  AddDeviceResponse,
   AuditResponse,
   Capabilities,
+  CellDetailResponse,
+  CellListResponse,
   PeopleListResponse,
+  Person,
   Share,
   ShareListResponse,
   ShareScopeEntry,
@@ -200,4 +204,115 @@ export function adminAudit(filter: {
   offset?: number;
 }): Promise<AuditResponse> {
   return getClient().adminAudit(filter);
+}
+
+/* ------------------------------------------------------------------ *
+ * Cells and towers
+ *
+ * A CELL IS A HUB, NAMED. The split below is the one worth knowing: `addCell`
+ * and `addTower` are the only writes a SITE USER may make, and they work on
+ * their own sites. Everything else here needs an administrator, and the server
+ * says so with a 403 whatever this file does.
+ * ------------------------------------------------------------------ */
+
+export function listCells(): Promise<CellListResponse> {
+  return getClient().listCells();
+}
+
+export function getCell(hubId: string): Promise<CellDetailResponse> {
+  return getClient().getCell(hubId);
+}
+
+/**
+ * Add a cell. Returns a PENDING claim, not a cell: it appears when the hub
+ * enrols against the code, into the site chosen here.
+ */
+export function addCell(req: {
+  siteId: string;
+  name: string;
+  pairingCode: string;
+}): Promise<AddDeviceResponse> {
+  return getClient().addCell(req);
+}
+
+/**
+ * Add a tower to a cell.
+ *
+ * Two normal outcomes, and the caller has to tell them apart for the person
+ * watching: the cell was asked and is waiting, or the cell is OFFLINE and this
+ * is queued until it reconnects (`pending.queued`).
+ */
+export function addTower(req: {
+  hubId: string;
+  name: string;
+  pairingCode: string;
+}): Promise<AddDeviceResponse> {
+  return getClient().addTower(req);
+}
+
+export function adminRenameCell(hubId: string, name: string) {
+  return getClient().adminRenameCell(hubId, name);
+}
+
+/**
+ * Move a cell to another site.
+ *
+ * ⚠ `shares_ended` COMES BACK FULL when the move ended agreements. Tell both
+ * sides; a feed that simply stops is the thing this product does not do.
+ */
+export function adminMoveCell(hubId: string, siteId: string) {
+  return getClient().adminMoveCell(hubId, siteId);
+}
+
+export function adminRemoveCell(hubId: string) {
+  return getClient().adminRemoveCell(hubId);
+}
+
+export function adminRenameTower(deviceId: string, name: string) {
+  return getClient().adminRenameTower(deviceId, name);
+}
+
+export function adminMoveTower(deviceId: string, hubId: string) {
+  return getClient().adminMoveTower(deviceId, hubId);
+}
+
+export function adminReplaceTower(deviceId: string, pairingCode: string) {
+  return getClient().adminReplaceTower(deviceId, pairingCode);
+}
+
+/**
+ * Remove a tower.
+ *
+ * ⚠ ITS RECORDINGS STAY until normal retention, because they may be evidence.
+ * Say that before the click, not after it.
+ */
+export function adminRemoveTower(deviceId: string) {
+  return getClient().adminRemoveTower(deviceId);
+}
+
+/** Delete a site. Refused with `site_not_empty` while anything is in it. */
+export function adminRemoveSite(siteId: string) {
+  return getClient().adminRemoveSite(siteId);
+}
+
+/**
+ * Add a person. A NAME, not a login: their login is `name.organization` and
+ * the organization half is the admin's own. The returned person carries the
+ * whole login, which is the one moment it should be shown.
+ */
+export function adminAddPerson(req: {
+  name: string;
+  password: string;
+  role?: "admin" | "site_user";
+  sites?: readonly string[];
+}): Promise<Person> {
+  return getClient().adminAddPerson(req);
+}
+
+/**
+ * Correct a typo in a person's name. Changes their LOGIN, so tell them; does
+ * not change their account id, so the audit log still resolves to them.
+ */
+export function adminRenamePerson(accountId: string, name: string): Promise<Person> {
+  return getClient().adminRenamePerson(accountId, name);
 }

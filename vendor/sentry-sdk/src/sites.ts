@@ -204,11 +204,34 @@ export interface ShareListResponse {
 
 export interface Person {
   readonly account_id: string;
+  /**
+   * A person's login is `name.organization` — `dave.kaduna-mine`.
+   *
+   * ⚠ IT IS A CREDENTIAL, AND A COLUMN OF CREDENTIALS IS A WORSE LIST THAN A
+   * COLUMN OF NAMES. Show `name` in a list; show this where somebody is being
+   * TOLD their login, which happens once, when they are added. An
+   * ORGANIZATION's own login — the administrator — has no dot and no `name`.
+   */
   readonly login: string;
+  /**
+   * The half before the dot. Absent on an organization's own login, which is
+   * what the administrator is.
+   */
+  readonly name?: string;
+  /**
+   * The name this person had before an admin corrected a typo.
+   *
+   * Present only after a rename, and there so a list can read
+   * `dele (was chi)` for as long as the old name still means something to
+   * whoever is reading it. The audit ledger records `account_id` and never a
+   * name, which is what makes renaming safe at all.
+   */
+  readonly was?: string;
   /** `"admin"`, `"site_user"`, or `"owner"` which READS AS ADMIN. */
   readonly role: string;
   readonly status: string;
   readonly sites: readonly string[];
+  readonly created_at?: string;
 }
 
 export interface PeopleListResponse {
@@ -484,16 +507,26 @@ export function parsePeopleList(raw: unknown, ctx: Ctx = {}): PeopleListResponse
   const c = new Check();
   const o = c.obj("$", raw);
   const people = c.arr("$.people", o.people).map((p, i) => {
-    const po = c.obj(`$.people[${i}]`, p);
-    return {
-      account_id: c.str(`$.people[${i}].account_id`, po.account_id),
-      login: c.str(`$.people[${i}].login`, po.login),
-      role: c.str(`$.people[${i}].role`, po.role),
-      status: c.str(`$.people[${i}].status`, po.status),
+    const at = `$.people[${i}]`;
+    const po = c.obj(at, p);
+    const row: Record<string, unknown> = {
+      account_id: c.str(`${at}.account_id`, po.account_id),
+      login: c.str(`${at}.login`, po.login),
+      role: c.str(`${at}.role`, po.role),
+      status: c.str(`${at}.status`, po.status),
       sites: c
-        .arr(`$.people[${i}].sites`, po.sites)
-        .map((s, j) => c.str(`$.people[${i}].sites[${j}]`, s)),
+        .arr(`${at}.sites`, po.sites)
+        .map((s, j) => c.str(`${at}.sites[${j}]`, s)),
     };
+    // SPREAD, NOT DEFAULTED. An absent `name` means this login is an
+    // ORGANIZATION, which is a different thing from a person with a blank
+    // name; and an absent `was` means never renamed, not renamed from nothing.
+    if (po.name !== undefined) row.name = c.str(`${at}.name`, po.name);
+    if (po.was !== undefined) row.was = c.str(`${at}.was`, po.was);
+    if (po.created_at !== undefined) {
+      row.created_at = c.str(`${at}.created_at`, po.created_at);
+    }
+    return row as unknown as Person;
   });
   c.done("people list", ctx);
   return { people };
@@ -521,4 +554,248 @@ export function parseAudit(raw: unknown, ctx: Ctx = {}): AuditResponse {
     limit: c.num("$.limit", o.limit),
     offset: c.num("$.offset", o.offset),
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Cells and towers, as a customer manages them
+ *
+ * A CELL IS A HUB, NAMED. `Cell` above is the shape the site detail carries —
+ * a hub id and the towers under it. This is the shape the MANAGEMENT routes
+ * carry: the name, the site, the ceiling, and whether anybody can reach it.
+ * Two types rather than one optional-heavy one, because a caller drawing a
+ * site's contents and a caller drawing the Administration area need different
+ * things and neither should have to check which fields arrived.
+ * ------------------------------------------------------------------ */
+
+/** One cell as `/v1/cells` and `/v1/admin/cells` report it. */
+export interface ManagedCell {
+  readonly hub_id: string;
+  /** The name somebody chose. Never a slug, never the hub id. */
+  readonly name: string;
+  /** Null when it is in no site, which only an admin ever sees. */
+  readonly site_id: string | null;
+  readonly site_name: string;
+  readonly status: string;
+  /** How many towers the hub has reported. */
+  readonly towers: number;
+  /** Is its uplink connected right now. */
+  readonly online: boolean;
+  /**
+   * ⚠ ABSENT, NOT ZERO, when the hub has never reported a ceiling.
+   *
+   * That is an older hub, and capacity is then not enforced for this cell. A
+   * `capacity: 0` would read as "this cell can hold nothing", and a client that
+   * defaulted it to 0 would refuse every add.
+   */
+  readonly capacity?: number;
+  /** At the ceiling. Adding a tower is refused, with `cell_full`. */
+  readonly full: boolean;
+  /** Three quarters or more. Worth warning about; not yet a refusal. */
+  readonly filling: boolean;
+}
+
+/** One tower in a cell, named as its hub last reported it. */
+export interface CellTower {
+  readonly device_id: string;
+  readonly name: string;
+  readonly last_seen?: string;
+}
+
+export interface CellListResponse {
+  readonly cells: readonly ManagedCell[];
+}
+
+export interface CellDetailResponse {
+  readonly cell: ManagedCell;
+  readonly towers: readonly CellTower[];
+}
+
+/**
+ * A device that has been asked for and has not arrived yet.
+ *
+ * ⚠ THE PAIRING CODE IS NEVER HERE. It is a live secret until it is consumed,
+ * and a response body is no safer than a log line: it reaches a browser, a
+ * proxy, and whatever devtools are recording. The server omits it, and the
+ * parser drops it if one ever appears.
+ */
+export interface PendingDevice {
+  /** `"cell"` or `"tower"`. */
+  readonly what?: string;
+  readonly name?: string;
+  readonly claim_id?: string;
+  readonly site_id?: string;
+  readonly hub_id?: string;
+  /**
+   * When the claim window closes. ABSENT for a queued add, because its window
+   * has not started: it begins when the offline cell receives it.
+   */
+  readonly expires_at?: string;
+  /**
+   * `open` or `expired` for a claim the server holds, or one of
+   * `waiting_for_cell` (the cell is offline and this is queued) and
+   * `waiting_for_tower` (the cell is expecting it).
+   */
+  readonly status?: string;
+  /** True when the cell was offline and this is held until it reconnects. */
+  readonly queued?: boolean;
+  /** A sentence for a person. Present on the queued and waiting answers. */
+  readonly message?: string;
+  /** Replacement only: the old board's keys are gone. */
+  readonly old_keys_revoked?: boolean;
+}
+
+export interface AddDeviceResponse {
+  readonly pending: PendingDevice;
+  /** Present when adding a tower: the cell as it now stands. */
+  readonly cell?: ManagedCell | null;
+}
+
+export interface MoveCellResponse {
+  readonly cell: ManagedCell | null;
+  /**
+   * The shares that ENDED because the cameras left the site.
+   *
+   * ⚠ NOT A WARNING — A FACT. A share is an agreement between two sites about
+   * particular cameras; when the cameras move, it no longer describes anything.
+   * Both sides have to be told, which is why the ids come back rather than a
+   * client having to diff a share list to notice.
+   */
+  readonly shares_ended: readonly string[];
+}
+
+export interface RemoveTowerResponse {
+  readonly removed: string;
+  readonly keys_revoked: boolean;
+  /**
+   * ⚠ ALWAYS TRUE, deliberately: a removed tower's recordings stay until
+   * normal retention because they may be evidence. This is the only removal in
+   * the product that leaves data behind, and the UI is expected to say so at
+   * the moment of removing rather than afterwards.
+   */
+  readonly recordings_kept: boolean;
+  readonly note?: string;
+}
+
+export interface RemoveCellResponse {
+  readonly removed: string;
+  readonly name: string;
+}
+
+export interface RemoveSiteResponse {
+  readonly removed: string;
+  readonly name: string;
+  /**
+   * The row is ARCHIVED rather than dropped: every audit entry and every closed
+   * share still refers to it, and deleting it would make a year of the ledger
+   * unreadable. It is gone from every list.
+   */
+  readonly archived: boolean;
+}
+
+function managedCell(c: Check, at: string, raw: unknown): ManagedCell {
+  const o = c.obj(at, raw);
+  const out: Record<string, unknown> = {
+    hub_id: c.str(`${at}.hub_id`, o.hub_id),
+    name: c.str(`${at}.name`, o.name),
+    site_id: c.strOrNull(`${at}.site_id`, o.site_id),
+    site_name: c.str(`${at}.site_name`, o.site_name),
+    status: c.str(`${at}.status`, o.status),
+    towers: c.num(`${at}.towers`, o.towers),
+    online: c.bool(`${at}.online`, o.online),
+    full: c.bool(`${at}.full`, o.full),
+    filling: c.bool(`${at}.filling`, o.filling),
+  };
+  // Spread only when the server sent one, so "absent" survives the parse.
+  if (o.capacity !== undefined) {
+    out.capacity = c.num(`${at}.capacity`, o.capacity);
+  }
+  return out as unknown as ManagedCell;
+}
+
+export function parseCellList(raw: unknown, ctx: Ctx = {}): CellListResponse {
+  const c = new Check();
+  const o = c.obj("$", raw);
+  const cells = c
+    .arr("$.cells", o.cells)
+    .map((cell, i) => managedCell(c, `$.cells[${i}]`, cell));
+  c.done("cell list", ctx);
+  return { cells };
+}
+
+export function parseCellDetail(raw: unknown, ctx: Ctx = {}): CellDetailResponse {
+  const c = new Check();
+  const o = c.obj("$", raw);
+  const cell = managedCell(c, "$.cell", o.cell);
+  const towers = c.arr("$.towers", o.towers).map((t, i) => {
+    const at = `$.towers[${i}]`;
+    const to = c.obj(at, t);
+    const device_id = c.str(`${at}.device_id`, to.device_id);
+    const out: Record<string, unknown> = {
+      device_id,
+      // THE ID AS A FALLBACK, not an empty string: a row with a blank name is
+      // a row nobody can click on with any confidence.
+      name: typeof to.name === "string" && to.name ? to.name : device_id,
+    };
+    if (typeof to.last_seen === "string") out.last_seen = to.last_seen;
+    return out as unknown as CellTower;
+  });
+  c.done("cell detail", ctx);
+  return { cell, towers };
+}
+
+function pending(c: Check, at: string, raw: unknown): PendingDevice {
+  const o = c.obj(at, raw);
+  const out: Record<string, unknown> = {};
+  for (const key of ["what", "name", "claim_id", "site_id", "hub_id",
+                     "expires_at", "status", "message"]) {
+    if (o[key] !== undefined) out[key] = c.str(`${at}.${key}`, o[key]);
+  }
+  if (o.queued !== undefined) out.queued = c.bool(`${at}.queued`, o.queued);
+  if (o.old_keys_revoked !== undefined) {
+    out.old_keys_revoked = c.bool(`${at}.old_keys_revoked`, o.old_keys_revoked);
+  }
+  // ⚠ AND A PAIRING CODE IS DROPPED HERE TOO, if a server ever sends one. It
+  // has no business in a parsed response, and a client that quietly carried one
+  // into its state would put it in a devtools tree and then in a bug report.
+  return out as unknown as PendingDevice;
+}
+
+export function parseAddDevice(raw: unknown, ctx: Ctx = {}): AddDeviceResponse {
+  const c = new Check();
+  const o = c.obj("$", raw);
+  const out: Record<string, unknown> = {
+    pending: pending(c, "$.pending", o.pending),
+  };
+  if (o.cell !== undefined && o.cell !== null) {
+    out.cell = managedCell(c, "$.cell", o.cell);
+  }
+  c.done("added device", ctx);
+  return out as unknown as AddDeviceResponse;
+}
+
+export function parseMoveCell(raw: unknown, ctx: Ctx = {}): MoveCellResponse {
+  const c = new Check();
+  const o = c.obj("$", raw);
+  const cell =
+    o.cell === undefined || o.cell === null
+      ? null
+      : managedCell(c, "$.cell", o.cell);
+  const ended = c
+    .arr("$.shares_ended", o.shares_ended)
+    .map((s, i) => c.str(`$.shares_ended[${i}]`, s));
+  c.done("moved cell", ctx);
+  return { cell, shares_ended: ended };
+}
+
+export function parseRemoveTower(raw: unknown, ctx: Ctx = {}): RemoveTowerResponse {
+  const c = new Check();
+  const o = c.obj("$", raw);
+  const out: Record<string, unknown> = {
+    removed: c.str("$.removed", o.removed),
+    keys_revoked: c.bool("$.keys_revoked", o.keys_revoked),
+    recordings_kept: c.bool("$.recordings_kept", o.recordings_kept),
+  };
+  if (o.note !== undefined) out.note = c.str("$.note", o.note);
+  c.done("removed tower", ctx);
+  return out as unknown as RemoveTowerResponse;
 }

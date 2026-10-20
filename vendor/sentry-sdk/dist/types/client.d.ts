@@ -29,7 +29,7 @@
  * await client.closeSession(session);
  * ```
  */
-import type { AuditResponse, Capabilities, PeopleListResponse, Share, ShareDirection, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
+import type { AddDeviceResponse, AuditResponse, Capabilities, CellDetailResponse, CellListResponse, MoveCellResponse, PeopleListResponse, Person, RemoveCellResponse, RemoveSiteResponse, RemoveTowerResponse, Share, ShareDirection, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
 import type { HttpOptions, RequestOptions } from "./http.js";
 import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
@@ -715,6 +715,201 @@ export declare class SentryClient {
         limit?: number;
         offset?: number;
     }, opts?: RequestOptions): Promise<AuditResponse>;
+    /**
+     * The cells this account may see — `GET /v1/cells`.
+     *
+     * An admin gets every cell in the organization; a site user gets the cells
+     * in their own sites. Same answer either way, scoped differently, so there is
+     * one shape to draw.
+     */
+    listCells(opts?: RequestOptions): Promise<CellListResponse>;
+    /**
+     * One cell and the towers in it — `GET /v1/cells/{hub_id}`.
+     *
+     * The towers come from the DC's own record of what the hub reported, so this
+     * answers **while the cell is offline** — which is exactly when somebody is
+     * looking at it.
+     *
+     * @throws {NotFoundError} `404 cell_unknown` — no such cell, **or** not one
+     *   of yours. Indistinguishable on purpose: otherwise a hub id could be
+     *   probed for existence.
+     */
+    getCell(hubId: string, opts?: RequestOptions): Promise<CellDetailResponse>;
+    /**
+     * Add a cell — `POST /v1/cells`.
+     *
+     * The hub's pairing code is what it printed at install. Nothing happens
+     * immediately: the answer is a PENDING claim, and the cell appears when the
+     * hub enrols itself against it, into the site named here.
+     *
+     * ⚠ THE CLAIM WINDOW IS FIFTEEN MINUTES. `pending.expires_at` is when it
+     * closes, and after that the code has to be entered again.
+     *
+     * ⚠ NOTHING IN THIS FLOW CONFIGURES A RADIO. Radios are set up before a hub
+     * ships; a UI should say so rather than leave somebody waiting for one.
+     *
+     * @throws {NotFoundError} `404 site_unknown` — no such site, or not one you
+     *   may add to.
+     */
+    addCell(input: {
+        /** One of your own sites. A site user may only use theirs. */
+        readonly siteId: string;
+        /** What to call it. "North Camp", not a slug. */
+        readonly name: string;
+        /** The code the hub printed at install. Dashes and case do not matter. */
+        readonly pairingCode: string;
+    }, opts?: RequestOptions): Promise<AddDeviceResponse>;
+    /**
+     * Add a tower to a cell — `POST /v1/towers`.
+     *
+     * The DC asks the CELL to expect this tower: a tower enrols on its hub, and
+     * the hub holds its key. So two answers are normal and mean different things:
+     *
+     *   * **201** — the cell was asked and is waiting. `pending.status` is open.
+     *   * **202** — the cell is OFFLINE, and this is queued. `pending.queued` is
+     *     true, and the fifteen minute window starts when the cell receives it,
+     *     not now: a link that was down must not cost somebody at a mast their
+     *     window.
+     *
+     * @throws {ApiError} `409 cell_full` — the cell is at its ceiling. Refused
+     *   HERE rather than discovered on the Jetson, so the person typing the code
+     *   is told before they drive anywhere.
+     * @throws {NotFoundError} `404 cell_unknown` — no such cell, or not one you
+     *   may add to.
+     */
+    addTower(input: {
+        /** The cell it joins. */
+        readonly hubId: string;
+        readonly name: string;
+        /** The code the tower printed at install. */
+        readonly pairingCode: string;
+    }, opts?: RequestOptions): Promise<AddDeviceResponse>;
+    /**
+     * Rename a cell — `PATCH /v1/admin/cells/{hub_id}` with `{name}`.
+     *
+     * A cell's name is account-layer metadata: the hub does not know it, nothing
+     * on the wire depends on it, and **a cell that is offline can still be
+     * renamed** — which is exactly when somebody is tidying up.
+     *
+     * Admin only (`403 forbidden` for a site user).
+     */
+    adminRenameCell(hubId: string, name: string, opts?: RequestOptions): Promise<MoveCellResponse>;
+    /**
+     * Move a cell to another site — `PATCH /v1/admin/cells/{hub_id}`.
+     *
+     * ⚠ THIS ENDS EVERY LIVE SHARE INVOLVING THE CELL'S CAMERAS, and the ids come
+     * back in `shares_ended`. A share is an agreement between two sites about
+     * particular cameras; when the cameras leave, it no longer describes
+     * anything, and both sides have to be told. Expect to notify them.
+     *
+     * Admin only.
+     */
+    adminMoveCell(hubId: string, siteId: string, opts?: RequestOptions): Promise<MoveCellResponse>;
+    /**
+     * Remove a cell — `DELETE /v1/admin/cells/{hub_id}`.
+     *
+     * @throws {ApiError} `409 cell_not_empty` — it still has towers. Taking the
+     *   cell away revokes its hub's key, and a tower whose hub has no key cannot
+     *   be reached by anybody, including whoever drives out to find out why. The
+     *   towers come off first, one at a time, by somebody who decided that for
+     *   each of them.
+     *
+     * Admin only.
+     */
+    adminRemoveCell(hubId: string, opts?: RequestOptions): Promise<RemoveCellResponse>;
+    /**
+     * Rename a tower — `PATCH /v1/admin/towers/{device_id}` with `{name}`.
+     *
+     * ⚠ THIS GOES THROUGH THE CELL, so it needs the cell to be reachable: the
+     * hub owns a tower's label and its next inventory report would overwrite
+     * anything written here instead. `503 hub_offline` means the rename has NOT
+     * happened — not that it is pending.
+     *
+     * Admin only.
+     */
+    adminRenameTower(deviceId: string, name: string, opts?: RequestOptions): Promise<void>;
+    /**
+     * Move a tower to another cell — `PATCH /v1/admin/towers/{device_id}`.
+     *
+     * Its NAME AND HISTORY STAY, and nobody is asked for a pairing code: the old
+     * cell derives it from the key it already holds. `pending.status` comes back
+     * `waiting_for_tower`, because the mast still has to be aimed at the new
+     * cell — that part is physical and nothing here can do it.
+     *
+     * Admin only.
+     */
+    adminMoveTower(deviceId: string, hubId: string, opts?: RequestOptions): Promise<AddDeviceResponse>;
+    /**
+     * Replace a dead board — `POST /v1/admin/towers/{device_id}/replace`.
+     *
+     * New hardware takes the old name and the old history; the old board's keys
+     * are revoked in the same breath. A site does not lose its history because a
+     * board died, and the old key does not stay valid because somebody forgot the
+     * second step.
+     *
+     * Admin only.
+     */
+    adminReplaceTower(deviceId: string, pairingCode: string, opts?: RequestOptions): Promise<AddDeviceResponse>;
+    /**
+     * Remove a tower — `DELETE /v1/admin/towers/{device_id}`.
+     *
+     * ⚠ ITS RECORDINGS STAY, until normal retention, because they may be
+     * evidence. `recordings_kept` is always true and `note` is a sentence for a
+     * person; say it at the moment of removing rather than afterwards. This is
+     * the only removal in the product that deliberately leaves data behind.
+     *
+     * Admin only.
+     */
+    adminRemoveTower(deviceId: string, opts?: RequestOptions): Promise<RemoveTowerResponse>;
+    /**
+     * Delete a site — `DELETE /v1/admin/sites/{site_id}`.
+     *
+     * @throws {ApiError} `409 site_not_empty` — it still has cells or people, and
+     *   the error names them. Deleting a site with cells would orphan hubs whose
+     *   footage is still in a bucket somebody is paying for; one with people
+     *   would leave accounts that can see nothing and cannot be told why.
+     *
+     * The row is archived rather than dropped, so the audit log stays readable.
+     *
+     * Admin only.
+     */
+    adminRemoveSite(siteId: string, opts?: RequestOptions): Promise<RemoveSiteResponse>;
+    /**
+     * Add a person — `POST /v1/admin/people`.
+     *
+     * ⚠ A NAME, NOT A LOGIN. Their login is `name.organization`, and the
+     * organization half is the caller's own, so nobody can be created into
+     * somebody else's organization by typing one. The response carries the whole
+     * login because an admin who has just added somebody has to be able to tell
+     * them what to type.
+     *
+     * The name is lower case letters, digits and hyphens: no dots (the dot is the
+     * separator) and no spaces (it is typed at a prompt).
+     *
+     * Admin only.
+     */
+    adminAddPerson(input: {
+        readonly name: string;
+        /** Their first password. They can change it; nobody else can read it. */
+        readonly password: string;
+        readonly role?: "admin" | "site_user";
+        /** The sites they may see. Empty means none, which is a valid start. */
+        readonly sites?: readonly string[];
+    }, opts?: RequestOptions): Promise<Person>;
+    /**
+     * Correct a typo in a person's name — `POST /v1/admin/people/{id}/rename`.
+     *
+     * ⚠ THIS CHANGES THEIR LOGIN, so tell them. It does NOT change their
+     * `account_id`, which is what the audit ledger holds, so every old entry
+     * still resolves to them and a list can read `dele (was chi)`.
+     *
+     * ⚠ NOBODY RENAMES THEMSELVES, including an admin: a name is how the log and
+     * a colleague refer to a person, and self-rename makes the log read as though
+     * somebody else did the thing. `404` for your own id.
+     *
+     * Admin only.
+     */
+    adminRenamePerson(accountId: string, name: string, opts?: RequestOptions): Promise<Person>;
 }
 /**
  * Clamp to the §5.1 normalized ranges.

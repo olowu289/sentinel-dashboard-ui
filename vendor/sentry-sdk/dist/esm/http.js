@@ -139,7 +139,18 @@ export class HttpTransport {
                 const parsed = JSON.parse(text);
                 const err = parsed?.error;
                 if (err && typeof err.code === "string") {
-                    return errorFromEnvelope({ code: err.code, message: typeof err.message === "string" ? err.message : err.code }, { status, path });
+                    return errorFromEnvelope({
+                        code: err.code,
+                        message: typeof err.message === "string" ? err.message : err.code,
+                        // THE REFUSAL'S DETAIL IS REBUILT TOO. A `ptz_yielded` without
+                        // the site holding the camera is a dead end for whoever reads
+                        // it: the whole of what the UI has to say is the NAME, and an
+                        // envelope rebuilt from code and message alone drops it.
+                        ...(typeof err.holder_site === "string" ? { holder_site: err.holder_site } : {}),
+                        ...(typeof err.retry_after_sec === "number"
+                            ? { retry_after_sec: err.retry_after_sec }
+                            : {}),
+                    }, { status, path });
                 }
             }
             catch {

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useSession } from "@/components/AuthProvider";
 import { IconRail } from "@/components/IconRail";
+import { SharingPane } from "@/components/sharing/SharingPane";
 import { SiteClock } from "@/components/SiteClock";
 import {
   LabelRejectedError,
@@ -255,6 +256,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 const SECTION_LABEL: Record<SettingsSection, string> = {
   account: "Account",
   security: "Password & security",
+  sharing: "Sharing",
   appearance: "Appearance",
   cameras: "Cameras",
 };
@@ -1193,6 +1195,11 @@ export function SettingsView({
   const PANES: Record<SettingsSection, ReactNode> = {
     account: accountSection,
     security: securitySection,
+    /* THE HOME OF SHARING, and the only place a request can be STARTED: the
+       floating cards are replies to something, and a first move has nothing
+       to reply to. Both read the same feed, so answering in either is
+       answering in both. */
+    sharing: <SharingPane />,
     appearance: appearanceSection,
     cameras: camerasSection,
   };

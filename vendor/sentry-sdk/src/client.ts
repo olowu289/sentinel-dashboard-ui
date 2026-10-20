@@ -31,7 +31,27 @@
  */
 
 import { HttpTransport } from "./http.js";
-import type { AbortSignalLike, HttpOptions, RequestOptions } from "./http.js";
+
+import {
+  parseAudit,
+  parseCapabilities,
+  parsePeopleList,
+  parseShare,
+  parseShareList,
+  parseSiteDetail,
+  parseSiteList,
+} from "./sites.js";
+import type {
+  AuditResponse,
+  Capabilities,
+  PeopleListResponse,
+  Share,
+  ShareDirection,
+  ShareListResponse,
+  ShareScopeEntry,
+  SiteDetailResponse,
+  SiteListResponse,
+} from "./sites.js";import type { AbortSignalLike, HttpOptions, RequestOptions } from "./http.js";
 import { PtzError, SentryError } from "./errors.js";
 import {
   PTZ_KEEPALIVE_MS,
@@ -721,14 +741,15 @@ export class SentryClient {
     key: string,
     opts: RequestOptions = {},
   ): Promise<FreshSegmentUrl> {
-    const q = new URLSearchParams({
-      device_id: deviceId,
-      camera: String(camera),
-      key,
-    });
+    // Hand-built, for the reason given on listArchivedRecordings below.
+    const q = [
+      `device_id=${encodeURIComponent(deviceId)}`,
+      `camera=${encodeURIComponent(String(camera))}`,
+      `key=${encodeURIComponent(key)}`,
+    ].join("&");
     const { body } = await this.http.send({
       method: "GET",
-      path: `/v1/viewer/recordings/segment-url?${q.toString()}`,
+      path: `/v1/viewer/recordings/segment-url?${q}`,
       accept: "json",
       ...pick(opts),
     });
@@ -803,8 +824,14 @@ export class SentryClient {
     range: { from?: number; to?: number } & RequestOptions = {},
   ): Promise<ArchivedRecordingList> {
     const { from, to, ...opts } = range;
-    // Hand-built query (no URLSearchParams dependency, matching the rest of this
-    // file). Only the parameters that are set are sent.
+    // HAND-BUILT, NOT URLSearchParams. This package compiles against
+    // `lib: ["ES2022"]` with no DOM and no `@types/node`, so that global does
+    // not typecheck here. It only APPEARS to when this source is read from
+    // inside an app whose node_modules supplies the types, which is how two
+    // uses of it reached the vendored copy and left it unable to build in its
+    // own repo.
+    // Only the parameters that are set are sent, so an unfiltered call asks for
+    // the whole range rather than for `from=undefined`.
     const parts = [`device_id=${encodeURIComponent(deviceId)}`];
     if (camera) parts.push(`camera=${encodeURIComponent(camera)}`);
     if (from !== undefined) parts.push(`from=${encodeURIComponent(String(from))}`);
@@ -1130,6 +1157,447 @@ export class SentryClient {
   ): Promise<SweepStatus> {
     return this.sweep(ref, camera, { op: "status" }, opts);
   }
+
+  /* ---------------------------------------------------------------- *
+   * Sites, people and sharing
+   * ---------------------------------------------------------------- */
+
+  /**
+   * What this node can do — `GET /v1/capabilities`. **No token needed.**
+   *
+   * **Call this before drawing anything that assumes sites exist.** The same
+   * bundle serves a hub (no sites, every path below answers 404) and the cloud
+   * (all of them), and this is the only honest way to tell them apart. Gating
+   * an Administration area on a build flag puts it on the hub too.
+   */
+  async capabilities(opts: RequestOptions = {}): Promise<Capabilities> {
+    const path = "/v1/capabilities";
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      // NO SPECIAL "unauthenticated" MODE, because none is needed: `token` is
+      // optional on the transport and the header is only added when there is
+      // one. The server ignores it on this path anyway.
+      ...pick(opts),
+    });
+    return parseCapabilities(body, { status, path });
+  }
+
+  /**
+   * The sites this account may see — `GET /v1/sites`.
+   *
+   * An admin gets every site in the organization plus `unassigned_hubs`; a site
+   * user gets the sites they are a member of and NO `unassigned_hubs` key at
+   * all. Check for the key's presence, not its length.
+   */
+  async listSites(opts: RequestOptions = {}): Promise<SiteListResponse> {
+    const path = "/v1/sites";
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    return parseSiteList(body, { status, path });
+  }
+
+  /**
+   * One site with its cells — `GET /v1/sites/{site_id}`.
+   *
+   * @throws {NotFoundError} `404 site_unknown` — no such site, **or** not one
+   *   of yours. Indistinguishable on purpose, the same rule §4.2.3 sets for
+   *   towers, so a site id cannot be probed for existence.
+   */
+  async getSite(siteId: string, opts: RequestOptions = {}): Promise<SiteDetailResponse> {
+    const path = `/v1/sites/${encodeURIComponent(siteId)}`;
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    return parseSiteDetail(body, { status, path });
+  }
+
+  /** Incoming, outgoing, active and historical shares — `GET /v1/shares`. */
+  async listShares(opts: RequestOptions = {}): Promise<ShareListResponse> {
+    const path = "/v1/shares";
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    return parseShareList(body, { status, path });
+  }
+
+  /**
+   * Ask for access, or offer your own cameras — `POST /v1/shares`.
+   *
+   * `direction: "request"` asks another site for theirs; `"offer"` hands them
+   * yours. Either way the result is **pending**: an offer is not permission to
+   * be looked at, and the other side has to answer.
+   *
+   * `myS iteId` must be one of your own sites (403 otherwise), and an offer may
+   * only name cameras your own site owns — without that a site could pass on
+   * access it was lent.
+   */
+  async createShare(
+    req: {
+      direction: ShareDirection;
+      /**
+       * Which of the caller's sites is party to this.
+       *
+       * ⚠ OPTIONAL ON AN OFFER. "Share this camera" starts from a camera,
+       * and a client cannot know which of its sites owns it: the fleet
+       * projection carries no site, by design. The server derives it from the
+       * scope, which it has to validate anyway, and refuses when none of your
+       * sites owns those cameras (`403`) or when more than one does (`422`).
+       *
+       * A REQUEST must name it: a request names no cameras, so there is
+       * nothing to derive it from, and which of your sites is asking is a
+       * choice rather than a fact.
+       */
+      mySiteId?: string;
+      otherSiteId: string;
+      /**
+       * ⚠ OMIT IT ON A REQUEST. The site asking does not know what the
+       * other site has -- it knows a NAME on a list, which is all a share ever
+       * reveals about the other side -- so a request names no cameras and the
+       * site answering chooses them. Required on an offer, which can only
+       * offer what the offering site owns.
+       */
+      scope?: readonly ShareScopeEntry[];
+      /**
+       * ⚠ REQUIRED ON A REQUEST, where it is the only thing the other site
+       * has to decide on. The server refuses a request without one.
+       */
+      message?: string;
+      live?: boolean;
+      ptz?: boolean;
+      playback?: boolean;
+      playbackFrom?: string;
+      playbackTo?: string;
+      durationSec?: number;
+    },
+    opts: RequestOptions = {},
+  ): Promise<Share> {
+    const path = "/v1/shares";
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: {
+        direction: req.direction,
+        my_site_id: req.mySiteId,
+        other_site_id: req.otherSiteId,
+        scope: req.scope ?? [],
+        message: req.message,
+        live: req.live ?? true,
+        ptz: req.ptz ?? false,
+        playback: req.playback ?? false,
+        playback_from: req.playbackFrom,
+        playback_to: req.playbackTo,
+        duration_sec: req.durationSec,
+      },
+      ...pick(opts),
+    });
+    return parseShare(body, { status, path });
+  }
+
+  /**
+   * Accept a share, narrowing it first — `POST /v1/shares/{id}/accept`.
+   *
+   * Every field is optional and omitting one keeps what was asked for. The
+   * party giving something up is the one answering, which is why they may
+   * change the scope, the permissions and the duration here.
+   */
+  async acceptShare(
+    shareId: string,
+    changes: {
+      scope?: readonly ShareScopeEntry[];
+      live?: boolean;
+      ptz?: boolean;
+      playback?: boolean;
+      playbackFrom?: string;
+      playbackTo?: string;
+      durationSec?: number;
+    } = {},
+    opts: RequestOptions = {},
+  ): Promise<Share> {
+    const path = `/v1/shares/${encodeURIComponent(shareId)}/accept`;
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: {
+        scope: changes.scope,
+        live: changes.live,
+        ptz: changes.ptz,
+        playback: changes.playback,
+        playback_from: changes.playbackFrom,
+        playback_to: changes.playbackTo,
+        duration_sec: changes.durationSec,
+      },
+      ...pick(opts),
+    });
+    return parseShare(body, { status, path });
+  }
+
+  /** Decline a pending share — `POST /v1/shares/{id}/decline`. */
+  async declineShare(shareId: string, opts: RequestOptions = {}): Promise<Share> {
+    const path = `/v1/shares/${encodeURIComponent(shareId)}/decline`;
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: {},
+      ...pick(opts),
+    });
+    return parseShare(body, { status, path });
+  }
+
+  /**
+   * Cut a share off — `POST /v1/shares/{id}/revoke`.
+   *
+   * **This closes live sessions before it answers.** The server does not wait
+   * for the next grant renewal, so by the time this resolves the other site's
+   * open feeds on those cameras are gone. Either side may revoke, and so may
+   * an admin; revoking twice is not an error.
+   */
+  /**
+   * Give a live share longer — `POST /v1/shares/{id}/extend`.
+   *
+   * ⚠ FROM NOW, NOT FROM ITS OLD EXPIRY. "Another fifteen minutes" means
+   * fifteen minutes from the moment somebody says it.
+   *
+   * Only the site that OWNS the cameras may extend, whichever direction the
+   * share started in, and only while it is live. A share that has expired or
+   * been revoked is finished: ask again instead, which leaves a record of
+   * having asked.
+   *
+   * @throws {ApiError} `403 forbidden` — the borrowing site cannot extend its
+   *   own access.
+   * @throws {ApiError} `409 already_decided` — it is not live any more.
+   */
+  async extendShare(
+    shareId: string,
+    durationSec: number,
+    opts: RequestOptions = {},
+  ): Promise<Share> {
+    const path = `/v1/shares/${encodeURIComponent(shareId)}/extend`;
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: { duration_sec: durationSec },
+      ...pick(opts),
+    });
+    return parseShare(body, { status, path });
+  }
+
+  async revokeShare(shareId: string, opts: RequestOptions = {}): Promise<Share> {
+    const path = `/v1/shares/${encodeURIComponent(shareId)}/revoke`;
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: {},
+      ...pick(opts),
+    });
+    return parseShare(body, { status, path });
+  }
+
+  /* -------------------------- administration ---------------------- */
+
+  /** Every share in the organization — `GET /v1/admin/shares`. Admins only. */
+  async adminListShares(opts: RequestOptions = {}): Promise<ShareListResponse> {
+    const path = "/v1/admin/shares";
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    return parseShareList(body, { status, path });
+  }
+
+  /** `POST /v1/admin/sites` with `{name}`. Admins only. */
+  async adminCreateSite(name: string, opts: RequestOptions = {}): Promise<SiteDetailResponse["site"]> {
+    const path = "/v1/admin/sites";
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: { name },
+      ...pick(opts),
+    });
+    const o = (body ?? {}) as { site?: unknown };
+    return parseSiteDetail({ site: o.site, cells: [] }, { status, path }).site;
+  }
+
+  /** Rename or archive a site — `PATCH /v1/admin/sites/{id}`. Admins only. */
+  async adminUpdateSite(
+    siteId: string,
+    changes: { name?: string; status?: "archived" | "active" },
+    opts: RequestOptions = {},
+  ): Promise<SiteDetailResponse["site"]> {
+    const path = `/v1/admin/sites/${encodeURIComponent(siteId)}`;
+    const { status, body } = await this.http.send({
+      method: "PATCH",
+      path,
+      accept: "json",
+      json: changes,
+      ...pick(opts),
+    });
+    const o = (body ?? {}) as { site?: unknown };
+    return parseSiteDetail({ site: o.site, cells: [] }, { status, path }).site;
+  }
+
+  /**
+   * Set a site's hubs — `PUT /v1/admin/sites/{id}/hubs`. Admins only.
+   *
+   * **The whole set, not a delta.** A hub missing from the list is unassigned,
+   * and a hub belongs to at most one site, so assigning one moves it.
+   */
+  async adminSetSiteHubs(
+    siteId: string,
+    hubs: readonly string[],
+    opts: RequestOptions = {},
+  ): Promise<SiteDetailResponse["site"]> {
+    const path = `/v1/admin/sites/${encodeURIComponent(siteId)}/hubs`;
+    const { status, body } = await this.http.send({
+      method: "PUT",
+      path,
+      accept: "json",
+      json: { hubs },
+      ...pick(opts),
+    });
+    const o = (body ?? {}) as { site?: unknown };
+    return parseSiteDetail({ site: o.site, cells: [] }, { status, path }).site;
+  }
+
+  /** The organization's people — `GET /v1/admin/people`. Admins only. */
+  async adminListPeople(opts: RequestOptions = {}): Promise<PeopleListResponse> {
+    const path = "/v1/admin/people";
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    return parsePeopleList(body, { status, path });
+  }
+
+  /** `POST /v1/admin/people`. Admins only. The person can log in at once. */
+  async adminCreatePerson(
+    req: {
+      login: string;
+      password: string;
+      role?: "admin" | "site_user";
+      sites?: readonly string[];
+    },
+    opts: RequestOptions = {},
+  ): Promise<void> {
+    const path = "/v1/admin/people";
+    await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: {
+        login: req.login,
+        password: req.password,
+        role: req.role ?? "site_user",
+        sites: req.sites ?? [],
+      },
+      ...pick(opts),
+    });
+  }
+
+  /**
+   * Disable, enable, or set site membership — `PATCH /v1/admin/people/{id}`.
+   *
+   * `sites` is the WHOLE set when given. Disabling stops their live feeds
+   * within one renewal window, because the server re-checks the account on
+   * every renewal.
+   */
+  async adminUpdatePerson(
+    accountId: string,
+    changes: { status?: "active" | "disabled"; sites?: readonly string[] },
+    opts: RequestOptions = {},
+  ): Promise<void> {
+    const path = `/v1/admin/people/${encodeURIComponent(accountId)}`;
+    await this.http.send({
+      method: "PATCH",
+      path,
+      accept: "json",
+      json: changes,
+      ...pick(opts),
+    });
+  }
+
+  /** `POST /v1/admin/people/{id}/password`. Admins only. */
+  async adminResetPassword(
+    accountId: string,
+    password: string,
+    opts: RequestOptions = {},
+  ): Promise<void> {
+    const path = `/v1/admin/people/${encodeURIComponent(accountId)}/password`;
+    await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json: { password },
+      ...pick(opts),
+    });
+  }
+
+  /**
+   * The audit log — `GET /v1/admin/audit`. Admins only.
+   *
+   * Scoped to the organization by the server, row by row. `action` is a
+   * PREFIX, so `"share."` matches every share action.
+   */
+  async adminAudit(
+    filter: {
+      action?: string;
+      accountId?: string;
+      deviceId?: string;
+      since?: string;
+      until?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+    opts: RequestOptions = {},
+  ): Promise<AuditResponse> {
+    // BUILT BY HAND, not with URLSearchParams: this package targets
+    // `lib: ES2022` with no DOM, so URLSearchParams is not in scope. Pulling
+    // the DOM lib in for one query string would widen the type surface of a
+    // package that deliberately has no runtime dependencies.
+    const parts: string[] = [];
+    const add = (k: string, v: string | number | undefined): void => {
+      if (v === undefined || v === "") return;
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    };
+    add("action", filter.action);
+    add("account_id", filter.accountId);
+    add("device_id", filter.deviceId);
+    add("since", filter.since);
+    add("until", filter.until);
+    add("limit", filter.limit);
+    add("offset", filter.offset);
+    const query = parts.join("&");
+    const path = query ? `/v1/admin/audit?${query}` : "/v1/admin/audit";
+    const { status, body } = await this.http.send({
+      method: "GET",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    return parseAudit(body, { status, path });
+  }
+
 }
 
 /* ------------------------------------------------------------------ *

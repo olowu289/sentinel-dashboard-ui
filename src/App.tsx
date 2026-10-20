@@ -4,7 +4,7 @@ import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
 import { FootageView } from "@/components/FootageView";
 import { useSession } from "@/components/AuthProvider";
-import { can, navAllowed } from "@/lib/features";
+import { can, navAllowed, navVisible } from "@/lib/features";
 import {
   clearSection,
   sectionFromHash,
@@ -15,6 +15,14 @@ import {
 import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { SettingsView } from "@/components/SettingsView";
+import { AdministrationView } from "@/components/AdministrationView";
+import { NotificationStack } from "@/components/NotificationStack";
+import { NotificationProvider } from "@/lib/notifications";
+import { ShareFeedProvider } from "@/lib/useShareFeed";
+import { ShareDeck } from "@/components/sharing/ShareNotifications";
+import { SharesView } from "@/components/SharesView";
+import { useCapabilities } from "@/lib/useSites";
+import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
@@ -412,6 +420,24 @@ export function SentinelApp() {
      the others rather than a modal, because a forced re-login lands on the sign-in
      screen and a modal would have had to survive the app unmounting under it. */
   const [onSettings, setOnSettings] = useState(false);
+  /* SHARES and ADMINISTRATION. Screens like the others, and gated on what the
+     SERVER is rather than on what the account bought: `useCapabilities` asks
+     `GET /v1/capabilities`, and a hub answers `sites: false` for ever. See
+     `lib/api/sites.ts` for why that is not a build flag. */
+  const [onShares, setOnShares] = useState(false);
+  const [onAdmin, setOnAdmin] = useState(false);
+  /* WHAT THIS SERVER IS, and whether this account administers it. `null` from
+     `useCapabilities` means "not answered yet", and is treated as NO: showing
+     the destinations and then removing them a moment later looks like a bug
+     even though it is only a race. */
+  const caps = useCapabilities();
+  const sitesEnabled = caps?.features.sites === true;
+  const isAdmin = sitesEnabled && isAdminRole(account?.role);
+  /* THE SHARES THEMSELVES LIVE IN `ShareFeedProvider` (see main.tsx), which
+     is one list read by the cards, the Sharing page and the shared-feed badge
+     alike. Asking for them here as well would be a second copy that can
+     disagree with the first, which is the whole thing that provider exists to
+     make impossible. */
   /**
    * Which Settings section is open, and the ONE piece of this app's state that
    * lives in the URL.
@@ -876,7 +902,9 @@ export function SentinelApp() {
          finds nothing — so a screen cannot be reached by typing an address.
          Every way in goes through this function, which makes it the whole
          client-side surface. The server gates its own routes regardless. */
-      if (!navAllowed(features, id)) return;
+      if (!navVisible(id, { features, serverHasSites: sitesEnabled, isAdmin })) {
+        return;
+      }
       /* Every destination but Playback leaves the board. Playback is layered
          over whatever it was opened from, the board included. */
       if (id !== "playback") {
@@ -887,6 +915,21 @@ export function SentinelApp() {
          way Playback is, and a settings screen that survived navigating away
          would keep a half-typed password in state behind another view. */
       if (id !== "settings") setOnSettings(false);
+      /* Same rule as Settings, for the same reason: these screens hold
+         half-finished forms (a share being composed, a password being set) and
+         one that survived navigating away would keep them behind another view. */
+      if (id !== "shares") setOnShares(false);
+      if (id !== "admin") setOnAdmin(false);
+      if (id === "shares" || id === "admin") {
+        setOnPlayback(false);
+        setOnPeople(false);
+        setAdding(false);
+        setOnAlerts(false);
+        show(null);
+        if (id === "shares") setOnShares(true);
+        else setOnAdmin(true);
+        return;
+      }
       if (id === "dashboard") {
         setOnPlayback(false);
         setOnPeople(false);
@@ -955,8 +998,11 @@ export function SentinelApp() {
     /* `features` is a dependency because this callback READS it. Without it
        the memoised router keeps the set it was built with, so a feature
        revoked while somebody is signed in would be enforced by the rail and
-       not by the router -- the exact split this gate exists to avoid. */
-    [show, features],
+       not by the router -- the exact split this gate exists to avoid. The
+       same goes for the two site values: the capability probe answers AFTER
+       the first render, and a router memoised before it would refuse Shares
+       and Administration for the life of the session. */
+    [show, features, sitesEnabled, isAdmin],
   );
 
   const applyRejectMatch = useCallback((id: string) => {
@@ -1549,6 +1595,22 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
+      {/* ── THE TWO PROVIDERS THE CARDS NEED ──────────────────────────────
+
+          `ShareFeedProvider` is ONE share list, read by the floating cards,
+          by the Sharing page and by the badge on a borrowed feed. The brief's
+          hardest line is "cards and page must always agree", and two copies of
+          a list can only approach that by polling faster; one copy does it by
+          construction.
+
+          It is `enabled` on the server's answer, so a HUB -- same bundle, no
+          sites -- puts no share request on the wire at all.
+
+          `NotificationProvider` owns the stack and the history. It knows
+          nothing about sharing: share cards are the first kind through it and
+          deliberately not the shape of it. */}
+      <NotificationProvider>
+        <ShareFeedProvider enabled={sitesEnabled}>
       {/* Above every screen, because it is not a fact about any one of them.
           A column so the banner takes space rather than floating over the
           wall — the frames are the job, and this app never covers them with a
@@ -1568,8 +1630,21 @@ export function SentinelApp() {
             />
           )}
         </AnimatePresence>
+        {/* THE SHARE BANNER IS GONE, AND THAT WAS THE POINT.
+
+            It sat across the top, pushed the whole wall down, and its one
+            control sent whoever pressed it to another screen. Answering a
+            question about a gate meant stopping watching the gate.
+
+            What replaced it is `ShareDeck` plus `NotificationStack` at the
+            bottom of this file: cards in the corner, over the video, with the
+            whole decision inside them. Nothing here pushes anything down. */}
         <div className="min-h-0 flex-1">
-      {onSettings ? (
+      {onAdmin ? (
+        <AdministrationView onNavigate={navigate} />
+      ) : onShares ? (
+        <SharesView onNavigate={navigate} />
+      ) : onSettings ? (
         <SettingsView
           onNavigate={navigate}
           onBack={() => setOnSettings(false)}
@@ -1760,6 +1835,25 @@ export function SentinelApp() {
       )}
         </div>
       </div>
+
+        {/* The deck turns changes in the feed into cards; the stack draws
+            them. Last in the tree so nothing can render over them, and
+            `fixed` so they belong to the viewport rather than to whichever
+            screen happens to be open. */}
+        <ShareDeck
+          onWatch={(deviceId) => {
+            /* "Watch now" lands on the tower the share just granted, which
+               is the one thing anybody wants next and the thing the old
+               banner made somebody find for themselves. */
+            setOnShares(false);
+            setOnAdmin(false);
+            setOnSettings(false);
+            openTower(deviceId);
+          }}
+        />
+        <NotificationStack />
+        </ShareFeedProvider>
+      </NotificationProvider>
     </MotionConfig>
   );
 }

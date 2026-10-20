@@ -223,6 +223,35 @@ export class MediaError extends SentryError {}
  */
 export class PtzError extends SentryError {}
 
+/**
+ * `ptz_yielded` (`409`) — the camera's OWN site is driving it.
+ *
+ * A NORMAL OUTCOME OF SHARING, not a fault. The camera's own site always wins:
+ * an operator at the site a camera belongs to must never find it being driven
+ * by somebody they lent it to, so a shared controller's command is refused
+ * while the owning side holds control, and the hold lapses on its own.
+ *
+ * Narrower than {@link isPtzPermissionDenied} on purpose, and the two want
+ * opposite treatment: `grant_permission` means this viewer may NEVER drive
+ * this camera (disable it for the session), while this means NOT NOW (say who
+ * has it, and let the controls come back).
+ *
+ * ⚠ DO NOT RETRY ON A TIMER. {@link retryAfterSec} is a countdown for a
+ * person: the owning side refreshes its hold with every command, so a loop that
+ * waits it out and retries is refused again and achieves nothing but load.
+ */
+export class PtzYieldedError extends PtzError {
+  /** The site driving the camera, by name. `""` if the server sent none. */
+  get holderSite(): string {
+    return this.apiError?.holder_site ?? "";
+  }
+
+  /** Seconds until the hold lapses if its holder sends nothing more. */
+  get retryAfterSec(): number {
+    return this.apiError?.retry_after_sec ?? 0;
+  }
+}
+
 /** `rate_limited` (§7.8). Bound your PTZ command rate; the limit is per session. */
 export class RateLimitedError extends SentryError {
   override get retryable(): boolean {
@@ -285,6 +314,10 @@ const BY_CODE: Record<string, ErrorCtor> = {
   camera_offline: MediaError,
   // ptz (§5.2)
   ptz_unavailable: PtzError,
+  // Without this entry a yield falls through `ctorForStatus(409)` and arrives
+  // as a SessionConflictError -- a session fault, for what is a normal outcome
+  // of sharing a camera.
+  ptz_yielded: PtzYieldedError,
   BUSY: PtzError,
   SUPERSEDED: PtzError,
   ZONE_NOT_FOUND: PtzError,
@@ -358,6 +391,17 @@ export function isSentryErrorCode(err: unknown, code: ApiErrorCode): boolean {
  */
 export function isPtzPermissionDenied(err: unknown): boolean {
   return err instanceof SentryError && err.code === "grant_permission";
+}
+
+/**
+ * True for the PTZ yield — the camera's own site is driving it.
+ *
+ * Distinct from {@link isPtzPermissionDenied}, and treated differently: that
+ * one means never, this one means not now. Render the site from
+ * {@link PtzYieldedError.holderSite} and leave the controls able to come back.
+ */
+export function isPtzYielded(err: unknown): err is PtzYieldedError {
+  return err instanceof PtzYieldedError;
 }
 
 /**

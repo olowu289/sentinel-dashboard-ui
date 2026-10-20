@@ -5,6 +5,8 @@ import type { CameraFeed } from "@/lib/types";
 import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
 import { DEAD_STATES, FeedChip, formatElapsed } from "./FeedChip";
+import { SharedFeedBadge } from "./sharing/ShareNotifications";
+import { useBorrowedShare } from "@/lib/useShareFeed";
 import { PtzPad } from "./PtzPad";
 import { SirenOverlay } from "./SirenOverlay";
 import {
@@ -107,6 +109,9 @@ export function CameraTile({
      public/icons) but deliberately not wired up yet. */
   const objectFit = "object-cover";
 
+  /* Is this camera somebody else's, lent to us? Null for our own. */
+  const borrowed = useBorrowedShare(feed.towerId, feed.index);
+
   /* The actuators, shared with the fleet tile — see `useTileControls`. */
   const {
     controls,
@@ -119,6 +124,8 @@ export function CameraTile({
     realPtz,
     tiltLimit,
     ptzError,
+    controlledBy,
+    yielded,
     flash,
     alarming,
     talking,
@@ -498,6 +505,16 @@ export function CameraTile({
             latencyMs={isDead ? undefined : feed.latencyMs}
             error={hasError}
           />
+          {/* WHOSE CAMERA THIS IS, when it is not ours, and how long is left.
+              Always, not only near the end: it changes what an operator does
+              with what they see, and it explains in advance why the controls
+              may be refused. Under the chip rather than beside it, so a long
+              site name never pushes the camera's own name out of the tile. */}
+          {borrowed ? (
+            <div className="mt-[6px] flex">
+              <SharedFeedBadge share={borrowed} />
+            </div>
+          ) : null}
         </motion.div>
       )}
 
@@ -584,7 +601,7 @@ export function CameraTile({
           gone the moment the next command succeeds. SUPERSEDED never reaches
           here — `describePtzFailure` returns null for it, because a rapid
           direction change is normal, not a fault. */}
-      {ptzError && (
+      {ptzError ? (
         <motion.div
           {...chrome}
           className="chip-blur absolute bottom-[18px] left-[104px] rounded-[4px] bg-black/60 px-[8px] py-[4px]"
@@ -593,7 +610,28 @@ export function CameraTile({
             {ptzError}
           </p>
         </motion.div>
-      )}
+      ) : controlledBy ? (
+        /* WHO HAS THE CAMERA, when it is not this operator.
+ 
+           ⚠ NOT CRITICAL, NOT AMBER, NOT GREEN. Nothing is wrong and nothing
+           is wanted: the camera's own site is driving a camera it owns, which
+           is the system working as designed. Red would report a fault,
+           amber would ask for an action there is none to take, and green
+           means live. So it is ordinary ink, in the same slot as the fault
+           chip because it answers the same question an operator asks of a pad
+           that will not move.
+ 
+           It lasts as long as the hold does, not the four seconds a fault chip
+           lasts, because it is a state rather than an event. */
+        <motion.div
+          {...chrome}
+          className="chip-blur absolute bottom-[18px] left-[104px] rounded-[4px] bg-black/60 px-[8px] py-[4px]"
+        >
+          <p className="font-display text-[0.75rem] tracking-[0.11px] text-body-ink lg:text-[0.6875rem]">
+            {controlledBy}
+          </p>
+        </motion.div>
+      ) : null}
 
       {/* NO ZOOM READOUT. It reported the local crop factor, and the crop is
           gone. The lens's actual zoom level is not something the projection
@@ -618,7 +656,10 @@ export function CameraTile({
                travel and reports the at-limit state). Pan is never limited.
                The `disabled` below is the fixed/no-travel case, unrelated. */
             tiltLimit={realPtz ? tiltLimit : null}
-            disabled={!realPtz && limit === 0}
+            /* `yielded`: the camera's own site is driving it, so every button
+               here would be refused. The chip above says who has it; a pad that
+               is merely dead would not. */
+            disabled={(!realPtz && limit === 0) || yielded}
           />
         </motion.div>
       )}

@@ -153,3 +153,44 @@ export function navAllowed(
   const needed = NAV_FEATURE[id];
   return needed === undefined || features.has(needed);
 }
+
+/**
+ * The rail destinations that depend on the SERVER rather than on the account.
+ *
+ * A hub has no sites, no people and no shares, and the same bundle serves it,
+ * so these two cannot be answered from the feature list the way everything
+ * else is. `GET /v1/capabilities` answers it.
+ */
+export const SITE_NAV: ReadonlySet<string> = new Set(["shares", "admin"]);
+
+/**
+ * May this rail destination be SHOWN? The whole decision, in one place.
+ *
+ * ⚠ WHY THIS IS A FUNCTION AND NOT TWO PROPS. It used to be two props on
+ * `IconRail`, both defaulting to `false`, and nine of the ten screens that
+ * draw the rail passed neither. So Administration and Shares appeared on
+ * exactly two screens: Shares and Administration. The only way to see the icon
+ * was to be on the page the icon opens.
+ *
+ * A default that silently removes a destination is a bug that cannot be seen
+ * in the file where it happens. The rail derives both of these itself now and
+ * asks this, so nothing a caller forgets can take a destination away.
+ */
+export function navVisible(
+  id: string,
+  opts: {
+    features: ReadonlySet<Feature>;
+    /** From `GET /v1/capabilities`. `false` on a hub and before the probe. */
+    serverHasSites: boolean;
+    /** Is this account an administrator? `owner` counts. */
+    isAdmin: boolean;
+  },
+): boolean {
+  if (SITE_NAV.has(id)) {
+    if (!opts.serverHasSites) return false;
+    // Shares is for everybody on a server that has them: a site user both asks
+    // for shares and answers them. Administration is the admin's.
+    return id === "admin" ? opts.isAdmin : true;
+  }
+  return navAllowed(opts.features, id);
+}

@@ -166,10 +166,52 @@ PTZ failures through `isNormalPtzOutcome(err)` before rendering anything.
 | `listTowers()` | `GET /v1/viewer/towers` | §4.2.3 |
 | `getTower(device_id)` | `GET /v1/viewer/towers/{device_id}` | §4.2.3 |
 | `renameTower(device_id, label)` | `PATCH /v1/viewer/towers/{device_id}` — `{label}`; route not yet in §4.2 | §A.3.1 |
+| `ptzStep` | `POST .../ptz` `action: "step"`; a DISTANCE, not a duration. Check `result.done` | docs/ptz-api.md §2 |
+| `sweepStart` / `sweepPause` / `sweepResume` / `sweepStop` / `sweepStatus` | `POST .../ptz` `action: "sweep"`; runs on the device, survives a closed tab | docs/ptz-api.md §5 |
+| `listArchivedRecordings(device_id, camera?, range?)` | `GET /v1/viewer/recordings`; the hub's long-term archive, account-scoped | hub archive |
+| `getSegmentUrl(device_id, camera, key)` | `GET /v1/viewer/recordings/segment-url`; a FRESH url for one clip, minted on open | hub archive |
+| `listReviewableTowers()` | `GET /v1/viewer/recordings/towers`; what has footage, not what is online | hub archive |
+| `capabilities()` | `GET /v1/capabilities`; ask before rendering anything site-shaped | sites |
+| `listSites()` / `getSite(id)` | `GET /v1/sites`, `GET /v1/sites/{id}` | sites |
+| `listShares()` / `createShare` / `acceptShare` / `declineShare` / `revokeShare` | `/v1/shares...`; accept NARROWS a scope, never widens it | sites |
+| `adminListShares` / `adminCreateSite` / `adminUpdateSite` / `adminSetSiteHubs` | `/v1/admin/...`; admins only, server-enforced | sites |
+| `adminListPeople` / `adminCreatePerson` / `adminUpdatePerson` / `adminResetPassword` | `/v1/admin/people...` | sites |
+| `adminAudit(filter?)` | `GET /v1/admin/audit`; `action` is a PREFIX | sites |
 
 PTZ is **session-scoped**: the session is the authorization, and §4.2.2 defines no PTZ
 endpoint outside one. Coordination checks the session grant covers `ptz` and that camera,
 relays the command verbatim as §5.1 `ptz.command`, and returns the §5.2 `ptz.result`.
+
+### Sites, and the one bundle that runs in two places
+
+The same dashboard build serves the cloud and a hub on a LAN. On a hub there are no
+sites, no shares and no people, so **the UI asks `capabilities()` and renders from the
+answer** rather than from a build flag. A method that is not available there answers
+`404`, and that is not a fault to report.
+
+Sharing has two rules worth stating before you meet them in a refusal:
+
+- **The camera's own site always wins.** A shared user's PTZ command is refused with
+  `ptz_yielded` while the owning site is driving, and every ptz reply carries
+  `control` so the controls can be disabled before anybody presses anything. Gate on
+  `control.yours`.
+- **Revocation bites at once.** Cutting a share off ends the sessions already open on
+  it, so a viewer must handle a live view going dark, not only a future `403`.
+
+### Vendoring
+
+`dist/` is committed and this package is also consumed as a vendored tree (`file:`
+dependency). That copy is editable, and it was edited: two checkouts both calling
+themselves `0.2.0` had drifted by a whole feature in each direction. `VENDOR.json`
+now carries a sha256 of every file, `npm test` verifies this tree against it, and the
+consuming app verifies its copy. To change the package:
+
+```sh
+npm run build && npm run vendor:manifest
+node scripts/vendor-sync.mjs ../Terra-Sentinel/vendor/sentry-sdk
+```
+
+Never edit a vendored copy. Change it here and re-vendor.
 
 ## Runtime validation
 
@@ -201,6 +243,10 @@ week turns a compatible change into an outage.
 | `SessionCloseReason` | §4.6 |
 | `GrantPermission`, `GrantRole` — the *vocabulary* a viewer sees | §6.1 |
 | `PtzCommand`, `PtzMoveParams`, `PtzAxes`, `PtzResult`, `PtzStatusResult`, `PtzErrorCode` | §5.1, §5.2 |
+| `PtzStepParams`, `PtzStepResult`, `SweepParams`, `SweepStatus`, `SweepPhase`, `SweepOp` | docs/ptz-api.md §2, §5 |
+| `PtzControl` plus `PtzYieldedError`: who may drive a shared camera right now | sites |
+| `ArchivedRecordingList`, `ArchivedSegment`, `FreshSegmentUrl`, `ReviewableTower` | hub archive |
+| `Capabilities`, `Site`, `Cell`, `Share`, `ShareScopeEntry`, `Person`, `AuditEntry` | sites |
 | `TowerInfo`, `TowerListResponse`, `TowerDetail`, `CameraInfo`, `CameraResolution`, `SensorInfo`, `LinkState`, `CameraStatus`, `CameraRole` | §A.2, §A.3, §A.9 — the **projected** inventory |
 | `TowerHealth` — door · cover · impact · thermal · disk · feeds | §3.1, §3.4 |
 | `TowerStateEvent`, `TowerStateReason` | §3.4 |

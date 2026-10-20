@@ -1,5 +1,7 @@
 import {
   isNormalPtzOutcome,
+  isPtzYielded,
+  type PtzControl,
   type PtzMoveParams,
   type PtzResult,
   type PtzStopParams,
@@ -302,6 +304,26 @@ export async function step(
  * command arrived, the camera answered, and the answer was "not that way". The
  * device writes `reason` for a person, so it is shown as-is.
  */
+/**
+ * WHO IS DRIVING THIS CAMERA, when it is not you.
+ *
+ * `null` for every case where the controls are live -- nobody holding it, you
+ * holding it, a deployment that does not arbitrate control at all -- so the
+ * caller can render this and gate on nothing else.
+ *
+ * ⚠ THE SITE'S NAME IS THE SERVER'S, rendered verbatim. Sites know each
+ * other by the names an admin gave them and by nothing else, so there is
+ * nothing to translate and nothing to abbreviate.
+ */
+export function describeControl(control: PtzControl | null | undefined): string | null {
+  if (!control || control.yours) return null;
+  const who = control.holder_site?.trim();
+  /* A hold with no name is still a hold: refusing to say anything would leave
+     a dead pad with no explanation, which is the one outcome worse than a
+     vague one. */
+  return who ? `CONTROLLED BY ${who.toUpperCase()}` : "CONTROLLED BY ANOTHER SITE";
+}
+
 export function describeStepRefusal(res: PtzResult): string | null {
   const result = res.result as { done?: unknown; reason?: unknown } | undefined;
   if (!result || result.done !== false) return null;
@@ -455,6 +477,12 @@ export async function readStatus(
 export function describePtzFailure(err: unknown): string | null {
   if (err instanceof PtzUnavailableError) return `PTZ UNAVAILABLE — ${err.reason}`;
   if (isNormalPtzOutcome(err)) return null;
+  /* A YIELD IS NOT A FAILURE, and it must not be drawn as one. The camera's
+     own site is driving it, which is the system working: the tile already says
+     who has it, in a line that lasts as long as the hold rather than the four
+     seconds a fault chip lasts. Two messages for one event would read as two
+     problems. See {@link describeControl}. */
+  if (isPtzYielded(err)) return null;
 
   if (err && typeof err === "object" && "code" in err) {
     const code = String((err as { code: unknown }).code);

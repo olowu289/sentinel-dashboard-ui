@@ -60,6 +60,17 @@ const SCREENS = [
   ["sharing-history", "sharing-history"],
   ["sharing-empty", "sharing-empty"],
   ["sharing-admin-all", "sharing-admin-all-shares"],
+  // ── CELLS, TOWERS AND PEOPLE ──────────────────────────────────────
+  // Each add-drawer outcome is here because each is a sentence somebody
+  // reads at a mast, and prose cannot show whether it fits.
+  ["add-cell", "add-a-cell"],
+  ["add-tower", "add-a-tower"],
+  ["add-waiting", "add-waiting"],
+  ["add-queued", "add-queued-cell-offline"],
+  ["add-failed", "add-refused"],
+  ["add-full", "add-cell-full"],
+  ["card-fleet", "card-a-tower-was-added"],
+  ["card-revoked", "card-a-tower-was-removed"],
 ];
 
 /** The two widths the brief asks for. Heights are generous; shots are full page. */
@@ -103,7 +114,11 @@ async function main() {
     for (const [id, name] of SCREENS) {
       await page.goto(`${base}?screen=${id}`, { waitUntil: "networkidle" });
       // The loading screen never settles by design, so do not wait for it.
-      if (id !== "admin-loading") await page.waitForTimeout(400);
+      // The add-drawer outcome screens fill the form and press Add on a
+      // timer inside the harness, so they need longer than a static screen.
+      if (id.startsWith("add-") && id !== "add-cell" && id !== "add-tower")
+        await page.waitForTimeout(900);
+      else if (id !== "admin-loading") await page.waitForTimeout(400);
       else await page.waitForTimeout(250);
       await hideChrome(page);
       const file = `${OUT}/${name}-${label}.png`;

@@ -43,6 +43,20 @@ import {
  * what it is about to submit, on the one field where exactness is the rule.
  * `autoCapitalize`, `autoCorrect` and `spellCheck` are off for the same reason:
  * the browser must not help either.
+ *
+ * ── ONE FIELD, TWO KINDS OF LOGIN ──────────────────────────────────────
+ *
+ * It used to say ORGANIZATION NAME, because that is all there was. A login
+ * now has a second shape: `dave.terra-industries`, a person in an
+ * organization, and the dot is what tells them apart.
+ *
+ * ⚠ AND THE TWO ARE MATCHED DIFFERENTLY. A person's login is
+ * case-insensitive; an organization's is byte-exact, because making it
+ * insensitive would mean lower-casing a live customer's password-bearing
+ * login. So this field still must not transform what is typed: for a person
+ * it would be harmless, and for an organization it would be the lie above.
+ * The note under the field says both, in that order, because the person
+ * reading it is far more often a person than an organization.
  */
 
 type Failure =
@@ -197,7 +211,7 @@ export function LoginView() {
             <div className="flex w-full flex-col gap-[20px]">
               <label className="flex flex-col gap-[8px]">
                 <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-                  ORGANIZATION NAME
+                  LOGIN
                 </span>
                 <input
                   value={organizationName}
@@ -227,13 +241,16 @@ export function LoginView() {
                   autoCorrect="off"
                   spellCheck={false}
                   aria-invalid={rejected || undefined}
-                  placeholder="Terra Industries"
+                  placeholder="dave.terra-industries"
                   className={`h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra disabled:text-body-ink/40 ${
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />
                 <span className="text-[0.75rem] leading-[16px] text-muted">
-                  Matched exactly, including spaces and capitals.
+                  Your name and your organization, like
+                  <span className="font-mono"> dave.terra-industries</span>.
+                  An organization signs in with its own name, matched
+                  exactly, including spaces and capitals.
                 </span>
               </label>
 

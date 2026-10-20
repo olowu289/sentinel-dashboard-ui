@@ -23,6 +23,8 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   AuditResponse,
   Capabilities,
+  CellDetailResponse,
+  CellListResponse,
   PeopleListResponse,
   ShareListResponse,
   SiteListResponse,
@@ -32,6 +34,8 @@ import {
   adminListPeople,
   adminListShares,
   capabilities,
+  getCell,
+  listCells,
   listShares,
   listSites,
   NO_SITES,
@@ -129,6 +133,33 @@ export function useSites(enabled = true): Loaded<SiteListResponse> {
 
 export function useShares(enabled = true): Loaded<ShareListResponse> {
   return useLoader(listShares, enabled);
+}
+
+/**
+ * The cells this account may see, NAMED.
+ *
+ * Not `useSites().value.sites[].hubs`, which is a list of hub IDS. A cell has a
+ * name somebody chose, a tower count and a ceiling, and the only place those
+ * exist is this route — a screen that drew `hub_kaduna_01` where a person had
+ * written "North Camp" is the screen this whole change exists to replace.
+ *
+ * Available to a SITE USER as well as an admin, because a site user may add a
+ * tower to their own cells and has to be able to choose one.
+ */
+export function useCells(enabled = true): Loaded<CellListResponse> {
+  return useLoader(listCells, enabled);
+}
+
+/**
+ * One cell and the towers in it.
+ *
+ * `hubId` null means nothing is open, and then nothing is fetched: a detail
+ * hook that loaded on every render of a closed panel is a request per keystroke
+ * somewhere else on the page.
+ */
+export function useCell(hubId: string | null): Loaded<CellDetailResponse> {
+  const load = useCallback(() => getCell(hubId ?? ""), [hubId]);
+  return useLoader(load, Boolean(hubId));
 }
 
 export function useAdminShares(enabled = true): Loaded<ShareListResponse> {

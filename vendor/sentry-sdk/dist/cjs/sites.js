@@ -37,6 +37,11 @@ exports.parseShare = parseShare;
 exports.parseShareList = parseShareList;
 exports.parsePeopleList = parsePeopleList;
 exports.parseAudit = parseAudit;
+exports.parseCellList = parseCellList;
+exports.parseCellDetail = parseCellDetail;
+exports.parseAddDevice = parseAddDevice;
+exports.parseMoveCell = parseMoveCell;
+exports.parseRemoveTower = parseRemoveTower;
 const errors_js_1 = require("./errors.js");
 /**
  * The longest message one site may send another, which the server enforces.
@@ -277,16 +282,28 @@ function parsePeopleList(raw, ctx = {}) {
     const c = new Check();
     const o = c.obj("$", raw);
     const people = c.arr("$.people", o.people).map((p, i) => {
-        const po = c.obj(`$.people[${i}]`, p);
-        return {
-            account_id: c.str(`$.people[${i}].account_id`, po.account_id),
-            login: c.str(`$.people[${i}].login`, po.login),
-            role: c.str(`$.people[${i}].role`, po.role),
-            status: c.str(`$.people[${i}].status`, po.status),
+        const at = `$.people[${i}]`;
+        const po = c.obj(at, p);
+        const row = {
+            account_id: c.str(`${at}.account_id`, po.account_id),
+            login: c.str(`${at}.login`, po.login),
+            role: c.str(`${at}.role`, po.role),
+            status: c.str(`${at}.status`, po.status),
             sites: c
-                .arr(`$.people[${i}].sites`, po.sites)
-                .map((s, j) => c.str(`$.people[${i}].sites[${j}]`, s)),
+                .arr(`${at}.sites`, po.sites)
+                .map((s, j) => c.str(`${at}.sites[${j}]`, s)),
         };
+        // SPREAD, NOT DEFAULTED. An absent `name` means this login is an
+        // ORGANIZATION, which is a different thing from a person with a blank
+        // name; and an absent `was` means never renamed, not renamed from nothing.
+        if (po.name !== undefined)
+            row.name = c.str(`${at}.name`, po.name);
+        if (po.was !== undefined)
+            row.was = c.str(`${at}.was`, po.was);
+        if (po.created_at !== undefined) {
+            row.created_at = c.str(`${at}.created_at`, po.created_at);
+        }
+        return row;
     });
     c.done("people list", ctx);
     return { people };
@@ -313,5 +330,109 @@ function parseAudit(raw, ctx = {}) {
         limit: c.num("$.limit", o.limit),
         offset: c.num("$.offset", o.offset),
     };
+}
+function managedCell(c, at, raw) {
+    const o = c.obj(at, raw);
+    const out = {
+        hub_id: c.str(`${at}.hub_id`, o.hub_id),
+        name: c.str(`${at}.name`, o.name),
+        site_id: c.strOrNull(`${at}.site_id`, o.site_id),
+        site_name: c.str(`${at}.site_name`, o.site_name),
+        status: c.str(`${at}.status`, o.status),
+        towers: c.num(`${at}.towers`, o.towers),
+        online: c.bool(`${at}.online`, o.online),
+        full: c.bool(`${at}.full`, o.full),
+        filling: c.bool(`${at}.filling`, o.filling),
+    };
+    // Spread only when the server sent one, so "absent" survives the parse.
+    if (o.capacity !== undefined) {
+        out.capacity = c.num(`${at}.capacity`, o.capacity);
+    }
+    return out;
+}
+function parseCellList(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const cells = c
+        .arr("$.cells", o.cells)
+        .map((cell, i) => managedCell(c, `$.cells[${i}]`, cell));
+    c.done("cell list", ctx);
+    return { cells };
+}
+function parseCellDetail(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const cell = managedCell(c, "$.cell", o.cell);
+    const towers = c.arr("$.towers", o.towers).map((t, i) => {
+        const at = `$.towers[${i}]`;
+        const to = c.obj(at, t);
+        const device_id = c.str(`${at}.device_id`, to.device_id);
+        const out = {
+            device_id,
+            // THE ID AS A FALLBACK, not an empty string: a row with a blank name is
+            // a row nobody can click on with any confidence.
+            name: typeof to.name === "string" && to.name ? to.name : device_id,
+        };
+        if (typeof to.last_seen === "string")
+            out.last_seen = to.last_seen;
+        return out;
+    });
+    c.done("cell detail", ctx);
+    return { cell, towers };
+}
+function pending(c, at, raw) {
+    const o = c.obj(at, raw);
+    const out = {};
+    for (const key of ["what", "name", "claim_id", "site_id", "hub_id",
+        "expires_at", "status", "message"]) {
+        if (o[key] !== undefined)
+            out[key] = c.str(`${at}.${key}`, o[key]);
+    }
+    if (o.queued !== undefined)
+        out.queued = c.bool(`${at}.queued`, o.queued);
+    if (o.old_keys_revoked !== undefined) {
+        out.old_keys_revoked = c.bool(`${at}.old_keys_revoked`, o.old_keys_revoked);
+    }
+    // ⚠ AND A PAIRING CODE IS DROPPED HERE TOO, if a server ever sends one. It
+    // has no business in a parsed response, and a client that quietly carried one
+    // into its state would put it in a devtools tree and then in a bug report.
+    return out;
+}
+function parseAddDevice(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const out = {
+        pending: pending(c, "$.pending", o.pending),
+    };
+    if (o.cell !== undefined && o.cell !== null) {
+        out.cell = managedCell(c, "$.cell", o.cell);
+    }
+    c.done("added device", ctx);
+    return out;
+}
+function parseMoveCell(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const cell = o.cell === undefined || o.cell === null
+        ? null
+        : managedCell(c, "$.cell", o.cell);
+    const ended = c
+        .arr("$.shares_ended", o.shares_ended)
+        .map((s, i) => c.str(`$.shares_ended[${i}]`, s));
+    c.done("moved cell", ctx);
+    return { cell, shares_ended: ended };
+}
+function parseRemoveTower(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const out = {
+        removed: c.str("$.removed", o.removed),
+        keys_revoked: c.bool("$.keys_revoked", o.keys_revoked),
+        recordings_kept: c.bool("$.recordings_kept", o.recordings_kept),
+    };
+    if (o.note !== undefined)
+        out.note = c.str("$.note", o.note);
+    c.done("removed tower", ctx);
+    return out;
 }
 //# sourceMappingURL=sites.js.map

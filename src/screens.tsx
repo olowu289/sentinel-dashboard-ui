@@ -31,6 +31,8 @@ import { AuthContextForHarness } from "@/components/AuthProvider";
 import { AdministrationView } from "@/components/AdministrationView";
 import { SharesView } from "@/components/SharesView";
 import { IconRail } from "@/components/IconRail";
+import { AddDeviceDrawer } from "@/components/AddDeviceDrawer";
+import { KINDS } from "@/lib/notifications";
 import { NotificationProvider, useNotifications } from "@/lib/notifications";
 import { NotificationStack } from "@/components/NotificationStack";
 import { ShareFeedProvider } from "@/lib/useShareFeed";
@@ -181,8 +183,24 @@ const SHARES = [
   },
 ];
 
+/**
+ * The people, as /v1/admin/people reports them.
+ *
+ * ⚠ THE LOGINS CHANGED MEANING. These used to be arbitrary strings with
+ * dots in them -- `abu.north`, `former.contractor` -- and a dot now means
+ * `name.organization`, so `abu.north` reads as a person called `abu` in an
+ * organization called `north`. Every person here is now `name.kaduna-mine`,
+ * matching the organization's own login above them.
+ *
+ * ⚠ AND ONE HAS BEEN RENAMED. `dele (was chi)` is the only way a reader of
+ * a list connects a person to a log entry written under their old name, and
+ * it is the kind of row nobody builds a fixture for.
+ */
 const PEOPLE = [
   {
+    /* THE ORGANIZATION'S OWN LOGIN, which IS the administrator: no dot, no
+       `name`. A people list that showed it with a blank name would offer
+       `disable` on the only administrator. */
     account_id: "acct_admin",
     login: "kaduna-mine",
     role: "owner",
@@ -191,28 +209,44 @@ const PEOPLE = [
   },
   {
     account_id: "acct_abu",
-    login: "abu.north",
+    login: "abu.kaduna-mine",
+    name: "abu",
     role: "site_user",
     status: "active",
     sites: ["site_north"],
   },
   {
     account_id: "acct_grace",
-    login: "grace.pit",
+    login: "grace.kaduna-mine",
+    name: "grace",
     role: "site_user",
     status: "active",
     sites: ["site_pit", "site_north"],
   },
   {
+    /* RENAMED, to fix a typo. Their account id did not change, so every
+       entry in the log still resolves to them. */
+    account_id: "acct_dele",
+    login: "dele.kaduna-mine",
+    name: "dele",
+    was: "chi",
+    role: "site_user",
+    status: "active",
+    sites: ["site_yard"],
+  },
+  {
     account_id: "acct_new",
-    login: "sam.newstarter",
+    login: "sam.kaduna-mine",
+    name: "sam",
     role: "site_user",
     status: "active",
     sites: [],
   },
   {
+    /* DISABLED AND NOT DELETED, so the log keeps resolving. */
     account_id: "acct_gone",
-    login: "former.contractor",
+    login: "ex.kaduna-mine",
+    name: "ex",
     role: "site_user",
     status: "disabled",
     sites: ["site_pit"],
@@ -329,6 +363,23 @@ function install(mode: Mode) {
           },
         ],
       });
+    /* THE CELLS, NAMED. The whole point of these screens: a site's cells
+       were hub ids before, and a reviewer has to be able to see that they
+       are "North Camp" now. One cell is NEARLY FULL and one is OFFLINE,
+       because those are the two states a fixture never has by accident. */
+    if (/\/v1\/cells\/[^/]+$/.test(url))
+      return body({
+        cell: CELLS[0],
+        towers: [
+          { device_id: "kln_northgate_000001", name: "North Gate",
+            last_seen: new Date().toISOString() },
+          { device_id: "kln_northgate_000002", name: "North Fence",
+            last_seen: new Date().toISOString() },
+          { device_id: "kln_northgate_000003", name: "Weighbridge" },
+        ],
+      });
+    if (url.includes("/v1/cells"))
+      return body({ cells: empty ? [] : CELLS });
     if (url.includes("/v1/sites"))
       return body({
         sites: empty ? [] : SITES,
@@ -343,6 +394,31 @@ function install(mode: Mode) {
     return body({});
   }) as typeof window.fetch;
 }
+
+/**
+ * The cells, as /v1/cells reports them.
+ *
+ * ⚠ ONE IS NEARLY FULL AND ONE IS OFFLINE, on purpose. Those are the two
+ * states that carry amber on this screen, and a fixture where every cell is
+ * healthy photographs a screen that cannot warn anybody about anything.
+ */
+const CELLS = [
+  {
+    hub_id: "kln_hub_northgate", name: "North Camp",
+    site_id: "site_north", site_name: "North Gate", status: "active",
+    towers: 3, online: true, capacity: 4, full: false, filling: true,
+  },
+  {
+    hub_id: "kln_hub_pit", name: "Pit Office",
+    site_id: "site_pit", site_name: "South Pit", status: "active",
+    towers: 1, online: false, capacity: 4, full: false, filling: false,
+  },
+  {
+    hub_id: "kln_hub_yard", name: "Yard Shed",
+    site_id: "site_yard", site_name: "West Yard", status: "active",
+    towers: 4, online: true, capacity: 4, full: true, filling: true,
+  },
+] as const;
 
 /**
  * The signed-in person, BY ROLE.
@@ -409,6 +485,19 @@ const SCREENS = [
   { id: "sharing-empty", label: "Sharing: nothing yet", mode: "empty" },
   /* The same page as an ADMINISTRATOR: every share, and nothing to answer. */
   { id: "sharing-admin-all", label: "Sharing: admin, all shares", mode: "full" },
+  /* ── CELLS, TOWERS AND PEOPLE ───────────────────────────────────────
+     The screens this change adds. Each of the add-drawer states is here
+     because each is a sentence somebody reads at a mast, and prose cannot
+     show whether it fits. */
+  { id: "add-cell", label: "Add a cell", mode: "full" },
+  { id: "add-tower", label: "Add a tower", mode: "full" },
+  { id: "add-waiting", label: "Add: waiting", mode: "full" },
+  { id: "add-queued", label: "Add: queued (cell offline)", mode: "full" },
+  { id: "add-failed", label: "Add: refused", mode: "full" },
+  { id: "add-full", label: "Add: cell full", mode: "full" },
+  { id: "admin-people", label: "Administration · People", mode: "full" },
+  { id: "card-fleet", label: "Card: a tower was added", mode: "full" },
+  { id: "card-revoked", label: "Card: a tower was removed", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -610,6 +699,186 @@ function PtzYielded() {
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * The add drawer, in each of its outcomes
+ *
+ * ⚠ DRIVEN THROUGH THE REAL COMPONENT, with the server's answer stubbed per
+ * screen. The alternative was four hand-built mock-ups of a drawer, which
+ * would photograph whatever I imagined rather than what it renders -- and the
+ * whole reason these states are worth a picture is that each one is a
+ * sentence somebody reads at a mast, and prose cannot show whether it fits.
+ * ------------------------------------------------------------------ */
+
+function AddScreen({ which }: { which: string }) {
+  const what = which === "add-tower" || which === "add-queued"
+    || which === "add-full" ? "tower" : "cell";
+
+  /* The outcome the stubbed POST produces, which is what puts the drawer
+     into the state being photographed. */
+  useEffect(() => {
+    const original = window.fetch;
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(typeof input === "string" ? input : (input as Request).url ?? input);
+      const post = (init?.method ?? "GET").toUpperCase() === "POST";
+      if (post && (url.includes("/v1/cells") || url.includes("/v1/towers"))) {
+        const answer = {
+          "add-waiting": {
+            status: 201,
+            body: {
+              pending: {
+                claim_id: "clm_demo", name: "South Camp", what: "cell",
+                status: "open",
+                expires_at: new Date(Date.now() + 13 * 60_000).toISOString(),
+              },
+            },
+          },
+          "add-queued": {
+            status: 202,
+            body: {
+              pending: {
+                queued: true, name: "Far Gate", hub_id: "kln_hub_pit",
+                status: "waiting_for_cell",
+                message: "That cell is offline. The tower will be added as "
+                  + "soon as it reconnects.",
+              },
+            },
+          },
+          "add-failed": {
+            status: 409,
+            body: {
+              error: {
+                code: "claim_conflict",
+                message: "another account already has an open claim for "
+                  + "this code",
+              },
+            },
+          },
+          "add-full": {
+            status: 409,
+            body: {
+              error: {
+                code: "cell_full",
+                message: "Yard Shed is full: 4 of 4 towers. Remove one, or "
+                  + "add this tower to another cell.",
+              },
+            },
+          },
+        }[which];
+        if (answer) {
+          return new Response(JSON.stringify(answer.body), {
+            status: answer.status,
+            headers: { "content-type": "application/json" },
+          });
+        }
+      }
+      return original(input as never, init);
+    }) as typeof window.fetch;
+    return () => {
+      window.fetch = original;
+    };
+  }, [which]);
+
+  /* Fill the form and press Add, for the screens that photograph an
+     OUTCOME. The three form screens are left as the form. */
+  useEffect(() => {
+    if (which === "add-cell" || which === "add-tower") return;
+    const t = window.setTimeout(() => {
+      const root = document.querySelector('[role="dialog"]');
+      if (!root) return;
+      const inputs = [...root.querySelectorAll("input")];
+      const selects = [...root.querySelectorAll("select")];
+      const set = (el: HTMLInputElement | HTMLSelectElement, v: string) => {
+        const proto = el instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        setter?.call(el, v);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      if (selects[0]) set(selects[0], selects[0].options[1]?.value ?? "");
+      if (inputs[0]) set(inputs[0], what === "cell" ? "South Camp" : "Far Gate");
+      if (inputs[1]) set(inputs[1], "7Q2K-4M9X-ABCD");
+      window.setTimeout(() => {
+        const add = [...root.querySelectorAll("button")].find(
+          (b) => b.textContent?.trim() === "Add",
+        );
+        add?.click();
+      }, 60);
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [which, what]);
+
+  return (
+    <div className="relative h-full w-full bg-ink">
+      <FakeWall />
+      <AddDeviceDrawer
+        open
+        what={what as "cell" | "tower"}
+        sites={SITES as never}
+        cells={CELLS as never}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />
+    </div>
+  );
+}
+
+/* The two new card kinds, over the wall, where they actually appear. */
+function FleetCards({ which }: { which: string }) {
+  const removed = which === "card-revoked";
+  return (
+    <div className="relative h-full w-full bg-ink">
+      <FakeWall />
+      <div className="absolute right-[16px] top-[16px] flex w-[320px] flex-col gap-[10px]">
+        <HarnessCard
+          kind={removed ? "revoked" : "fleet"}
+          title={removed
+            ? "A tower was removed: North Fence"
+            : "A tower was added: North Fence"}
+          body={removed
+            ? "Its keys are revoked. Recordings stay until normal retention."
+            : "It will appear when the equipment comes online."}
+        />
+        {removed ? null : (
+          <HarnessCard
+            kind="fleet"
+            title="A cell is queued for an offline cell: Far Gate"
+            body={"Nothing was sent yet. It goes out when the cell "
+              + "reconnects, and its fifteen minutes start then."}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One card, drawn with the real tokens for the kind. */
+function HarnessCard({
+  kind,
+  title,
+  body,
+}: {
+  kind: "fleet" | "revoked";
+  title: string;
+  body: string;
+}) {
+  const k = KINDS[kind];
+  return (
+    <div
+      className={
+        "flex flex-col gap-[6px] rounded-[12px] border px-[14px] py-[12px] " +
+        k.wash + " " + k.line
+      }
+    >
+      <span className={"font-display text-[0.8125rem] " + k.accent}>
+        {title}
+      </span>
+      <span className="text-[0.75rem] leading-[16px] text-muted">{body}</span>
+    </div>
+  );
+}
+
 function Harness() {
   const [which, setWhich] = useState<string>(
     new URLSearchParams(location.search).get("screen") ?? "admin-sites",
@@ -638,6 +907,12 @@ function Harness() {
           </p>
         </div>
       </div>
+    ) : which.startsWith("add-") ? (
+      <AddScreen which={which} />
+    ) : which === "card-fleet" || which === "card-revoked" ? (
+      <FleetCards which={which} />
+    ) : which === "admin-people" ? (
+      <AdministrationView />
     ) : which === "ptz-yielded" ? (
       <PtzYielded />
     ) : which.startsWith("shares") ? (

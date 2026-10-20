@@ -34,27 +34,34 @@
  * the other is the product not lying.
  */
 
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { IconRail } from "@/components/IconRail";
+import { useSession } from "@/components/AuthProvider";
 import { useCallback, useMemo, useState } from "react";
 import type { Person, Share, Site } from "@kallon/sentry-sdk";
 import { isShareLive } from "@kallon/sentry-sdk";
 import {
-  adminCreatePerson,
+  adminAddPerson,
   adminCreateSite,
+  adminRemoveSite,
+  adminRenamePerson,
   adminRenameSite,
   adminResetPassword,
   adminSetPersonSites,
   adminSetPersonStatus,
-  adminSetSiteHubs,
+  adminMoveCell,
   revokeShare,
 } from "@/lib/api/sites";
 import {
   useAdminShares,
   useAudit,
+  useCells,
   usePeople,
   useSites,
 } from "@/lib/useSites";
+
+import { AddDeviceDrawer, type AddWhat } from "@/components/AddDeviceDrawer";
+import { SiteCells } from "@/components/SiteCells";
 import { ENTER, FADE } from "@/lib/motion";
 
 import { ShareRow } from "@/components/SharesView";
@@ -90,12 +97,48 @@ const PANES: readonly { id: PaneId; label: string }[] = [
 
 function SitesPane() {
   const sites = useSites();
+  /* THE CELLS, NAMED. `sites.value.sites[].hubs` is a list of hub ids and
+     nothing else; a cell has a name somebody chose, a tower count and a
+     ceiling, and this route is the only place they exist. */
+  const cells = useCells();
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameTo, setRenameTo] = useState("");
-  const [placing, setPlacing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  /* The drawer: what it is adding, and what it is adding it to. Null means
+     closed, and the page behind keeps its place. */
+  const [adding, setAdding] = useState<
+    { what: AddWhat; siteId?: string; hubId?: string } | null
+  >(null);
+
+  const reloadAll = useCallback(() => {
+    sites.reload();
+    cells.reload();
+  }, [sites, cells]);
+
+  const removeSite = useCallback(
+    async (siteId: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await adminRemoveSite(siteId);
+        setDeleting(null);
+        reloadAll();
+      } catch (err) {
+        const e = err as { code?: string; message?: string };
+        /* The server names what is still in it, which is more useful than
+           anything written here: "North Camp still has 2 cell(s) and 1
+           person(s)". */
+        setError(String(e?.message || "Could not delete that site."));
+        setDeleting(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [reloadAll],
+  );
 
   const create = useCallback(async () => {
     if (!newName.trim()) return;
@@ -133,36 +176,15 @@ function SitesPane() {
     [renameTo, sites],
   );
 
-  const place = useCallback(
-    async (site: Site, hubId: string) => {
-      setBusy(true);
-      try {
-        const next = [...(site.hubs ?? []), hubId];
-        await adminSetSiteHubs(site.site_id, next);
-        setPlacing(null);
-        sites.reload();
-      } finally {
-        setBusy(false);
-      }
-    },
-    [sites],
-  );
+  /* NO `place` AND `unplace` ANY MORE. They assigned and unassigned a hub
+     by id, which is how a cell used to be put in a site. A cell now ARRIVES
+     in a site -- the claim carries the site, and the hub lands there when it
+     enrols -- and moving one is `adminMoveCell`, which also ends the shares
+     the move invalidates. Two ways to place a hub would have been two ways
+     for the shares half to be forgotten.
 
-  const unplace = useCallback(
-    async (site: Site, hubId: string) => {
-      setBusy(true);
-      try {
-        await adminSetSiteHubs(
-          site.site_id,
-          (site.hubs ?? []).filter((h) => h !== hubId),
-        );
-        sites.reload();
-      } finally {
-        setBusy(false);
-      }
-    },
-    [sites],
-  );
+     `adminSetSiteHubs` still exists in the SDK for the unassigned-hub case
+     below, which is a hub that enrolled before any of this. */
 
   if (sites.loading) return <Loading rows={3} label="Loading sites" />;
   if (sites.error) return <Failed message={sites.error} onRetry={sites.reload} />;
@@ -172,10 +194,32 @@ function SitesPane() {
 
   return (
     <div className="flex flex-col gap-[20px]">
+      {/* ADD, FROM THE TOP OF THE PANE as well as from inside a site: the
+          first cell in an organization is added before any site has one. */}
+      <div className="flex flex-wrap gap-[8px]">
+        <PrimaryButton onClick={() => setAdding({ what: "cell" })}>
+          Add a cell
+        </PrimaryButton>
+        <QuietButton onClick={() => setAdding({ what: "tower" })}>
+          Add a tower
+        </QuietButton>
+      </div>
+
+      <AddDeviceDrawer
+        open={adding !== null}
+        what={adding?.what ?? "cell"}
+        sites={list}
+        cells={cells.value?.cells ?? []}
+        {...(adding?.siteId ? { siteId: adding.siteId } : {})}
+        {...(adding?.hubId ? { hubId: adding.hubId } : {})}
+        onClose={() => setAdding(null)}
+        onAdded={reloadAll}
+      />
+
       <Card>
         <Field
           label="Add a site"
-          hint="A named location, like North Gate. It holds one or more hubs."
+          hint="A named location, like North Gate. It holds one or more cells."
         >
           <div className="flex flex-wrap gap-[8px]">
             <input
@@ -232,65 +276,88 @@ function SitesPane() {
                 ) : (
                   <h3 className="font-display text-[0.9375rem] leading-[20px] text-body-ink">
                     {site.name}
+                    {/* ⚠ COUNTED FROM THE LIST BELOW IT, not from
+                        `site.hubs`. The header read /v1/sites and the body
+                        reads /v1/cells, and the screenshots caught them
+                        disagreeing: "West Yard · 0 cells" with Yard Shed
+                        listed underneath it. Two sources for one number is how
+                        a heading lies about what is under it. */}
                     <span className="ml-[8px] font-mono text-[0.6875rem] text-muted">
-                      {(site.hubs ?? []).length === 1
-                        ? "1 cell"
-                        : `${(site.hubs ?? []).length} cells`}
+                      {(() => {
+                        const n = (cells.value?.cells ?? []).filter(
+                          (c) => c.site_id === site.site_id,
+                        ).length;
+                        return n === 1 ? "1 cell" : `${n} cells`;
+                      })()}
                     </span>
                   </h3>
                 )}
                 {renaming === site.site_id ? null : (
-                  <QuietButton
-                    onClick={() => {
-                      setRenaming(site.site_id);
-                      setRenameTo(site.name);
-                    }}
-                  >
-                    Rename
-                  </QuietButton>
+                  <span className="flex gap-[8px]">
+                    <QuietButton
+                      onClick={() => {
+                        setRenaming(site.site_id);
+                        setRenameTo(site.name);
+                      }}
+                    >
+                      Rename
+                    </QuietButton>
+                    <QuietButton danger onClick={() => setDeleting(site.site_id)}>
+                      Delete
+                    </QuietButton>
+                  </span>
                 )}
               </div>
 
-              {(site.hubs ?? []).length === 0 ? (
-                <p className="text-[0.8125rem] leading-[20px] text-muted">
-                  No cells here yet. A cell is one hub and the towers on it.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-[6px]">
-                  {(site.hubs ?? []).map((hubId) => (
-                    <li
-                      key={hubId}
-                      className="flex items-center justify-between gap-[8px] rounded-[8px] border border-line/70 bg-card/30 px-[12px] py-[8px]"
-                    >
-                      <span className="font-mono text-[0.75rem] text-sub">
-                        {hubId}
-                      </span>
-                      <QuietButton onClick={() => unplace(site, hubId)}>
-                        Remove
-                      </QuietButton>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <SiteCells
+                site={site}
+                cells={cells.value?.cells ?? []}
+                sites={list}
+                onChanged={reloadAll}
+                onAddCell={(siteId) =>
+                  setAdding({ what: "cell", siteId })
+                }
+                onAddTower={(hubId) =>
+                  setAdding({ what: "tower", hubId })
+                }
+              />
 
-              {unassigned.length ? (
-                placing === site.site_id ? (
-                  <div className="flex flex-wrap items-center gap-[8px]">
-                    {unassigned.map((hubId) => (
-                      <QuietButton key={hubId} onClick={() => place(site, hubId)}>
-                        {hubId}
+              {/* DELETE, AND IT IS REFUSED UNLESS THE SITE IS EMPTY. The
+                  server counts what is in it and names it, because "not
+                  empty" sends somebody hunting through three screens. */}
+              <AnimatePresence>
+                {deleting === site.site_id ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={ENTER}
+                    className="flex flex-col gap-[8px] rounded-[8px] border border-critical/40 bg-critical/5 p-[12px]"
+                    role="alertdialog"
+                    aria-label={`Delete ${site.name}?`}
+                  >
+                    <p className="font-display text-[0.8125rem] text-body-ink">
+                      Delete {site.name}?
+                    </p>
+                    <p className="text-[0.75rem] leading-[16px] text-muted">
+                      Only an empty site can be deleted. Its cells and its
+                      people have to be moved first. The site stays in the
+                      audit log, so old entries still make sense.
+                    </p>
+                    <div className="flex gap-[8px]">
+                      <QuietButton
+                        danger
+                        disabled={busy}
+                        onClick={() => void removeSite(site.site_id)}
+                      >
+                        {busy ? "Working…" : "Delete it"}
                       </QuietButton>
-                    ))}
-                    <QuietButton onClick={() => setPlacing(null)}>
-                      Cancel
-                    </QuietButton>
-                  </div>
-                ) : (
-                  <QuietButton onClick={() => setPlacing(site.site_id)}>
-                    Add a cell
-                  </QuietButton>
-                )
-              ) : null}
+                      <QuietButton onClick={() => setDeleting(null)}>
+                        Keep it
+                      </QuietButton>
+                    </div>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
             </div>
           ))}
         </motion.div>
@@ -315,13 +382,33 @@ function SitesPane() {
             Only administrators can see an unassigned hub. Put it in a site so
             the people who work there can.
           </p>
-          <ul className="flex flex-wrap gap-[8px]">
+          <ul className="flex flex-col gap-[8px]">
             {unassigned.map((hubId) => (
               <li
                 key={hubId}
-                className="rounded-[8px] border border-detect/30 px-[10px] py-[4px] font-mono text-[0.75rem] text-detect"
+                className="flex flex-wrap items-center gap-[8px]"
               >
-                {hubId}
+                <span className="rounded-[8px] border border-detect/30 px-[10px] py-[4px] font-mono text-[0.75rem] text-detect">
+                  {hubId}
+                </span>
+                <span className="text-[0.75rem] text-sub/80">put it in</span>
+                {list.map((site) => (
+                  <QuietButton
+                    key={site.site_id}
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await adminMoveCell(hubId, site.site_id);
+                        reloadAll();
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {site.name}
+                  </QuietButton>
+                ))}
               </li>
             ))}
           </ul>
@@ -338,37 +425,81 @@ function SitesPane() {
 function PeoplePane() {
   const people = usePeople();
   const sites = useSites();
+  /* WHO IS SIGNED IN, so this screen does not offer an administrator a
+     Disable button for itself. The server refuses it -- that is what stops
+     an admin disabling the only admin -- and a button that cannot work is
+     not a safeguard, it is a 404 waiting for somebody to press it. */
+  const { account } = useSession();
+  const meId = account?.account_id ?? null;
   const [adding, setAdding] = useState(false);
-  const [login, setLogin] = useState("");
+  /* A NAME, not a login. Their login is `name.organization` and the
+     organization half is this admin's own, so there is nothing to type and
+     nothing to get wrong. */
+  const [name, setName] = useState("");
+  /* THE LOGIN, SHOWN ONCE, right after somebody is added. This is the only
+     moment it belongs on screen: an admin has to be able to tell them what
+     to type, and a list of credentials is a worse list than a list of
+     names. */
+  const [justAdded, setJustAdded] = useState<Person | null>(null);
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "site_user">("site_user");
   const [chosen, setChosen] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameTo, setRenameTo] = useState("");
   const [newPassword, setNewPassword] = useState("");
 
   const add = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      await adminCreatePerson({ login, password, role, sites: chosen });
+      const created = await adminAddPerson({
+        name,
+        password,
+        role,
+        sites: chosen,
+      });
       setAdding(false);
-      setLogin("");
+      setName("");
       setPassword("");
       setChosen([]);
+      setJustAdded(created);
       people.reload();
     } catch (err) {
-      const e = err as { status?: number; message?: string };
+      const e = err as { status?: number; code?: string; message?: string };
       setError(
-        e?.status === 409
-          ? "That login is taken."
+        e?.code === "name_taken" || e?.status === 409
+          ? "Somebody in this organization already has that name."
           : e?.message || "Could not add that person.",
       );
     } finally {
       setBusy(false);
     }
-  }, [login, password, role, chosen, people]);
+  }, [name, password, role, chosen, people]);
+
+  const rename = useCallback(
+    async (person: Person, to: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        await adminRenamePerson(person.account_id, to);
+        setRenaming(null);
+        people.reload();
+      } catch (err) {
+        const e = err as { code?: string; message?: string };
+        setError(
+          e?.code === "name_taken"
+            ? "Somebody in this organization already has that name."
+            : String(e?.message || "Could not change that name."),
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [people],
+  );
 
   const toggleSite = useCallback(
     async (person: Person, siteId: string) => {
@@ -422,17 +553,51 @@ function PeoplePane() {
 
   return (
     <div className="flex flex-col gap-[20px]">
+      {/* ⚠ THE ONE MOMENT A LOGIN BELONGS ON SCREEN. An admin who has just
+          added somebody has to be able to tell them what to type, and
+          reconstructing `name.organization` by hand is how a person is given
+          the wrong login on their first day. It is dismissible, and it does
+          not come back: the list shows names. */}
+      {justAdded ? (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={ENTER}
+          className="flex flex-wrap items-center justify-between gap-[10px] rounded-[10px] border border-line bg-card/60 px-[14px] py-[12px]"
+        >
+          <span className="flex flex-col gap-[2px]">
+            <span className="font-display text-[0.875rem] text-body-ink">
+              {justAdded.name ?? justAdded.login} can sign in now
+            </span>
+            <span className="text-[0.8125rem] text-muted">
+              Their login is 
+              <span className="font-mono text-body-ink">{justAdded.login}</span>
+              , and the password you just set. They can change the password
+              in Settings; the login never changes.
+            </span>
+          </span>
+          <QuietButton onClick={() => setJustAdded(null)}>Got it</QuietButton>
+        </motion.div>
+      ) : null}
       {adding ? (
         <motion.div initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={ENTER}>
           <Card>
             <div className="grid gap-[16px] sm:grid-cols-2">
-              <Field label="Username">
+              <Field
+                label="Name"
+                hint={
+                  name.trim()
+                    ? `They will sign in as ${name.trim().toLowerCase()}.<organization>`
+                    : "Lower case letters, digits and hyphens. No dots: the dot is what separates a name from its organization."
+                }
+              >
                 <input
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value)}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   className={inputClass}
+                  placeholder="dave"
                   autoComplete="off"
                 />
               </Field>
@@ -502,7 +667,7 @@ function PeoplePane() {
             ) : null}
             <div className="flex gap-[8px]">
               <PrimaryButton
-                disabled={busy || !login.trim() || !password}
+                disabled={busy || !name.trim() || !password}
                 onClick={add}
               >
                 Add person
@@ -544,6 +709,20 @@ function PeoplePane() {
                         (disabled ? "text-muted line-through" : "text-body-ink")
                       }
                     >
+                      {p.name ?? p.login}
+                      {/* `dele (was chi)`. The ledger holds account ids, so
+                          an old entry still resolves to this person -- this
+                          is how a READER of the list connects the two. */}
+                      {p.was ? (
+                        <span className="ml-[6px] text-[0.75rem] text-muted">
+                          (was {p.was})
+                        </span>
+                      ) : null}
+                    </span>
+                    {/* THE LOGIN, quiet and monospaced. It is a credential,
+                        not a name, and it is here because somebody on the
+                        phone to this person needs to read it out. */}
+                    <span className="font-mono text-[0.6875rem] text-muted/80">
                       {p.login}
                     </span>
                     <span className="font-mono text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
@@ -556,6 +735,16 @@ function PeoplePane() {
                     ) : null}
                   </span>
                   <span className="flex gap-[8px]">
+                    {p.account_id === meId ? (
+                      /* YOUR OWN ROW. Nothing here is yours to press: the
+                         password is changed in Settings, where it asks for
+                         the current one, and disabling yourself is refused
+                         by the server. */
+                      <span className="text-[0.75rem] text-muted">
+                        This is you. Change your password in Settings.
+                      </span>
+                    ) : null}
+                    {p.account_id === meId ? null : (
                     <QuietButton
                       onClick={() =>
                         setResetting(
@@ -565,7 +754,24 @@ function PeoplePane() {
                     >
                       Reset password
                     </QuietButton>
-                    {disabled ? (
+                    )}
+                    {/* ONLY A PERSON CAN BE RENAMED, and only to fix a
+                        typo. An organization's own login is not somebody's
+                        name, and the slug behind it is in every person's
+                        login in the organization. */}
+                    {p.name && p.account_id !== meId ? (
+                      <QuietButton
+                        onClick={() => {
+                          setRenaming(
+                            renaming === p.account_id ? null : p.account_id,
+                          );
+                          setRenameTo(p.name ?? "");
+                        }}
+                      >
+                        Fix a typo
+                      </QuietButton>
+                    ) : null}
+                    {p.account_id === meId ? null : disabled ? (
                       <QuietButton
                         disabled={busy}
                         onClick={() => setStatus(p, "active")}
@@ -584,6 +790,41 @@ function PeoplePane() {
                   </span>
                 </div>
 
+                {renaming === p.account_id ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={ENTER}
+                    className="flex flex-col gap-[8px]"
+                  >
+                    <Field
+                      label="Correct the name"
+                      hint={
+                        "This changes their login to " +
+                        (renameTo.trim().toLowerCase() || "name") +
+                        ".<organization>, so tell them. Their history keeps their old name beside the new one."
+                      }
+                    >
+                      <div className="flex flex-wrap gap-[8px]">
+                        <input
+                          value={renameTo}
+                          onChange={(e) => setRenameTo(e.target.value)}
+                          className={inputClass + " max-w-[220px]"}
+                          autoComplete="off"
+                        />
+                        <PrimaryButton
+                          disabled={busy || !renameTo.trim()}
+                          onClick={() => void rename(p, renameTo.trim())}
+                        >
+                          Save
+                        </PrimaryButton>
+                        <QuietButton onClick={() => setRenaming(null)}>
+                          Cancel
+                        </QuietButton>
+                      </div>
+                    </Field>
+                  </motion.div>
+                ) : null}
                 {resetting === p.account_id ? (
                   <div className="flex flex-wrap items-end gap-[8px]">
                     <Field label="New password">

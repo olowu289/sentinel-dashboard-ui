@@ -167,6 +167,38 @@
   --color-notify-system-wash: #1b1b1d;
   --color-notify-system-line: #2c2c30;
 
+  /* ── THE FLEET CHANGED ────────────────────────────────────────────────
+
+     A cell or a tower was added, moved or replaced. These go to the ADMIN,
+     who is the person who has to know that the shape of the fleet is not what
+     it was an hour ago — above all when a site user added it.
+
+     ⚠ A COOL TEAL, for the same reason the share blue is blue: --color-terra
+     means LIVE and the alarm red is held for detections. This is the third
+     thing on screen that is neither, and it has to be separable from sharing
+     AT A GLANCE — a card about a mast appearing is not a card about somebody
+     asking for access, and an admin scanning the corner of a screen should not
+     have to read them to tell which is which.
+
+     Teal rather than a second blue because the two sit in the same stack:
+     `notify-share` reads as a blue and this reads as a green-blue, which is
+     far enough apart to separate in peripheral vision and close enough that
+     neither reads as a warning. */
+  --color-notify-fleet: #6fd3c7;
+  --color-notify-fleet-wash: #101f1e;
+  --color-notify-fleet-line: #27403d;
+  --color-notify-fleet-ink: #04100f;
+
+  /* SOMETHING WAS TAKEN AWAY: a tower removed, a person disabled.
+     Still not the alarm red — nothing is wrong with the site — but warmer than
+     the fleet teal, because what it reports cannot be undone by waiting. It is
+     the claim amber makes everywhere here (*this needs you*) with the
+     saturation taken off, so it sits in a stack without shouting. */
+  --color-notify-revoked: #e0b473;
+  --color-notify-revoked-wash: #201a10;
+  --color-notify-revoked-line: #3d3222;
+  --color-notify-revoked-ink: #150f04;
+
   /* The clip player. The stage is the same value as --color-card-hover and is
      its own token anyway: one is the colour a card takes under the pointer and
      the other is the surround a piece of evidence is looked at against, and
@@ -305,6 +337,20 @@
   --color-notify-system: #4b5563;
   --color-notify-system-wash: #ffffff;
   --color-notify-system-line: #e2e4e9;
+  /* The fleet teal and the revoked amber, light. Both darken a long way: a
+     teal that reads as information on black reads as a pastel on white, and a
+     pastel carrying 13px text is unreadable at arm's length on a bright
+     screen. The separation from the share blue is kept — it is the whole
+     reason these are two tokens — by moving this one toward green rather than
+     by making it lighter. */
+  --color-notify-fleet: #0f766e;
+  --color-notify-fleet-wash: #effbf9;
+  --color-notify-fleet-line: #bfe6e0;
+  --color-notify-fleet-ink: #ffffff;
+  --color-notify-revoked: #8a5a12;
+  --color-notify-revoked-wash: #fdf6ea;
+  --color-notify-revoked-line: #ecd9b4;
+  --color-notify-revoked-ink: #ffffff;
   --color-sub: #374151;
   --color-muted: #6b7280;
   --color-dim: rgba(55, 65, 81, 0.7);

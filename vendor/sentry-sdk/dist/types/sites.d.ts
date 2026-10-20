@@ -184,11 +184,34 @@ export interface ShareListResponse {
 }
 export interface Person {
     readonly account_id: string;
+    /**
+     * A person's login is `name.organization` — `dave.kaduna-mine`.
+     *
+     * ⚠ IT IS A CREDENTIAL, AND A COLUMN OF CREDENTIALS IS A WORSE LIST THAN A
+     * COLUMN OF NAMES. Show `name` in a list; show this where somebody is being
+     * TOLD their login, which happens once, when they are added. An
+     * ORGANIZATION's own login — the administrator — has no dot and no `name`.
+     */
     readonly login: string;
+    /**
+     * The half before the dot. Absent on an organization's own login, which is
+     * what the administrator is.
+     */
+    readonly name?: string;
+    /**
+     * The name this person had before an admin corrected a typo.
+     *
+     * Present only after a rename, and there so a list can read
+     * `dele (was chi)` for as long as the old name still means something to
+     * whoever is reading it. The audit ledger records `account_id` and never a
+     * name, which is what makes renaming safe at all.
+     */
+    readonly was?: string;
     /** `"admin"`, `"site_user"`, or `"owner"` which READS AS ADMIN. */
     readonly role: string;
     readonly status: string;
     readonly sites: readonly string[];
+    readonly created_at?: string;
 }
 export interface PeopleListResponse {
     readonly people: readonly Person[];
@@ -221,5 +244,125 @@ export declare function parseShare(raw: unknown, ctx?: Ctx): Share;
 export declare function parseShareList(raw: unknown, ctx?: Ctx): ShareListResponse;
 export declare function parsePeopleList(raw: unknown, ctx?: Ctx): PeopleListResponse;
 export declare function parseAudit(raw: unknown, ctx?: Ctx): AuditResponse;
+/** One cell as `/v1/cells` and `/v1/admin/cells` report it. */
+export interface ManagedCell {
+    readonly hub_id: string;
+    /** The name somebody chose. Never a slug, never the hub id. */
+    readonly name: string;
+    /** Null when it is in no site, which only an admin ever sees. */
+    readonly site_id: string | null;
+    readonly site_name: string;
+    readonly status: string;
+    /** How many towers the hub has reported. */
+    readonly towers: number;
+    /** Is its uplink connected right now. */
+    readonly online: boolean;
+    /**
+     * ⚠ ABSENT, NOT ZERO, when the hub has never reported a ceiling.
+     *
+     * That is an older hub, and capacity is then not enforced for this cell. A
+     * `capacity: 0` would read as "this cell can hold nothing", and a client that
+     * defaulted it to 0 would refuse every add.
+     */
+    readonly capacity?: number;
+    /** At the ceiling. Adding a tower is refused, with `cell_full`. */
+    readonly full: boolean;
+    /** Three quarters or more. Worth warning about; not yet a refusal. */
+    readonly filling: boolean;
+}
+/** One tower in a cell, named as its hub last reported it. */
+export interface CellTower {
+    readonly device_id: string;
+    readonly name: string;
+    readonly last_seen?: string;
+}
+export interface CellListResponse {
+    readonly cells: readonly ManagedCell[];
+}
+export interface CellDetailResponse {
+    readonly cell: ManagedCell;
+    readonly towers: readonly CellTower[];
+}
+/**
+ * A device that has been asked for and has not arrived yet.
+ *
+ * ⚠ THE PAIRING CODE IS NEVER HERE. It is a live secret until it is consumed,
+ * and a response body is no safer than a log line: it reaches a browser, a
+ * proxy, and whatever devtools are recording. The server omits it, and the
+ * parser drops it if one ever appears.
+ */
+export interface PendingDevice {
+    /** `"cell"` or `"tower"`. */
+    readonly what?: string;
+    readonly name?: string;
+    readonly claim_id?: string;
+    readonly site_id?: string;
+    readonly hub_id?: string;
+    /**
+     * When the claim window closes. ABSENT for a queued add, because its window
+     * has not started: it begins when the offline cell receives it.
+     */
+    readonly expires_at?: string;
+    /**
+     * `open` or `expired` for a claim the server holds, or one of
+     * `waiting_for_cell` (the cell is offline and this is queued) and
+     * `waiting_for_tower` (the cell is expecting it).
+     */
+    readonly status?: string;
+    /** True when the cell was offline and this is held until it reconnects. */
+    readonly queued?: boolean;
+    /** A sentence for a person. Present on the queued and waiting answers. */
+    readonly message?: string;
+    /** Replacement only: the old board's keys are gone. */
+    readonly old_keys_revoked?: boolean;
+}
+export interface AddDeviceResponse {
+    readonly pending: PendingDevice;
+    /** Present when adding a tower: the cell as it now stands. */
+    readonly cell?: ManagedCell | null;
+}
+export interface MoveCellResponse {
+    readonly cell: ManagedCell | null;
+    /**
+     * The shares that ENDED because the cameras left the site.
+     *
+     * ⚠ NOT A WARNING — A FACT. A share is an agreement between two sites about
+     * particular cameras; when the cameras move, it no longer describes anything.
+     * Both sides have to be told, which is why the ids come back rather than a
+     * client having to diff a share list to notice.
+     */
+    readonly shares_ended: readonly string[];
+}
+export interface RemoveTowerResponse {
+    readonly removed: string;
+    readonly keys_revoked: boolean;
+    /**
+     * ⚠ ALWAYS TRUE, deliberately: a removed tower's recordings stay until
+     * normal retention because they may be evidence. This is the only removal in
+     * the product that leaves data behind, and the UI is expected to say so at
+     * the moment of removing rather than afterwards.
+     */
+    readonly recordings_kept: boolean;
+    readonly note?: string;
+}
+export interface RemoveCellResponse {
+    readonly removed: string;
+    readonly name: string;
+}
+export interface RemoveSiteResponse {
+    readonly removed: string;
+    readonly name: string;
+    /**
+     * The row is ARCHIVED rather than dropped: every audit entry and every closed
+     * share still refers to it, and deleting it would make a year of the ledger
+     * unreadable. It is gone from every list.
+     */
+    readonly archived: boolean;
+}
+export declare function parseCellList(raw: unknown, ctx?: Ctx): CellListResponse;
+export declare function parseCellDetail(raw: unknown, ctx?: Ctx): CellDetailResponse;
+export declare function parseAddDevice(raw: unknown, ctx?: Ctx): AddDeviceResponse;
+export declare function parseMoveCell(raw: unknown, ctx?: Ctx): MoveCellResponse;
+export declare function parseRemoveTower(raw: unknown, ctx?: Ctx): RemoveTowerResponse;
 export {};
 //# sourceMappingURL=sites.d.ts.map

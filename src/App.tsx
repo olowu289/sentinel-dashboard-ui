@@ -19,6 +19,7 @@ import { AdministrationView } from "@/components/AdministrationView";
 import { NotificationStack } from "@/components/NotificationStack";
 import { NotificationProvider } from "@/lib/notifications";
 import { ShareFeedProvider } from "@/lib/useShareFeed";
+import { FleetFeedProvider } from "@/lib/useFleetFeed";
 import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
 import { useCapabilities } from "@/lib/useSites";
@@ -1611,6 +1612,14 @@ export function SentinelApp() {
           deliberately not the shape of it. */}
       <NotificationProvider>
         <ShareFeedProvider enabled={sitesEnabled}>
+        {/* `FleetFeedProvider` turns the AUDIT LOG into cards: a cell or a
+            tower added, moved, replaced or removed, and a person disabled.
+
+            ADMIN ONLY, and not by a decision here -- /v1/admin/audit answers
+            403 for anybody else. The case it exists for is a SITE USER
+            adding a device: they may do that without asking, and this is how
+            the office finds out the same minute rather than next month. */}
+        <FleetFeedProvider enabled={isAdmin} meAccountId={accountId}>
       {/* Above every screen, because it is not a fact about any one of them.
           A column so the banner takes space rather than floating over the
           wall — the frames are the job, and this app never covers them with a
@@ -1852,6 +1861,7 @@ export function SentinelApp() {
           }}
         />
         <NotificationStack />
+        </FleetFeedProvider>
         </ShareFeedProvider>
       </NotificationProvider>
     </MotionConfig>

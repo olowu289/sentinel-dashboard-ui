@@ -120,8 +120,19 @@ export type SessionEndReason =
  *
  * Exported as a constant so the uniformity is testable: two different failures
  * cannot drift into two different strings if there is only one string.
+ *
+ * ⚠ "LOGIN", NOT "ORGANIZATION NAME". It said the latter when an organization
+ * name was the only kind of login there was. A person signing in as
+ * `dave.kaduna-mine` and mistyping their password was told the ORGANIZATION
+ * name was wrong, which sends them to ask an administrator about an
+ * organization that is perfectly fine.
+ *
+ * It stays uniform across every cause, which is the other half: an unknown
+ * organization, an unknown person, a wrong password and a disabled account all
+ * produce this one sentence, because a login form that distinguishes them is a
+ * list of a customer's staff.
  */
-export const UNIFORM_AUTH_MESSAGE = "Wrong organization name or password";
+export const UNIFORM_AUTH_MESSAGE = "Wrong login or password";
 
 /**
  * The credentials did not authenticate.

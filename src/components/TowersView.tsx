@@ -10,7 +10,11 @@ import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
 import { batteryFlow, batteryHint, batteryTone } from "@/lib/battery";
 import { storageHint, storageTone } from "@/lib/storage";
+import { useState } from "react";
 import { useNow } from "@/lib/useNow";
+import { AddDeviceDrawer, type AddWhat } from "@/components/AddDeviceDrawer";
+import { useCells, useSites } from "@/lib/useSites";
+import { useCapabilities } from "@/lib/useSites";
 import type { Alert, CameraFeed, Tower, TowerStatus } from "@/lib/types";
 import { IconRail } from "./IconRail";
 import { ActingSiteChip } from "./ActingSiteChip";
@@ -942,6 +946,21 @@ export function TowersView({
   /* The uptime column's clock. The finest thing it shows is a minute. */
   const now = useNow();
 
+  /* ── ADDING A MAST, FROM WHERE SOMEBODY IS STANDING ─────────────────
+
+     A site user may add a cell or a tower to their own sites and has no
+     Administration area to do it from, which left a permission the server
+     grants with nowhere in the product to use it. This is that entry
+     point; it opens the same drawer the Administration area opens.
+
+     Gated on the SERVER having sites, not on a role: a hub serves this
+     same bundle and has no cells, no sites and no /v1/cells at all. */
+  const caps = useCapabilities();
+  const sitesEnabled = caps?.features.sites === true;
+  const sites = useSites(sitesEnabled);
+  const cells = useCells(sitesEnabled);
+  const [adding, setAdding] = useState<AddWhat | null>(null);
+
   const rows = towers
     .map((t, i) =>
       assess(t, i, feedsForTower(feeds, t.id), alertsForTower(alerts, t.id), alertFeed, now),
@@ -950,6 +969,16 @@ export function TowersView({
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
+      <AddDeviceDrawer
+        open={adding !== null}
+        what={adding ?? "tower"}
+        sites={sites.value?.sites ?? []}
+        cells={cells.value?.cells ?? []}
+        onClose={() => setAdding(null)}
+        onAdded={() => {
+          cells.reload();
+        }}
+      />
       <IconRail active="towers" onSelect={onNavigate} className="hidden lg:block" />
 
       <main aria-label="Towers" className="flex min-w-0 flex-1 flex-col">
@@ -962,6 +991,15 @@ export function TowersView({
                 when it changes. It is here because every share is between two
                 sites, and a site user could not tell which one they were. */}
             <ActingSiteChip />
+            {sitesEnabled ? (
+              <button
+                type="button"
+                onClick={() => setAdding("tower")}
+                className="rounded-[6px] border border-stroke px-[10px] py-[4px] font-display text-[0.6875rem] tracking-[0.11px] text-body-ink transition-colors hover:bg-card-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
+              >
+                ADD A TOWER
+              </button>
+            ) : null}
             {towers.length > 0 && <Tally towers={towers} />}
           </div>
         </header>

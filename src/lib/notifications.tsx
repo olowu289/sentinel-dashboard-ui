@@ -79,6 +79,33 @@ export const KINDS = {
     line: "border-notify-system-line",
     solid: "bg-action text-action-ink",
   },
+  /**
+   * THE FLEET CHANGED: a cell or a tower added, moved or replaced.
+   *
+   * Goes to the ADMIN. The case that matters is a SITE USER adding a device:
+   * they may do that without asking anybody, and this is how the office finds
+   * out the same minute rather than next month.
+   */
+  fleet: {
+    accent: "text-notify-fleet",
+    wash: "bg-notify-fleet-wash",
+    line: "border-notify-fleet-line",
+    solid: "bg-notify-fleet text-notify-fleet-ink",
+  },
+  /**
+   * SOMETHING WAS TAKEN AWAY: a tower removed, a person disabled.
+   *
+   * Separate from `fleet` and not a variant of it, because the two are read
+   * differently. One is "there is more than there was", which can wait. One is
+   * "somebody has lost access", which is the sentence an admin re-reads to
+   * check they meant it.
+   */
+  revoked: {
+    accent: "text-notify-revoked",
+    wash: "bg-notify-revoked-wash",
+    line: "border-notify-revoked-line",
+    solid: "bg-notify-revoked text-notify-revoked-ink",
+  },
 } as const;
 
 export type NotificationKind = keyof typeof KINDS;

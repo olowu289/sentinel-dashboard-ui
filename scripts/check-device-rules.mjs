@@ -128,6 +128,41 @@ try {
     !/\bRemove\b/.test(northBody) && !/\bMove\b/.test(northBody),
   );
 
+  // ── 4b. AND THEY HAVE SOMEWHERE TO DO IT FROM ───────────────────────
+  //
+  // The server lets a site user add to their own sites, and the product had
+  // nowhere for them to do it: the add lived in an Administration area they
+  // do not have. A permission the server grants and the product hides is the
+  // inverse of the bug everyone looks for, and just as useless.
+  // TO THE TOWERS BOARD FIRST. Signing in lands on the wall, and the add
+  // lives where somebody looking at a mast already is.
+  const rail = north.page.getByRole("button", { name: /^Towers$/ });
+  if ((await rail.count()) > 0) {
+    await rail.first().click();
+    await north.page.waitForTimeout(1200);
+  }
+  const towersItem = north.page.getByRole("button", { name: /^ADD A TOWER$/ });
+  check(
+    "a site user can start an add from the towers board",
+    (await towersItem.count()) > 0,
+  );
+  if ((await towersItem.count()) > 0) {
+    await towersItem.first().click();
+    await north.page.waitForTimeout(600);
+    const d = north.page.getByRole("dialog");
+    check("and it opens the same drawer", (await d.count()) > 0);
+    if ((await d.count()) > 0) {
+      const text = await d.first().innerText();
+      check(
+        "offering only the cells in their own sites",
+        /North Camp/.test(text) && !/Yard Shed/.test(text),
+      );
+    }
+    await shot(north.page, "device-rules-site-user-add");
+    await north.page.keyboard.press("Escape");
+    await north.page.waitForTimeout(300);
+  }
+
   // ── 5. THE ADMIN IS TOLD WHEN SOMEBODY ELSE CHANGES THE FLEET ───────
   //
   // Driven through the ORGANIZATION's own screen, because the demo has no

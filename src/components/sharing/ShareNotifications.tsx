@@ -41,9 +41,13 @@ import {
   scopeSummary,
   useShareFeed,
 } from "@/lib/useShareFeed";
+import { sayDuration } from "@/lib/durations";
+import { useWatch } from "@/lib/watch";
 import { useSiteTowers } from "@/lib/useSiteTowers";
 import {
+  OfferTerms,
   ShareDecision,
+  acceptOffer,
   decisionToChoices,
   initialDecision,
   type DecisionState,
@@ -136,11 +140,20 @@ export function PendingCard({
   const [undoLeft, setUndoLeft] = useState<number | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  /* The towers are MINE: this is a request to lend my site's cameras, so the
-     list is the site that owns the share, which is one of mine. */
-  const towers = useSiteTowers(open ? share.owner_site_id : null);
-
   const isRequest = share.direction === "request";
+  /* ⚠ ONLY FOR A REQUEST, AND THE OLD COMMENT HERE SAID WHY IT WAS SAFE.
+     It read "the towers are MINE: this is a request to lend my site's
+     cameras", which is true of a request and false of an offer -- and this
+     card draws both. For an offer the owner site is THEIRS, the receiver is
+     not a member of it, and `GET /v1/sites/{id}` answers 404 "no such site" to
+     them by design. The card printed that in red beside an empty picker
+     saying "They named no towers", directly under a line that had correctly
+     summarised the scope: three statements about one share, two of them
+     wrong, from a request that should never have been sent.
+
+     An offer needs no towers at all. It arrives complete and `OfferTerms`
+     renders it from `share.scope`, which is already on the wire. */
+  const towers = useSiteTowers(open && isRequest ? share.owner_site_id : null);
   const who = otherSiteName(share);
   /* DEFENCE IN DEPTH, AND NOTHING MORE. The deck only raises this card when
      the server says this account may answer, so this should always be true --
@@ -157,15 +170,22 @@ export function PendingCard({
       setBusy(true);
       setError(null);
       try {
-        if (what === "accept") await feed.accept(share.share_id, decisionToChoices(state));
-        else await feed.decline(share.share_id);
+        if (what === "accept") {
+          /* AN OFFER IS ACCEPTED AS SENT. Sending the form's state would be
+             sending terms the receiver did not choose and the server does not
+             accept -- it refuses a body that would change an offer. */
+          await feed.accept(
+            share.share_id,
+            isRequest ? decisionToChoices(state) : acceptOffer(),
+          );
+        } else await feed.decline(share.share_id);
         onDone();
       } catch (err) {
         setError((err as { message?: string })?.message ?? "That did not go through.");
         setBusy(false);
       }
     },
-    [feed, onDone, share.share_id, state],
+    [feed, isRequest, onDone, share.share_id, state],
   );
 
   const startDecline = () => {
@@ -228,6 +248,9 @@ export function PendingCard({
           {scopeSummary(share.scope)}
           {share.ptz ? " · controls" : ""}
           {share.playback ? " · playback" : ""}
+          {share.asked_duration_sec
+            ? ` · ${sayDuration(share.asked_duration_sec)}`
+            : ""}
         </p>
       ) : null}
 
@@ -241,17 +264,27 @@ export function PendingCard({
             className="overflow-hidden"
           >
             <div className="mt-[10px] border-t border-notify-share-line pt-[10px]">
-              <ShareDecision
-                compact
-                share={share}
-                towers={towers.towers}
-                loadingTowers={towers.loading}
-                state={state}
-                onChange={setState}
-              />
-              {towers.error ? (
-                <p className="mt-[6px] text-[0.75rem] text-critical">{towers.error}</p>
-              ) : null}
+              {isRequest ? (
+                <>
+                  <ShareDecision
+                    compact
+                    share={share}
+                    towers={towers.towers}
+                    loadingTowers={towers.loading}
+                    state={state}
+                    onChange={setState}
+                  />
+                  {towers.error ? (
+                    <p className="mt-[6px] text-[0.75rem] text-critical">
+                      {towers.error}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                /* An offer, in full, with nothing to set. The receiver's only
+                   two answers are the buttons below. */
+                <OfferTerms share={share} />
+              )}
             </div>
           </motion.div>
         ) : null}
@@ -280,10 +313,24 @@ export function PendingCard({
               <Accept
                 onClick={() => void send("accept")}
                 busy={busy}
-                label={state.scope.length === 0 ? "Choose towers" : "Accept"}
+                /* ⚠ THE LABEL IS THE STATE OF THE FORM, and an offer has
+                   no form: it can always be accepted, because accepting it is
+                   agreeing to what it already says. */
+                label={
+                  !isRequest
+                    ? "Accept"
+                    : state.scope.length === 0
+                      ? "Choose towers"
+                      : state.durationSec <= 0
+                        ? "Choose how long"
+                        : "Accept"
+                }
               />
             ) : (
-              <Accept onClick={() => setOpen(true)} label="Choose and accept" />
+              <Accept
+                onClick={() => setOpen(true)}
+                label={isRequest ? "Choose and accept" : "See what is offered"}
+              />
             )}
             <Quiet onClick={startDecline}>Decline</Quiet>
             {open ? <Quiet onClick={() => setOpen(false)}>Collapse</Quiet> : null}
@@ -294,16 +341,25 @@ export function PendingCard({
   );
 }
 
-/** My request was accepted: say so, and offer the one thing wanted next. */
+/**
+ * My request was accepted: say so, and offer the one thing wanted next.
+ *
+ * ⚠ WATCH GOES THROUGH `useWatch`, NOT THROUGH A PROP. It used to take an
+ * `onWatch` the shell passed down, which navigated straight to the tower --
+ * and on the real fleet the tower was not in the client's copy of it yet,
+ * because the fleet is read on mount and this card appears when a share lands.
+ * The operator got "this tower is not on your fleet any more" about a camera
+ * that had just been granted. `useWatch` re-reads the fleet first. See
+ * lib/watch.tsx.
+ */
 export function AcceptedCard({
   share,
-  onWatch,
   onDone,
 }: {
   share: Share;
-  onWatch?: (deviceId: string) => void;
   onDone: () => void;
 }) {
+  const { watch, ready } = useWatch();
   const first = share.scope[0]?.device_id;
   return (
     <div>
@@ -318,10 +374,10 @@ export function AcceptedCard({
           : "Expired."}
       </p>
       <Buttons>
-        {first && onWatch ? (
+        {first && ready ? (
           <Accept
             onClick={() => {
-              onWatch(first);
+              void watch(first);
               onDone();
             }}
             label="Watch now"
@@ -351,7 +407,14 @@ export function EndedCard({ text, onDone }: { text: string; onDone: () => void }
 
 const shareCardId = (share: Share) => `share:${share.share_id}`;
 
-export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void }) {
+/**
+ * Turns changes in the share feed into cards.
+ *
+ * It used to take an `onWatch` for the one card that has a Watch button;
+ * that card reaches `useWatch` itself now, so there is one way to open a
+ * borrowed camera and it is the way that re-reads the fleet first.
+ */
+export function ShareDeck() {
   const feed = useShareFeed();
   const { notify, dismiss, resolve } = useNotifications();
   const { account } = useSession();
@@ -430,7 +493,7 @@ export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void })
                 ttlMs: ACTIONABLE_TTL_MS,
                 title: `${share.owner_site_name} accepted`,
                 render: ({ dismiss: close }) => (
-                  <AcceptedCard share={share} onWatch={onWatch} onDone={close} />
+                  <AcceptedCard share={share} onDone={close} />
                 ),
               });
             } else if (iAsked && share.status === "declined") {
@@ -485,7 +548,7 @@ export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void })
         const ids = new Set(next.map((s) => shareCardId(s)));
         resolve((n) => n.id.startsWith("share:") && !ids.has(n.id.split(":").slice(0, 2).join(":")));
       }),
-    [feed, notify, dismiss, resolve, onWatch, isAdmin],
+    [feed, notify, dismiss, resolve, isAdmin],
   );
 
   return null;
@@ -498,20 +561,35 @@ export function ShareDeck({ onWatch }: { onWatch?: (deviceId: string) => void })
  * a camera is entitled to know it is not theirs -- it changes what they do
  * with what they see, and it explains why the controls may be refused.
  */
-export function SharedFeedBadge({ share }: { share: Share }) {
+/**
+ * The badge on a borrowed feed: whose it is, and how long is left on it.
+ *
+ * ── AND A WAY BACK IN ──────────────────────────────────────────────────
+ *
+ * It was `pointer-events-none`, which was right while it only stated two
+ * facts. A share's clock runs whether or not anybody is watching, so somebody
+ * who ducks out of a borrowed feed to check something is spending time they
+ * were lent and had nothing to click to get back; they had to find the mast on
+ * the wall again. `onWatch` makes the badge the way back, and it is given only
+ * where that means something -- on a tile that is NOT the feed already open,
+ * because a button that reopens what you are looking at is furniture.
+ */
+export function SharedFeedBadge({
+  share,
+  onWatch,
+}: {
+  share: Share;
+  /** Given on the wall, omitted inside the feed this badge is about. */
+  onWatch?: () => void;
+}) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
   const left = timeLeftLabel(share.expires_at);
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={FADE}
-      className="chip-blur pointer-events-none flex items-center gap-[6px] rounded-[4px] border border-notify-share-line bg-notify-share-wash/80 px-[8px] py-[3px]"
-    >
+  const body = (
+    <>
       <span className="size-[5px] rounded-full bg-notify-share" aria-hidden />
       <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
         {share.owner_site_name}
@@ -519,6 +597,34 @@ export function SharedFeedBadge({ share }: { share: Share }) {
       <span className="text-[0.6875rem] tabular-nums text-muted">
         {left ? `${left} left` : "ended"}
       </span>
-    </motion.div>
+    </>
+  );
+  const skin =
+    "chip-blur flex items-center gap-[6px] rounded-[4px] border border-notify-share-line bg-notify-share-wash/80 px-[8px] py-[3px]";
+
+  if (!onWatch) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={FADE}
+        className={`${skin} pointer-events-none`}
+      >
+        {body}
+      </motion.div>
+    );
+  }
+  return (
+    <motion.button
+      type="button"
+      onClick={onWatch}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={FADE}
+      aria-label={`Watch ${share.owner_site_name}${left ? `, ${left} left` : ""}`}
+      className={`${skin} transition-colors hover:bg-notify-share-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action`}
+    >
+      {body}
+    </motion.button>
   );
 }

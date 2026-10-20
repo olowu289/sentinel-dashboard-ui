@@ -19,7 +19,6 @@
  */
 
 import { useMemo, useState } from "react";
-import { SHARE_DEFAULT_SEC } from "@kallon/sentry-sdk";
 import type { Site } from "@kallon/sentry-sdk";
 import { useShareFeed } from "@/lib/useShareFeed";
 import { useSites } from "@/lib/useSites";
@@ -49,7 +48,10 @@ export function QuickShare({
   const [otherSiteId, setOther] = useState("");
   const [ptz, setPtz] = useState(false);
   const [playback, setPlayback] = useState(false);
-  const [durationSec, setDuration] = useState(SHARE_DEFAULT_SEC);
+  /* ZERO MEANS NOTHING CHOSEN, and the Offer button stays off until it is.
+     It used to open on fifteen minutes, so "share this camera" with two
+     clicks lent it for a quarter of an hour that nobody had decided on. */
+  const [durationSec, setDuration] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,7 +186,7 @@ export function QuickShare({
         <button
           type="button"
           onClick={() => void send()}
-          disabled={busy || !otherSiteId}
+          disabled={busy || !otherSiteId || durationSec <= 0}
           className="rounded-[6px] bg-notify-share px-[12px] py-[6px] font-display text-[0.75rem] tracking-[0.12px] text-notify-share-ink transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-notify-share"
         >
           {busy ? "Sending..." : "Offer"}

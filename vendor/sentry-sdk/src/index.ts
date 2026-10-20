@@ -168,7 +168,9 @@ export const API_PREFIX = "/v1";
 
 export {
   SHARE_DEFAULT_SEC,
+  SHARE_MAX_SEC,
   SHARE_MESSAGE_MAX,
+  SHARE_MIN_SEC,
   isAdminRole,
   isShareLive,
   parseAddDevice,

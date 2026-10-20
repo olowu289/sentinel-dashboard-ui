@@ -22,15 +22,27 @@
  * your mast for a day. The person answering turns things ON deliberately.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { SHARE_MESSAGE_MAX } from "@kallon/sentry-sdk";
+import type { ReactNode } from "react";
 import type { Share, ShareScopeEntry, Site } from "@kallon/sentry-sdk";
 import { ENTER, FADE } from "@/lib/motion";
+import {
+  QUICK_DURATIONS,
+  type DurationUnit,
+  parseDuration,
+  quickLabel,
+  sayDuration,
+  splitDuration,
+} from "@/lib/durations";
 import { inputClass } from "@/components/SitesPrimitives";
 import {
   type ComposeState,
   type DecisionState,
+  acceptOffer,
+  answeringMeansChoosing,
+  composeIsReady,
   composeToRequest,
   decisionToChoices,
   initialCompose,
@@ -41,6 +53,9 @@ import {
    from one place. The rules themselves live in `lib/shareRules`, with no
    component around them, because that is what makes them testable. */
 export {
+  acceptOffer,
+  answeringMeansChoosing,
+  composeIsReady,
   composeToRequest,
   decisionToChoices,
   initialCompose,
@@ -100,42 +115,116 @@ export function Allow({
   );
 }
 
-/** Durations as buttons, because typing seconds is not a thing anybody wants. */
-const DURATIONS: readonly { label: string; sec: number }[] = [
-  { label: "15 min", sec: 15 * 60 },
-  { label: "1 hour", sec: 60 * 60 },
-  { label: "4 hours", sec: 4 * 60 * 60 },
-  { label: "24 hours", sec: 24 * 60 * 60 },
-];
-
+/**
+ * Four quick lengths, and a field for the one somebody actually means.
+ *
+ * ── WHY THE FIELD ──────────────────────────────────────────────────────
+ *
+ * Four buttons made every share 15 minutes, an hour, four hours or a day, and
+ * real ones are "ten minutes while the truck turns round" and "until six". So
+ * the buttons stay -- they are what gets pressed -- and anything else is typed,
+ * in minutes or in hours, because 45 minutes and 3 hours are both things
+ * people say and neither should need arithmetic.
+ *
+ * ── AND WHY IT IS CHECKED HERE AS WELL AS ON THE SERVER ────────────────
+ *
+ * The bounds are the server's (see `lib/durations`). Checking them where
+ * somebody typed means the sentence appears under the field they are looking
+ * at, instead of after a round trip and in a different part of the screen.
+ * Nothing is decided here: the server refuses it either way.
+ */
 export function DurationPicker({
   value,
   onChange,
 }: {
+  /** Seconds. Zero or NaN means nothing has been chosen yet. */
   value: number;
   onChange: (sec: number) => void;
 }) {
+  /* The field opens on the current value only when it is NOT one of the quick
+     ones, so pressing "1 hour" does not leave "60" sitting in the box
+     contradicting the highlighted button. */
+  const typed = value > 0 && quickLabel(value) === null;
+  const opening = typed ? splitDuration(value) : { amount: "", unit: "minutes" as DurationUnit };
+  const [amount, setAmount] = useState(opening.amount);
+  const [unit, setUnit] = useState<DurationUnit>(opening.unit);
+  const parsed = parseDuration(amount, unit);
+
+  /* Typing commits as soon as what is typed is a valid length. No Apply
+     button: this sits inside a form that already has one, and a second button
+     that has to be pressed before the first one works is how somebody sends a
+     share for a length they did not choose. */
+  const retype = (nextAmount: string, nextUnit: DurationUnit) => {
+    setAmount(nextAmount);
+    setUnit(nextUnit);
+    const next = parseDuration(nextAmount, nextUnit);
+    if (next.sec !== null) onChange(next.sec);
+  };
+
   return (
-    <div role="radiogroup" aria-label="How long" className="flex flex-wrap gap-[6px]">
-      {DURATIONS.map((d) => {
-        const on = d.sec === value;
-        return (
-          <button
-            key={d.sec}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => onChange(d.sec)}
-            className={`rounded-[6px] border px-[9px] py-[4px] text-[0.75rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${
-              on
-                ? "border-action bg-action text-action-ink"
-                : "border-stroke text-muted hover:text-body-ink"
-            }`}
-          >
-            {d.label}
-          </button>
-        );
-      })}
+    <div className="flex flex-col gap-[6px]">
+      <div role="radiogroup" aria-label="How long" className="flex flex-wrap gap-[6px]">
+        {QUICK_DURATIONS.map((d) => {
+          const on = d.sec === value;
+          return (
+            <button
+              key={d.sec}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => {
+                /* Clearing the field is part of pressing a button: the two
+                   are one choice and only one of them can be the answer. */
+                setAmount("");
+                onChange(d.sec);
+              }}
+              className={`rounded-[6px] border px-[9px] py-[4px] text-[0.75rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${
+                on
+                  ? "border-action bg-action text-action-ink"
+                  : "border-stroke text-muted hover:text-body-ink"
+              }`}
+            >
+              {d.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center gap-[6px]">
+        <span className="text-[0.75rem] text-muted">or</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          aria-label="How long, a number"
+          placeholder="10"
+          value={amount}
+          onChange={(e) => retype(e.target.value, unit)}
+          className={`${inputClass} w-[64px] py-[5px] text-[0.75rem] tabular-nums`}
+        />
+        <select
+          aria-label="Minutes or hours"
+          value={unit}
+          onChange={(e) => retype(amount, e.target.value as DurationUnit)}
+          className={`${inputClass} w-auto py-[5px] text-[0.75rem]`}
+        >
+          <option value="minutes">minutes</option>
+          <option value="hours">hours</option>
+        </select>
+        {/* WHAT IS ACTUALLY SET, in words, whichever way it was chosen. The
+            buttons say it themselves; a typed value does not, and "2700" is
+            not a length anybody reads. */}
+        {value > 0 && !parsed.problem ? (
+          <span className="text-[0.75rem] text-muted">
+            {sayDuration(value)}
+          </span>
+        ) : null}
+      </div>
+
+      {parsed.problem ? (
+        <p className="text-[0.75rem] leading-[16px] text-critical" role="alert">
+          {parsed.problem}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -323,7 +412,97 @@ export function PlaybackWindow({
  * ------------------------------------------------------------------ */
 
 /**
- * Towers, controls, playback, duration. The whole answer, inline.
+ * What an OFFER says, read-only. No toggles and no choices.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY AN OFFER HAS NO FORM, AND WHAT HAPPENED WHEN IT DID
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * An offer card used to mount `ShareDecision`, the same form a request card
+ * mounts, with its tower picker fed by `useSiteTowers(share.owner_site_id)`.
+ * That hook is called "the towers of one of MY sites", and for an offer the
+ * owner site is THEIRS: the receiver is not a member of it and
+ * `GET /v1/sites/{id}` answers `404 no such site` to them on purpose, because
+ * a site id must not be probeable.
+ *
+ * So the card showed, in this order:
+ *
+ *   "1 camera on 1 tower - controls"      (correct, read from the scope)
+ *   "They named no towers."               (the empty picker)
+ *   "no such site"                        (the 404, in red)
+ *
+ * three statements about one share, two of them wrong, from one request that
+ * should never have been made. The fix is not a better error message. It is
+ * that whoever starts a share decides it: an offer arrives complete, the
+ * receiver accepts or declines, and there is nothing here to choose.
+ *
+ * `scope` is on the wire for both sides of a share already, so this needs no
+ * request at all -- which is the real tell that the old version was asking a
+ * question it already had the answer to.
+ */
+export function OfferTerms({ share }: { share: Share }) {
+  return (
+    <dl className="flex flex-col gap-[8px]">
+      <Term label="Cameras">
+        {share.scope.length === 0 ? (
+          /* An offer with no cameras cannot be created -- the server refuses
+             one -- so this is a server that sent something impossible rather
+             than an empty state to design for. Say so plainly. */
+          <span className="text-muted">
+            This offer names no cameras, which it should not be able to. Decline
+            it and ask them to send it again.
+          </span>
+        ) : (
+          <ul className="flex flex-col gap-[2px]">
+            {share.scope.map((entry) => (
+              <li key={entry.device_id} className="tabular-nums">
+                {entry.device_id}
+                <span className="text-muted">
+                  {entry.cameras && entry.cameras.length > 0
+                    ? ` - camera ${entry.cameras.join(", ")}`
+                    : " - every camera"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Term>
+      <Term label="Controls">
+        {share.ptz ? "You can point the camera." : "View only."}
+      </Term>
+      <Term label="Playback">
+        {share.playback
+          ? share.playback_from && share.playback_to
+            ? `Recorded footage, ${share.playback_from} to ${share.playback_to}.`
+            : "Recorded footage."
+          : "Live video only."}
+      </Term>
+      <Term label="For">
+        {share.asked_duration_sec
+          ? sayDuration(share.asked_duration_sec)
+          : `until ${share.expires_at}`}
+      </Term>
+    </dl>
+  );
+}
+
+function Term({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-[2px]">
+      <dt className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
+        {label}
+      </dt>
+      <dd className="text-[0.8125rem] leading-[18px] text-body-ink">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Towers, controls, playback, duration. The whole answer to a REQUEST, inline.
+ *
+ * ⚠ FOR A REQUEST ONLY. An offer is not answered with choices, it is
+ * accepted or declined; see `OfferTerms` above for why, and for the three
+ * contradictory sentences the mixed-up version put on one card.
  *
  * Mounted by the floating card and by the Sharing page, which is what makes
  * "the same choices as the card" true rather than aspirational.
@@ -345,6 +524,7 @@ export function ShareDecision({
   compact?: boolean;
 }) {
   const gap = compact ? "gap-[10px]" : "gap-[14px]";
+  const asked = share.asked_duration_sec ?? null;
   return (
     <div className={`flex flex-col ${gap}`}>
       <div className="flex flex-col gap-[6px]">
@@ -356,11 +536,7 @@ export function ShareDecision({
           loading={loadingTowers}
           value={state.scope}
           onChange={(scope) => onChange({ ...state, scope })}
-          emptyNote={
-            share.direction === "request"
-              ? "This site has no towers to lend yet."
-              : "They named no towers."
-          }
+          emptyNote="This site has no towers to lend yet."
         />
       </div>
 
@@ -399,6 +575,16 @@ export function ShareDecision({
         <p className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
           For how long
         </p>
+        {/* WHAT THEY ASKED FOR, SAID OUT LOUD, because the picker opens on it
+            and an unlabelled pre-selected value reads as a default somebody
+            else chose. The owner may answer with less or with more -- the
+            server allows either, within its bounds -- and they can only mean
+            to do that if they know what the number currently is. */}
+        {asked ? (
+          <p className="text-[0.75rem] text-muted">
+            They asked for {sayDuration(asked)}. You decide what it is.
+          </p>
+        ) : null}
         <DurationPicker
           value={state.durationSec}
           onChange={(durationSec) => onChange({ ...state, durationSec })}

@@ -104,11 +104,76 @@ describe("what goes on the wire", () => {
   test("a REQUEST names no cameras and asserts no permissions", () => {
     const body = r.composeToRequest(compose(), "site_west", "request");
     assert.equal("scope" in body, false, "the asking site cannot name cameras");
-    assert.equal(body.ptz, false, "what it is granted is the answer's decision");
-    assert.equal(body.playback, false);
+    // ⚠ ABSENT, NOT `false`. It used to send `ptz: false, playback: false`,
+    // which is a request asserting something about what it will be granted --
+    // and what it is granted is the answering site's decision. The two
+    // directions are different shapes now and the SDK type says so.
+    assert.equal("ptz" in body, false, "it asserts no permissions at all");
+    assert.equal("playback" in body, false);
     assert.equal("playbackFrom" in body, false);
     assert.equal(body.message, "Our truck is at your gate.", "trimmed");
     assert.equal(body.direction, "request");
+    assert.equal(body.durationSec, 900, "but it does say how long it wants");
+  });
+
+  test("a REQUEST always says how long, because the server requires one", () => {
+    // It used to be optional on the wire, and the two tiers disagreed about
+    // the fallback: fifteen minutes in the SDK, two hours on the server. What
+    // a share lasted depended on which side had forgotten to send it.
+    const body = r.composeToRequest(compose(), "site_west", "request");
+    assert.equal(typeof body.durationSec, "number");
+  });
+
+  test("an offer accepts as sent, so accepting one carries nothing", () => {
+    assert.deepEqual(r.acceptOffer(), {});
+  });
+
+  test("only a request leaves the person answering anything to decide", () => {
+    assert.equal(r.answeringMeansChoosing({ direction: "request" }), true);
+    assert.equal(r.answeringMeansChoosing({ direction: "offer" }), false);
+  });
+
+  describe("nothing is sent without a length", () => {
+    const ready = (over, site, dir) =>
+      r.composeIsReady(compose(over), site, dir);
+
+    test("a request needs a site, a message and a length", () => {
+      assert.equal(ready({}, "site_west", "request"), true);
+      assert.equal(ready({ durationSec: 0 }, "site_west", "request"), false,
+        "zero means nothing chosen, and that is the state the form opens in");
+      assert.equal(ready({ message: "   " }, "site_west", "request"), false);
+      assert.equal(ready({ otherSiteId: "" }, "site_west", "request"), false);
+      assert.equal(ready({}, "", "request"), false);
+    });
+
+    test("an offer needs a site, cameras and a length, but no message", () => {
+      assert.equal(ready({ message: "" }, "site_north", "offer"), true);
+      assert.equal(ready({ scope: [] }, "site_north", "offer"), false);
+      assert.equal(ready({ durationSec: 0 }, "site_north", "offer"), false);
+    });
+  });
+
+  describe("answering a request opens on what was asked for", () => {
+    const share = (over = {}) => ({
+      direction: "request",
+      scope: [],
+      ptz: false,
+      playback: false,
+      asked_duration_sec: 4 * 3600,
+      ...over,
+    });
+
+    test("the picker starts at the asked length, not at a default", () => {
+      // It started at SHARE_DEFAULT_SEC, so the owner's untouched answer
+      // silently replaced a four-hour question with fifteen minutes.
+      assert.equal(r.initialDecision(share()).durationSec, 4 * 3600);
+    });
+
+    test("and falls back to the default when the server recorded none", () => {
+      const d = r.initialDecision(share({ asked_duration_sec: null }));
+      assert.equal(typeof d.durationSec, "number");
+      assert.ok(d.durationSec > 0, "never zero: there is always something to answer with");
+    });
   });
 
   test("an OFFER names its cameras and carries what it grants", () => {
@@ -202,6 +267,41 @@ describe("whose camera is this", () => {
   test("the other site is named from whichever end I am on", () => {
     assert.equal(r.otherSiteName(SHARE({ incoming: true })), "West Yard");
     assert.equal(r.otherSiteName(SHARE({ incoming: false })), "North Gate");
+  });
+});
+
+describe("what the other site IS to me", () => {
+  // ⚠ THE TWO OFFER LINES WERE SWAPPED. A site RECEIVING an offer read
+  // "you offered yours" and the site that SENT it read "is offering theirs",
+  // because the row keyed on `incoming` -- which means one of my sites owns
+  // the cameras, and that is a different question from who started it. The
+  // party who owns the cameras RECEIVES a request and SENDS an offer.
+  const row = (direction, incoming, status = "pending") =>
+    r.otherSiteRole({ direction, incoming, status });
+
+  test("a request: they asked me, or I asked them", () => {
+    assert.equal(row("request", true), "is asking for yours");
+    assert.equal(row("request", false), "you asked them");
+  });
+
+  test("an offer: I offered them, or they offered me", () => {
+    assert.equal(row("offer", true), "you offered yours");
+    assert.equal(row("offer", false), "is offering theirs");
+  });
+
+  test("and once it is live only the direction of the cameras matters", () => {
+    for (const d of ["request", "offer"]) {
+      assert.equal(row(d, true, "active"), "has yours");
+      assert.equal(row(d, false, "active"), "lending to you");
+    }
+  });
+
+  test("no two of the four pending lines are the same", () => {
+    const said = [
+      row("request", true), row("request", false),
+      row("offer", true), row("offer", false),
+    ];
+    assert.equal(new Set(said).size, 4, said.join(" | "));
   });
 });
 

@@ -19,6 +19,7 @@ import { AdministrationView } from "@/components/AdministrationView";
 import { NotificationStack } from "@/components/NotificationStack";
 import { NotificationProvider } from "@/lib/notifications";
 import { ShareFeedProvider } from "@/lib/useShareFeed";
+import { FleetFollowsShares, WatchProvider } from "@/lib/watch";
 import { FleetFeedProvider } from "@/lib/useFleetFeed";
 import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
@@ -307,6 +308,30 @@ export function SentinelApp() {
       }),
     [fleetReload],
   );
+
+  /**
+   * Read the fleet again, quietly, because something changed what the server
+   * would answer.
+   *
+   * ⚠ NOT `reloadFleet`, AND THE DIFFERENCE IS THE BANNER. That one is the
+   * operator pressing a button after being told the fleet could not be read,
+   * so it reports failures loudly and re-throws. This one is a share landing:
+   * nobody asked, so a transient failure must not raise a banner over the
+   * video. It keeps the towers it has and the next change tries again.
+   *
+   * It does NOT clear `reachProblem` on success either -- that banner belongs
+   * to the load that failed, and whether the fleet is reachable is the
+   * operator's question to re-ask.
+   */
+  const refreshFleetQuietly = useCallback(async () => {
+    try {
+      const snapshot = await listFleet();
+      setTowers(snapshot.towers);
+      setFeeds(snapshot.feeds);
+    } catch {
+      /* Deliberately silent. See above. */
+    }
+  }, []);
   /* The setup flow is a third screen rather than a modal. It is six steps deep
      with a phone hand-off in the middle — a dialog that size is a screen
      wearing a scrim, and it would put the fleet behind it pretending the
@@ -1612,6 +1637,28 @@ export function SentinelApp() {
           deliberately not the shape of it. */}
       <NotificationProvider>
         <ShareFeedProvider enabled={sitesEnabled}>
+        {/* ── AND THE FLEET FOLLOWS THE SHARES ─────────────────────────
+
+            Renders nothing. It re-reads `GET /v1/viewer/towers` when the set
+            of cameras lent TO this account changes, which is the thing that
+            was missing when a borrower pressed Watch and was told the tower
+            was "not on your fleet any more": the fleet is read once on mount,
+            and a share that lands afterwards changed the answer without
+            anybody going to ask. See lib/watch.tsx. */}
+        <FleetFollowsShares refreshFleet={refreshFleetQuietly} />
+        {/* Going to a camera, from the card deck, from Sharing > Active and
+            from the badge on a borrowed tile, through one function that reads
+            the fleet again first when the camera is not in it yet. */}
+        <WatchProvider
+          open={(deviceId) => {
+            setOnShares(false);
+            setOnAdmin(false);
+            setOnSettings(false);
+            openTower(deviceId);
+          }}
+          hasDevice={(deviceId) => towers.some((t) => t.id === deviceId)}
+          refreshFleet={refreshFleetQuietly}
+        >
         {/* `FleetFeedProvider` turns the AUDIT LOG into cards: a cell or a
             tower added, moved, replaced or removed, and a person disabled.
 
@@ -1849,19 +1896,15 @@ export function SentinelApp() {
             them. Last in the tree so nothing can render over them, and
             `fixed` so they belong to the viewport rather than to whichever
             screen happens to be open. */}
-        <ShareDeck
-          onWatch={(deviceId) => {
-            /* "Watch now" lands on the tower the share just granted, which
-               is the one thing anybody wants next and the thing the old
-               banner made somebody find for themselves. */
-            setOnShares(false);
-            setOnAdmin(false);
-            setOnSettings(false);
-            openTower(deviceId);
-          }}
-        />
+        {/* "Watch now" lands on the tower the share just granted, which is
+            the one thing anybody wants next and the thing the old banner made
+            somebody find for themselves. It goes through `WatchProvider` so it
+            re-reads the fleet first: the accept and the press can be in the
+            same second, before any poll has run. */}
+        <ShareDeck />
         <NotificationStack />
         </FleetFeedProvider>
+        </WatchProvider>
         </ShareFeedProvider>
       </NotificationProvider>
     </MotionConfig>

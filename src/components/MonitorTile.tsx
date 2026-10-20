@@ -5,6 +5,8 @@ import type { CameraFeed } from "@/lib/types";
 import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { ViewerSession } from "@kallon/sentry-sdk";
 import { useTileControls } from "@/lib/useTileControls";
+import { useBorrowedShare } from "@/lib/useShareFeed";
+import { SharedFeedBadge } from "./sharing/ShareNotifications";
 import { ControlStack } from "./ControlStack";
 import { DEAD_STATES, FeedChip } from "./FeedChip";
 import { SirenOverlay } from "./SirenOverlay";
@@ -146,6 +148,9 @@ export function MonitorTile({
      The element it points at mounts and unmounts with playback, which is why
      the hook takes the REF and never the element. */
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  /* Is this camera somebody else's, lent to us? Null for our own. */
+  const borrowed = useBorrowedShare(towerId, feed.index);
 
   const { controls, view, scale, flash, alarming } = useTileControls({
     feed,
@@ -377,6 +382,27 @@ export function MonitorTile({
             latencyMs={isDead ? undefined : feed.latencyMs}
             error={hasError}
           />
+          {/* ── WHOSE CAMERA THIS IS, AND THE WAY BACK INTO IT ────────
+
+              The wall had no badge at all, so a borrowed camera sat among a
+              site's own with nothing saying it was somebody else's or that it
+              would stop working at a quarter past. The tower wall had the
+              badge; the fleet wall, which is the screen people sit in front
+              of, did not.
+
+              Here it is also a BUTTON, which it is not inside the feed: a
+              share's clock runs whether or not anybody is watching, so
+              somebody who left a borrowed feed had been spending lent time
+              with nothing to press to get back. Inside the feed the same
+              badge is furniture and stays inert. */}
+          {borrowed ? (
+            <div className="mt-[6px] flex">
+              <SharedFeedBadge
+                share={borrowed}
+                onWatch={onOpenTower}
+              />
+            </div>
+          ) : null}
         </motion.div>
 
         {/* The same stack the tower wall carries, revealed by the same

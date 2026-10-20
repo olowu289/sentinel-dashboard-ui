@@ -54,21 +54,43 @@ export function toIso(local: string): string | undefined {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
 }
 
+/**
+ * The state an owner answers a REQUEST with.
+ *
+ * ⚠ ONLY A REQUEST HAS ONE. An offer is accepted or declined, with nothing
+ * to decide: see `OfferTerms` in ShareControls for the three contradictory
+ * sentences that appeared on one card while an offer had a form.
+ *
+ * ⚠ AND IT OPENS ON WHAT WAS ASKED FOR, not on a default. The requester
+ * says how long they want, the owner may answer with less or more, and
+ * starting from `SHARE_DEFAULT_SEC` meant the owner's first choice silently
+ * overwrote the question with fifteen minutes nobody had asked for.
+ */
 export function initialDecision(share: Share): DecisionState {
   const now = Date.now();
   return {
-    /* An OFFER arrives with its cameras already named and the site accepting
-       may narrow them. A REQUEST names none, so this starts empty and the
-       person answering chooses. */
+    /* A REQUEST names no towers, so this starts empty and the person
+       answering chooses. (`share.scope` is [] for one, which is the same
+       thing said twice -- and it is read from the share rather than hardcoded
+       so an offer passed here by mistake does not lose its scope silently.) */
     scope: share.scope,
     ptz: share.ptz,
     playback: share.playback,
     from: localStamp(now - 60 * 60 * 1000),
     to: localStamp(now),
-    durationSec: SHARE_DEFAULT_SEC,
+    durationSec: share.asked_duration_sec ?? SHARE_DEFAULT_SEC,
   };
 }
 
+/**
+ * A blank compose.
+ *
+ * ⚠ `durationSec` STARTS AT ZERO, WHICH MEANS NOTHING CHOSEN. It used to
+ * start at fifteen minutes, so every share anybody sent without touching the
+ * picker lasted fifteen minutes by accident rather than by decision -- and the
+ * server's own fallback was two hours, so the length depended on which side
+ * had forgotten to send it. The server now requires one; so does the form.
+ */
 export function initialCompose(): ComposeState {
   const now = Date.now();
   return {
@@ -79,11 +101,18 @@ export function initialCompose(): ComposeState {
     playback: false,
     from: localStamp(now - 60 * 60 * 1000),
     to: localStamp(now),
-    durationSec: SHARE_DEFAULT_SEC,
+    durationSec: 0,
   };
 }
 
-/** The accept body: everything the answering site chose. */
+/**
+ * The accept body for a REQUEST: everything the answering site chose.
+ *
+ * ⚠ AN OFFER IS ACCEPTED WITH `{}` AND NOT WITH THIS. The server refuses a
+ * body that would change an offer's terms -- refuses rather than ignores, so a
+ * client cannot show terms it believes it narrowed and the server never agreed
+ * to. `acceptOffer` below is the whole of the other direction.
+ */
 export function decisionToChoices(d: DecisionState) {
   return {
     scope: d.scope,
@@ -98,31 +127,81 @@ export function decisionToChoices(d: DecisionState) {
   };
 }
 
+/**
+ * Accepting an OFFER, which is the empty object and a sentence saying why.
+ *
+ * A function rather than a literal at each call site, so that "an offer is
+ * accepted as sent" is written down once and the next card to be built cannot
+ * quietly send terms with it.
+ */
+export function acceptOffer(): Record<string, never> {
+  return {};
+}
+
+/** Does this share leave anything for the person answering to decide? */
+export function answeringMeansChoosing(share: Share): boolean {
+  return share.direction === "request";
+}
+
 /** The create body, for either direction. */
+/**
+ * The create body, for either direction.
+ *
+ * ⚠ THE TWO ARE DIFFERENT SHAPES, AND THE SDK TYPE SAYS SO. A request
+ * carries a message and a length and nothing else; an offer carries a scope
+ * and permissions as well. This returns one or the other, so a request cannot
+ * accidentally assert a permission it has no business asserting.
+ */
 export function composeToRequest(
   state: ComposeState,
   mySiteId: string,
   direction: "request" | "offer",
 ) {
+  if (direction === "offer") {
+    return {
+      direction: "offer" as const,
+      mySiteId,
+      otherSiteId: state.otherSiteId,
+      scope: state.scope,
+      ...(state.message.trim() ? { message: state.message.trim() } : {}),
+      live: true,
+      ptz: state.ptz,
+      playback: state.playback,
+      ...(state.playback
+        ? { playbackFrom: toIso(state.from), playbackTo: toIso(state.to) }
+        : {}),
+      durationSec: state.durationSec,
+    };
+  }
+  /* A REQUEST SENDS NO SCOPE AND NO PERMISSIONS. The site asking cannot know
+     what the other has, and what it is granted is the answering site's
+     decision, so it asserts neither on the way out. */
   return {
-    direction,
+    direction: "request" as const,
     mySiteId,
     otherSiteId: state.otherSiteId,
-    /* A REQUEST SENDS NO SCOPE. The site asking cannot know what the other
-       has; the site answering chooses. An offer must name what it offers, and
-       the server refuses one naming cameras the offering site does not own. */
-    ...(direction === "offer" ? { scope: state.scope } : {}),
-    ...(state.message.trim() ? { message: state.message.trim() } : {}),
-    live: true,
-    /* A request ASKS; what it is granted is the answering site's decision, so
-       it does not get to assert permissions on the way out. */
-    ptz: direction === "offer" ? state.ptz : false,
-    playback: direction === "offer" ? state.playback : false,
-    ...(direction === "offer" && state.playback
-      ? { playbackFrom: toIso(state.from), playbackTo: toIso(state.to) }
-      : {}),
+    message: state.message.trim(),
     durationSec: state.durationSec,
   };
+}
+
+/**
+ * Is this compose complete enough to send?
+ *
+ * ⚠ THE LENGTH COUNTS. It used to be pre-filled, so "ready" never had to
+ * mention it and every untouched share went out at fifteen minutes. One place
+ * answers it now, for the request form and the offer form both, because the
+ * first time these disagreed one of them let a share through with no length.
+ */
+export function composeIsReady(
+  state: ComposeState,
+  mySiteId: string,
+  direction: "request" | "offer",
+): boolean {
+  if (!mySiteId || !state.otherSiteId) return false;
+  if (state.durationSec <= 0) return false;
+  if (direction === "request") return state.message.trim().length > 0;
+  return state.scope.length > 0;
 }
 
 /** How many cameras a scope covers, for a one-line summary. */
@@ -169,6 +248,37 @@ export function borrowedFrom(
       (s) => !s.incoming && s.scope.some((e) => scopeCovers(e, deviceId, camera)),
     ) ?? null
   );
+}
+
+/**
+ * What the other site IS to me, in four words.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  THE TWO OFFER LINES WERE SWAPPED
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A site receiving an offer read "North Gate -- you offered yours", and the
+ * site that had sent it read "is offering theirs". Both backwards, and for the
+ * reason this file warns about everywhere else: the row keyed on `incoming`,
+ * which means ONE OF MY SITES OWNS THE CAMERAS, and that is a different
+ * question from who started the share.
+ *
+ * The party who owns the cameras RECEIVES a request and SENDS an offer. So the
+ * phrasing has to ask both: which direction, and which side am I on.
+ *
+ *   request, mine  -> they asked me        "is asking for yours"
+ *   request, yours -> I asked them         "you asked them"
+ *   offer,   mine  -> I offered them       "you offered yours"
+ *   offer,   yours -> they offered me      "is offering theirs"
+ *
+ * Once it is live the direction stops mattering: what matters is which way the
+ * cameras are flowing, and `incoming` answers exactly that.
+ */
+export function otherSiteRole(share: Share): string {
+  const mine = share.incoming === true;
+  if (share.status !== "pending") return mine ? "has yours" : "lending to you";
+  if (share.direction === "request") return mine ? "is asking for yours" : "you asked them";
+  return mine ? "you offered yours" : "is offering theirs";
 }
 
 /** The other site's name, whichever side of the share I am on. */

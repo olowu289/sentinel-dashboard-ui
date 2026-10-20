@@ -126,6 +126,27 @@ export const SHARE_MESSAGE_MAX = 500;
  */
 export const SHARE_DEFAULT_SEC = 15 * 60;
 
+/**
+ * The shortest and longest a share may last, which the server enforces.
+ *
+ * Exported so a box can refuse an impossible number where somebody typed it,
+ * with the same limits the server would answer with, instead of sending it and
+ * explaining a 422.
+ *
+ * ⚠ FIVE MINUTES IS A FLOOR, NOT A PREFERENCE. A share shorter than that can
+ * expire while a browser is still negotiating WebRTC, and the renewal the
+ * session layer runs on works in fifteen-minute grants -- so a two-minute share
+ * is a share nobody can finish opening.
+ *
+ * ⚠ THIRTY DAYS IS A CEILING FOR THE SAME REASON THE DEFAULT IS SHORT. Past
+ * that, lending stops being the thing this is for: a camera somebody should see
+ * for a month is a camera their site should be given, in Administration, where
+ * it is visible and reviewable. The server's old limit was a year and a day,
+ * which was a guard against a typo rather than a policy about sharing.
+ */
+export const SHARE_MIN_SEC = 5 * 60;
+export const SHARE_MAX_SEC = 30 * 24 * 60 * 60;
+
 /** One tower, and optionally which of its cameras, inside a share's scope. */
 export interface ShareScopeEntry {
   readonly device_id: string;
@@ -153,6 +174,25 @@ export interface Share {
   readonly expires_at: string;
   readonly created_at: string;
   readonly decided_at: string | null;
+  /**
+   * How long the side that STARTED this asked for, in seconds.
+   *
+   * ⚠ NOT WHAT IT ENDED UP BEING. `expires_at` is the live answer and this
+   * is the question: on a request the asker says how long they want, the owner
+   * answers with any length within {@link SHARE_MIN_SEC}..{@link SHARE_MAX_SEC},
+   * and the card that lets them answer opens on what was asked. Keeping it
+   * means "they asked for four hours, you gave one" is still sayable after the
+   * accept has rewritten the expiry.
+   *
+   * On an offer it is what the offer said, which is also what it became --
+   * an offer is accepted as sent.
+   *
+   * Absent from a server that predates it, and read as null rather than
+   * guessed from `expires_at - created_at`: a pending share's expiry is the
+   * asked length, but an accepted one's is not, and a number that is sometimes
+   * the answer to a different question is worse than no number.
+   */
+  readonly asked_duration_sec?: number | null;
   /**
    * What the site that started this SAID.
    *
@@ -469,6 +509,11 @@ function shareOne(c: Check, path: string, raw: unknown): Share {
     expires_at: c.str(`${path}.expires_at`, o.expires_at),
     created_at: c.str(`${path}.created_at`, o.created_at),
     decided_at: c.strOrNull(`${path}.decided_at`, o.decided_at),
+    // Absent on an older server, and null rather than derived. See the field.
+    asked_duration_sec:
+      o.asked_duration_sec === undefined || o.asked_duration_sec === null
+        ? null
+        : c.num(`${path}.asked_duration_sec`, o.asked_duration_sec),
     // Tolerated as absent for a server that predates it, and read as null,
     // which is the same thing an offer with nothing to say sends.
     message:

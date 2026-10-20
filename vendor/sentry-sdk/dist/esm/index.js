@@ -20,5 +20,5 @@ export const API_PREFIX = "/v1";
 /* ------------------------------------------------------------------ *
  * Sites, people and sharing
  * ------------------------------------------------------------------ */
-export { SHARE_DEFAULT_SEC, SHARE_MESSAGE_MAX, isAdminRole, isShareLive, parseAddDevice, parseAudit, parseCapabilities, parseCellDetail, parseCellList, parseMoveCell, parsePeopleList, parseRemoveTower, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
+export { SHARE_DEFAULT_SEC, SHARE_MAX_SEC, SHARE_MESSAGE_MAX, SHARE_MIN_SEC, isAdminRole, isShareLive, parseAddDevice, parseAudit, parseCapabilities, parseCellDetail, parseCellList, parseMoveCell, parsePeopleList, parseRemoveTower, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
 //# sourceMappingURL=index.js.map

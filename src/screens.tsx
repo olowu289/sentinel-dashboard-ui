@@ -581,7 +581,7 @@ function Seed({ which }: { which: string }) {
         at: Date.now() - 5_000,
         title: "North Gate accepted",
         render: ({ dismiss }) => (
-          <AcceptedCard share={active} onWatch={() => {}} onDone={dismiss} />
+          <AcceptedCard share={active} onDone={dismiss} />
         ),
       });
     }

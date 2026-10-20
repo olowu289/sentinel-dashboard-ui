@@ -92,7 +92,10 @@ export function createShare(req: {
   direction: "request" | "offer";
   mySiteId: string;
   otherSiteId: string;
-  scope: readonly ShareScopeEntry[];
+  /** Omitted on a REQUEST: the asking site cannot know the other's cameras. */
+  scope?: readonly ShareScopeEntry[];
+  /** REQUIRED on a request. The server refuses one without it. */
+  message?: string;
   live?: boolean;
   ptz?: boolean;
   playback?: boolean;
@@ -124,6 +127,16 @@ export function declineShare(shareId: string): Promise<Share> {
 
 export function revokeShare(shareId: string): Promise<Share> {
   return getClient().revokeShare(shareId);
+}
+
+/**
+ * More time, measured from now. Only the site that OWNS the cameras may.
+ *
+ * A borrowing site that wants longer asks again, which is one click and
+ * leaves a record of having asked.
+ */
+export function extendShare(shareId: string, durationSec: number): Promise<Share> {
+  return getClient().extendShare(shareId, durationSec);
 }
 
 /* ------------------------------ administration ------------------------- */

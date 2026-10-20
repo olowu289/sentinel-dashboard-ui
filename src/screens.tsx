@@ -24,7 +24,7 @@
  *   npm run screenshots    the same, captured at two widths
  */
 
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import { AuthContextForHarness } from "@/components/AuthProvider";
@@ -32,6 +32,16 @@ import { AdministrationView } from "@/components/AdministrationView";
 import { SharesView } from "@/components/SharesView";
 import { ShareRequestBanner } from "@/components/ShareRequestBanner";
 import { IconRail } from "@/components/IconRail";
+import { NotificationProvider, useNotifications } from "@/lib/notifications";
+import { NotificationStack } from "@/components/NotificationStack";
+import { ShareFeedProvider } from "@/lib/useShareFeed";
+import { SharingPane } from "@/components/sharing/SharingPane";
+import {
+  AcceptedCard,
+  EndedCard,
+  PendingCard,
+  SharedFeedBadge,
+} from "@/components/sharing/ShareNotifications";
 import { PtzPad } from "@/components/PtzPad";
 import { describeControl } from "@/lib/api/ptz";
 import { DEFAULT_FEATURES, type Feature } from "@/lib/features";
@@ -90,6 +100,10 @@ const SHARES = [
     decided_at: null,
     incoming: true,
     outgoing: false,
+    /* A REQUEST CARRIES ITS REASON, and on a request card it is most of what
+       is on screen: the site being asked has nothing else to decide on. */
+    message:
+      "Two of our trucks are at your gate until about four. Could we watch the mast while they are on your side?",
   },
   {
     share_id: "shr_active",
@@ -258,9 +272,61 @@ function install(mode: Mode) {
     if (url.includes("/v1/admin/shares"))
       return body({ shares: empty ? [] : SHARES });
     if (url.includes("/v1/shares")) return body({ shares: empty ? [] : SHARES });
+    /* One site's cells, for the tower picker. Before the list below, because
+       `/v1/sites/site_north` also contains `/v1/sites`. */
+    if (/\/v1\/sites\/[^/?]+$/.test(url))
+      return body({
+        site: SITES[0],
+        cells: [
+          {
+            hub_id: "kln_hub_northgate",
+            towers: ["kln_northgate_000001", "kln_northgate_000002"],
+          },
+        ],
+      });
+    /* The §A.3 PROJECTED SHAPE, not a convenient approximation. The SDK
+       validates this at the client boundary and a fixture that is nearly
+       right fails the whole list, which renders as a tower picker full of
+       device ids -- which is exactly what the first run of these screenshots
+       showed. */
+    if (url.includes("/v1/viewer/towers"))
+      return body({
+        towers: [
+          {
+            device_id: "kln_northgate_000001",
+            label: "North Gate mast",
+            link: "up",
+            as_of: new Date().toISOString(),
+            cameras: [
+              { index: 1, lens: "ptz", ptz_capable: true, status: "live",
+                resolution: { width: 2560, height: 1440 } },
+              { index: 2, lens: "fixed", ptz_capable: false, status: "live",
+                resolution: { width: 1920, height: 1080 } },
+            ],
+            sensors: [],
+          },
+          {
+            device_id: "kln_northgate_000002",
+            label: "Gatehouse",
+            link: "down",
+            as_of: new Date().toISOString(),
+            cameras: [
+              { index: 1, lens: "fixed", ptz_capable: false, status: "unknown",
+                resolution: { width: 1920, height: 1080 } },
+            ],
+            sensors: [],
+          },
+        ],
+      });
     if (url.includes("/v1/sites"))
       return body({
         sites: empty ? [] : SITES,
+        others: empty
+          ? []
+          : [
+              { site_id: "site_yard", name: "West Yard" },
+              { site_id: "site_pit", name: "South Pit" },
+            ],
         unassigned_hubs: empty ? [] : ["kln_hub_spare", "kln_hub_eastridge"],
       });
     return body({});
@@ -301,7 +367,185 @@ const SCREENS = [
   { id: "rail", label: "Icon rail (sites on)", mode: "full" },
   /* The PTZ pad as a SHARED site sees it while the owning site is driving. */
   { id: "ptz-yielded", label: "PTZ yielded to the owner", mode: "full" },
+  /* ── THE CARDS ──────────────────────────────────────────────────────
+     Every state one can be in, over a stand-in for the video, because the
+     whole claim of this feature is that it never covers the picture. */
+  { id: "card-request", label: "Card: new request", mode: "full" },
+  { id: "card-expanded", label: "Card: expanded", mode: "full" },
+  { id: "card-offer", label: "Card: an offer", mode: "full" },
+  { id: "card-undo", label: "Card: declined, undo", mode: "full" },
+  { id: "card-accepted", label: "Card: accepted", mode: "full" },
+  { id: "card-ended", label: "Card: ended", mode: "full" },
+  { id: "card-stack", label: "Cards: three, stacked", mode: "full" },
+  /* ── THE PAGE ───────────────────────────────────────────────────────── */
+  { id: "sharing-new", label: "Sharing: new request", mode: "full" },
+  { id: "sharing-offer", label: "Sharing: share a feed", mode: "full" },
+  { id: "sharing-incoming", label: "Sharing: incoming", mode: "full" },
+  { id: "sharing-outgoing", label: "Sharing: outgoing", mode: "full" },
+  { id: "sharing-active", label: "Sharing: active", mode: "full" },
+  { id: "sharing-history", label: "Sharing: history", mode: "full" },
+  { id: "sharing-empty", label: "Sharing: nothing yet", mode: "empty" },
 ] as const;
+
+/* ------------------------------------------------------------------ *
+ * The cards, over a stand-in for the video
+ * ------------------------------------------------------------------ */
+
+/** A dark rectangle with a badge on it: enough to prove the card clears. */
+function FakeWall({ borrowed }: { borrowed?: boolean }) {
+  return (
+    <div className="grid h-full w-full grid-cols-2 gap-[10px] bg-ink p-[10px]">
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="relative overflow-hidden rounded-[10px] bg-tile"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0 14px, transparent 14px 28px)",
+          }}
+        >
+          <div className="absolute left-[16px] top-[10px] flex flex-col gap-[6px]">
+            <span className="chip-blur rounded-[4px] bg-black/50 px-[8px] py-[3px] font-display text-[0.6875rem] uppercase tracking-[0.11px] text-sub">
+              {["Gate", "Yard", "Perimeter", "Loading"][i]}
+            </span>
+            {borrowed && i === 0 ? (
+              <SharedFeedBadge share={SHARES[1] as never} />
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Seeds the stack with exactly what a screenshot needs, then stands back. */
+function Seed({ which }: { which: string }) {
+  const { notify } = useNotifications();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current) return;
+    done.current = true;
+    const request = SHARES[0] as never;
+    const offer = { ...SHARES[0], direction: "offer", ptz: true, playback: true } as never;
+    const active = SHARES[1] as never;
+
+    if (which === "card-request" || which === "card-stack") {
+      notify({
+        id: "c1",
+        kind: "share",
+        at: Date.now() - 40_000,
+        persistent: true,
+        title: "South Pit is asking",
+        render: ({ dismiss }) => <PendingCard share={request} onDone={dismiss} />,
+      });
+    }
+    if (which === "card-expanded") {
+      notify({
+        id: "c2",
+        kind: "share",
+        at: Date.now(),
+        persistent: true,
+        title: "South Pit is asking",
+        render: ({ dismiss }) => (
+          <PendingCard initialOpen share={request} onDone={dismiss} />
+        ),
+      });
+    }
+    if (which === "card-offer" || which === "card-stack") {
+      notify({
+        id: "c3",
+        kind: "share",
+        at: Date.now() - 120_000,
+        persistent: true,
+        title: "South Pit is offering",
+        render: ({ dismiss }) => <PendingCard share={offer} onDone={dismiss} />,
+      });
+    }
+    if (which === "card-accepted" || which === "card-stack") {
+      notify({
+        id: "c4",
+        kind: "share",
+        at: Date.now() - 5_000,
+        title: "North Gate accepted",
+        render: ({ dismiss }) => (
+          <AcceptedCard share={active} onWatch={() => {}} onDone={dismiss} />
+        ),
+      });
+    }
+    if (which === "card-ended") {
+      notify({
+        id: "c5",
+        kind: "system",
+        at: Date.now(),
+        title: "The share with West Yard ran out",
+        render: ({ dismiss }) => (
+          <EndedCard
+            text="The share with West Yard ran out. Those cameras are no longer on your board."
+            onDone={dismiss}
+          />
+        ),
+      });
+    }
+  }, [notify, which]);
+  return null;
+}
+
+function Cards({ which }: { which: string }) {
+  return (
+    <NotificationProvider>
+      <ShareFeedProvider enabled={false}>
+        <div className="relative h-full w-full">
+          <FakeWall borrowed={which === "card-accepted"} />
+          <Seed which={which} />
+          <NotificationStack />
+        </div>
+      </ShareFeedProvider>
+    </NotificationProvider>
+  );
+}
+
+/** The undo state is a state of the card, so it is driven rather than faked. */
+function UndoCard() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    /* Press Decline once the card is on screen: the countdown is the thing
+       being photographed, and faking it would photograph a different
+       component from the one that ships. */
+    const t = setTimeout(() => {
+      const buttons = ref.current?.querySelectorAll("button") ?? [];
+      for (const b of Array.from(buttons)) {
+        if (b.textContent?.trim() === "Decline") {
+          (b as HTMLButtonElement).click();
+          break;
+        }
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <NotificationProvider>
+      <ShareFeedProvider enabled={false}>
+        <div ref={ref} className="relative h-full w-full">
+          <FakeWall />
+          <Seed which="card-request" />
+          <NotificationStack />
+        </div>
+      </ShareFeedProvider>
+    </NotificationProvider>
+  );
+}
+
+function SharingScreen({ tab }: { tab: string }) {
+  return (
+    <ShareFeedProvider>
+      <div className="h-full w-full overflow-y-auto bg-ink px-[16px] py-[20px] sm:px-[28px]">
+        <div className="mx-auto w-full max-w-[720px]">
+          <SharingPane startOn={tab as never} />
+        </div>
+      </div>
+    </ShareFeedProvider>
+  );
+}
 
 /**
  * The pad, and the line that says why it will not move.
@@ -350,7 +594,11 @@ function Harness() {
   install(screen.mode as Mode);
 
   const body =
-    which === "rail" ? (
+    which.startsWith("card-") ? (
+      which === "card-undo" ? <UndoCard /> : <Cards which={which} />
+    ) : which.startsWith("sharing-") ? (
+      <SharingScreen tab={which.slice("sharing-".length).replace("empty", "incoming")} />
+    ) : which === "rail" ? (
       <div className="flex h-full w-full bg-ink">
         <IconRail active="admin" sites admin />
         <div className="flex flex-1 items-center justify-center">

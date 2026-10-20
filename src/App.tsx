@@ -16,9 +16,12 @@ import { DashboardView } from "@/components/DashboardView";
 import { PeopleView } from "@/components/PeopleView";
 import { SettingsView } from "@/components/SettingsView";
 import { AdministrationView } from "@/components/AdministrationView";
-import { ShareRequestBanner } from "@/components/ShareRequestBanner";
+import { NotificationStack } from "@/components/NotificationStack";
+import { NotificationProvider } from "@/lib/notifications";
+import { ShareFeedProvider } from "@/lib/useShareFeed";
+import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
-import { useCapabilities, useShares } from "@/lib/useSites";
+import { useCapabilities } from "@/lib/useSites";
 import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
@@ -430,12 +433,11 @@ export function SentinelApp() {
   const caps = useCapabilities();
   const sitesEnabled = caps?.features.sites === true;
   const isAdmin = sitesEnabled && isAdminRole(account?.role);
-  /* Pending shares on MY cameras, for the banner. Only asked for when this
-     server has sites, so a hub puts no request on the wire. */
-  const incoming = useShares(sitesEnabled);
-  const pendingForMe = (incoming.value?.shares ?? []).filter(
-    (sh) => sh.status === "pending" && sh.incoming === true,
-  );
+  /* THE SHARES THEMSELVES LIVE IN `ShareFeedProvider` (see main.tsx), which
+     is one list read by the cards, the Sharing page and the shared-feed badge
+     alike. Asking for them here as well would be a second copy that can
+     disagree with the first, which is the whole thing that provider exists to
+     make impossible. */
   /**
    * Which Settings section is open, and the ONE piece of this app's state that
    * lives in the URL.
@@ -1593,6 +1595,22 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
+      {/* ── THE TWO PROVIDERS THE CARDS NEED ──────────────────────────────
+
+          `ShareFeedProvider` is ONE share list, read by the floating cards,
+          by the Sharing page and by the badge on a borrowed feed. The brief's
+          hardest line is "cards and page must always agree", and two copies of
+          a list can only approach that by polling faster; one copy does it by
+          construction.
+
+          It is `enabled` on the server's answer, so a HUB -- same bundle, no
+          sites -- puts no share request on the wire at all.
+
+          `NotificationProvider` owns the stack and the history. It knows
+          nothing about sharing: share cards are the first kind through it and
+          deliberately not the shape of it. */}
+      <NotificationProvider>
+        <ShareFeedProvider enabled={sitesEnabled}>
       {/* Above every screen, because it is not a fact about any one of them.
           A column so the banner takes space rather than floating over the
           wall — the frames are the job, and this app never covers them with a
@@ -1612,22 +1630,15 @@ export function SentinelApp() {
             />
           )}
         </AnimatePresence>
-        {/* AN INCOMING SHARE REQUEST, ABOVE EVERYTHING AND BLOCKING NOTHING.
-            The same slot and the same posture as the coordination banner above
-            it: it pushes the content down, it is not a modal, it does not take
-            focus, and it never covers a camera. An operator watching a feed
-            because something is happening must not have a permissions question
-            put in front of it.
+        {/* THE SHARE BANNER IS GONE, AND THAT WAS THE POINT.
 
-            Not rendered on the Shares screen itself: the list is right there,
-            and a banner about a row three inches below it is noise. */}
-        {sitesEnabled && !onShares && pendingForMe.length ? (
-          <ShareRequestBanner
-            shares={pendingForMe}
-            onReview={() => navigate("shares")}
-            onAnswered={() => incoming.reload()}
-          />
-        ) : null}
+            It sat across the top, pushed the whole wall down, and its one
+            control sent whoever pressed it to another screen. Answering a
+            question about a gate meant stopping watching the gate.
+
+            What replaced it is `ShareDeck` plus `NotificationStack` at the
+            bottom of this file: cards in the corner, over the video, with the
+            whole decision inside them. Nothing here pushes anything down. */}
         <div className="min-h-0 flex-1">
       {onAdmin ? (
         <AdministrationView onNavigate={navigate} />
@@ -1824,6 +1835,25 @@ export function SentinelApp() {
       )}
         </div>
       </div>
+
+        {/* The deck turns changes in the feed into cards; the stack draws
+            them. Last in the tree so nothing can render over them, and
+            `fixed` so they belong to the viewport rather than to whichever
+            screen happens to be open. */}
+        <ShareDeck
+          onWatch={(deviceId) => {
+            /* "Watch now" lands on the tower the share just granted, which
+               is the one thing anybody wants next and the thing the old
+               banner made somebody find for themselves. */
+            setOnShares(false);
+            setOnAdmin(false);
+            setOnSettings(false);
+            openTower(deviceId);
+          }}
+        />
+        <NotificationStack />
+        </ShareFeedProvider>
+      </NotificationProvider>
     </MotionConfig>
   );
 }

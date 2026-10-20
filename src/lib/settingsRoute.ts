@@ -44,6 +44,7 @@
 export const SETTINGS_SECTIONS = [
   "account",
   "security",
+  "sharing",
   "appearance",
   "cameras",
 ] as const;

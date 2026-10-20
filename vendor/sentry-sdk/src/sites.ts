@@ -67,8 +67,30 @@ export interface Cell {
   readonly towers: readonly string[];
 }
 
+/**
+ * Another site in the same organization, as a NAME and an id.
+ *
+ * ⚠ THIS IS THE WHOLE OF WHAT ONE SITE KNOWS ABOUT ANOTHER, and it is
+ * deliberate. A request has to name a site, so a site has to be nameable; its
+ * hubs, masts, people and camera count are exactly what a share exists to hand
+ * over on purpose, and sending them alongside the name would give that away
+ * for free.
+ */
+export interface SiteName {
+  readonly site_id: string;
+  readonly name: string;
+}
+
 export interface SiteListResponse {
   readonly sites: readonly Site[];
+  /**
+   * Every OTHER site in this organization, by name. The ones you can ask.
+   *
+   * Empty for an admin, who already sees them all in `sites`. Absent from a
+   * server that predates it, which a caller reads as "no directory" rather
+   * than as "no other sites".
+   */
+  readonly others?: readonly SiteName[];
   /**
    * Hubs in this organization that are in no site.
    *
@@ -87,6 +109,22 @@ export interface SiteDetailResponse {
 
 export type ShareDirection = "request" | "offer";
 export type ShareStatus = "pending" | "active" | "declined" | "revoked" | "expired";
+
+/**
+ * The longest message one site may send another, which the server enforces.
+ * Exported so a box can count down instead of being refused after sending.
+ */
+export const SHARE_MESSAGE_MAX = 500;
+
+/**
+ * What a share lasts by default when nobody says otherwise: fifteen minutes.
+ *
+ * ⚠ THE SHORT ONE IS THE SAFE ONE. A share is somebody else's cameras, and
+ * the failure that matters is the one nobody notices: a share that outlives
+ * the reason for it. Fifteen minutes covers "our truck is at your gate" and
+ * runs out on its own; anything longer should be a decision somebody typed.
+ */
+export const SHARE_DEFAULT_SEC = 15 * 60;
 
 /** One tower, and optionally which of its cameras, inside a share's scope. */
 export interface ShareScopeEntry {
@@ -115,6 +153,17 @@ export interface Share {
   readonly expires_at: string;
   readonly created_at: string;
   readonly decided_at: string | null;
+  /**
+   * What the site that started this SAID.
+   *
+   * ⚠ REQUIRED ON A REQUEST, and the only thing the site being asked has
+   * to decide on: a request names no cameras, because the site asking cannot
+   * know what the other has. Optional on an offer, which carries its own
+   * meaning in its scope and duration.
+   *
+   * Render it verbatim. It is a person writing to another person.
+   */
+  readonly message: string | null;
   /** True when one of my sites OWNS the cameras. Only on `/v1/shares`. */
   readonly incoming?: boolean;
   /** True when one of my sites RECEIVES the access. Only on `/v1/shares`. */
@@ -299,6 +348,15 @@ export function parseSiteList(raw: unknown, ctx: Ctx = {}): SiteListResponse {
       .arr("$.unassigned_hubs", o.unassigned_hubs)
       .map((h, i) => c.str(`$.unassigned_hubs[${i}]`, h));
   }
+  if (o.others !== undefined) {
+    out.others = c.arr("$.others", o.others).map((raw, i) => {
+      const e = c.obj(`$.others[${i}]`, raw);
+      return {
+        site_id: c.str(`$.others[${i}].site_id`, e.site_id),
+        name: c.str(`$.others[${i}].name`, e.name),
+      };
+    });
+  }
   c.done("site list", ctx);
   return out as unknown as SiteListResponse;
 }
@@ -360,6 +418,10 @@ function shareOne(c: Check, path: string, raw: unknown): Share {
     expires_at: c.str(`${path}.expires_at`, o.expires_at),
     created_at: c.str(`${path}.created_at`, o.created_at),
     decided_at: c.strOrNull(`${path}.decided_at`, o.decided_at),
+    // Tolerated as absent for a server that predates it, and read as null,
+    // which is the same thing an offer with nothing to say sends.
+    message:
+      o.message === undefined ? null : c.strOrNull(`${path}.message`, o.message),
   };
   if (o.incoming !== undefined) out.incoming = c.bool(`${path}.incoming`, o.incoming);
   if (o.outgoing !== undefined) out.outgoing = c.bool(`${path}.outgoing`, o.outgoing);

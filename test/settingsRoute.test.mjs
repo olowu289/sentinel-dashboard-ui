@@ -104,10 +104,14 @@ describe("sectionFromHash", () => {
     assert.equal(r.sectionFromHash(), "appearance");
   });
 
-  test("the sections are the four the screen renders, in order", () => {
+  test("the sections are the five the screen renders, in order", () => {
+    /* `sharing` sits third, between the account and the look of it: it is a
+       thing this organization DOES rather than a preference, and it is the
+       only section somebody opens with a job in mind. */
     assert.deepEqual([...r.SETTINGS_SECTIONS], [
       "account",
       "security",
+      "sharing",
       "appearance",
       "cameras",
     ]);

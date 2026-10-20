@@ -5,6 +5,8 @@ import type { CameraFeed } from "@/lib/types";
 import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
 import { DEAD_STATES, FeedChip, formatElapsed } from "./FeedChip";
+import { SharedFeedBadge } from "./sharing/ShareNotifications";
+import { useBorrowedShare } from "@/lib/useShareFeed";
 import { PtzPad } from "./PtzPad";
 import { SirenOverlay } from "./SirenOverlay";
 import {
@@ -106,6 +108,9 @@ export function CameraTile({
      in fullscreen. A fit toggle is drafted (ctl-fit/ctl-fill live in
      public/icons) but deliberately not wired up yet. */
   const objectFit = "object-cover";
+
+  /* Is this camera somebody else's, lent to us? Null for our own. */
+  const borrowed = useBorrowedShare(feed.towerId, feed.index);
 
   /* The actuators, shared with the fleet tile — see `useTileControls`. */
   const {
@@ -500,6 +505,16 @@ export function CameraTile({
             latencyMs={isDead ? undefined : feed.latencyMs}
             error={hasError}
           />
+          {/* WHOSE CAMERA THIS IS, when it is not ours, and how long is left.
+              Always, not only near the end: it changes what an operator does
+              with what they see, and it explains in advance why the controls
+              may be refused. Under the chip rather than beside it, so a long
+              site name never pushes the camera's own name out of the tile. */}
+          {borrowed ? (
+            <div className="mt-[6px] flex">
+              <SharedFeedBadge share={borrowed} />
+            </div>
+          ) : null}
         </motion.div>
       )}
 

@@ -19,10 +19,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  SHARE_DEFAULT_SEC,
+  SHARE_MESSAGE_MAX,
   SentryClient,
   ValidationError,
   isAdminRole,
   isShareLive,
+  parseShare,
 } from "../dist/esm/index.js";
 
 /** Records calls and replays one scripted response per call. */
@@ -353,4 +356,51 @@ test("an audit entry missing its action is rejected", async () => {
     },
   ]);
   await assert.rejects(() => client.adminAudit(), ValidationError);
+});
+
+/* ======================================================================
+ * Asking, and what a request is allowed NOT to know
+ * ====================================================================== */
+
+test("a request sends no scope and a message, because that is all it has", async () => {
+  /* THE SHAPE OF ASKING. Site 1 knows Site 2 by NAME and by nothing else --
+     not its hubs, not its masts, not how many cameras it has. So a request
+     carries a reason instead of a camera list, and the site answering is the
+     one that chooses what to lend. */
+  const { client, calls } = clientFor([{ status: 201, body: { share: SHARE } }]);
+  await client.createShare({
+    direction: "request",
+    mySiteId: "site_2",
+    otherSiteId: "site_1",
+    message: "Our truck is at your gate this afternoon.",
+  });
+  const sent = JSON.parse(calls[0].init.body);
+  assert.deepEqual(sent.scope, [], "an omitted scope goes as empty, not missing");
+  assert.equal(sent.message, "Our truck is at your gate this afternoon.");
+  assert.equal(sent.direction, "request");
+});
+
+test("a share carries the message through, and null when there was none", () => {
+  const withText = parseShare({ share: { ...SHARE, message: "Please." } });
+  assert.equal(withText.message, "Please.");
+  assert.equal(parseShare({ share: { ...SHARE, message: null } }).message, null);
+  /* A server that predates the field reads as "nothing said" rather than
+     failing validation, which is the same rule every other optional field
+     here follows. */
+  const older = { ...SHARE };
+  delete older.message;
+  assert.equal(parseShare({ share: older }).message, null);
+});
+
+test("extendShare asks the right route and carries only the duration", async () => {
+  const { client, calls } = clientFor([{ status: 200, body: { share: SHARE } }]);
+  await client.extendShare("shr_1", 900);
+  assert.match(calls[0].url, /\/v1\/shares\/shr_1\/extend$/);
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { duration_sec: 900 });
+});
+
+test("the two share constants are exported, so a UI need not re-state them", () => {
+  assert.equal(SHARE_DEFAULT_SEC, 900, "fifteen minutes");
+  assert.equal(SHARE_MESSAGE_MAX, 500);
 });

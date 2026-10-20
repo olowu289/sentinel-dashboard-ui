@@ -586,7 +586,19 @@ export declare class SentryClient {
         direction: ShareDirection;
         mySiteId: string;
         otherSiteId: string;
-        scope: readonly ShareScopeEntry[];
+        /**
+         * ⚠ OMIT IT ON A REQUEST. The site asking does not know what the
+         * other site has -- it knows a NAME on a list, which is all a share ever
+         * reveals about the other side -- so a request names no cameras and the
+         * site answering chooses them. Required on an offer, which can only
+         * offer what the offering site owns.
+         */
+        scope?: readonly ShareScopeEntry[];
+        /**
+         * ⚠ REQUIRED ON A REQUEST, where it is the only thing the other site
+         * has to decide on. The server refuses a request without one.
+         */
+        message?: string;
         live?: boolean;
         ptz?: boolean;
         playback?: boolean;
@@ -620,6 +632,22 @@ export declare class SentryClient {
      * open feeds on those cameras are gone. Either side may revoke, and so may
      * an admin; revoking twice is not an error.
      */
+    /**
+     * Give a live share longer — `POST /v1/shares/{id}/extend`.
+     *
+     * ⚠ FROM NOW, NOT FROM ITS OLD EXPIRY. "Another fifteen minutes" means
+     * fifteen minutes from the moment somebody says it.
+     *
+     * Only the site that OWNS the cameras may extend, whichever direction the
+     * share started in, and only while it is live. A share that has expired or
+     * been revoked is finished: ask again instead, which leaves a record of
+     * having asked.
+     *
+     * @throws {ApiError} `403 forbidden` — the borrowing site cannot extend its
+     *   own access.
+     * @throws {ApiError} `409 already_decided` — it is not live any more.
+     */
+    extendShare(shareId: string, durationSec: number, opts?: RequestOptions): Promise<Share>;
     revokeShare(shareId: string, opts?: RequestOptions): Promise<Share>;
     /** Every share in the organization — `GET /v1/admin/shares`. Admins only. */
     adminListShares(opts?: RequestOptions): Promise<ShareListResponse>;

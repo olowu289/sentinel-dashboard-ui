@@ -26,6 +26,20 @@
  * week would turn a compatible change into an outage.
  */
 import { ValidationError } from "./errors.js";
+/**
+ * The longest message one site may send another, which the server enforces.
+ * Exported so a box can count down instead of being refused after sending.
+ */
+export const SHARE_MESSAGE_MAX = 500;
+/**
+ * What a share lasts by default when nobody says otherwise: fifteen minutes.
+ *
+ * ⚠ THE SHORT ONE IS THE SAFE ONE. A share is somebody else's cameras, and
+ * the failure that matters is the one nobody notices: a share that outlives
+ * the reason for it. Fifteen minutes covers "our truck is at your gate" and
+ * runs out on its own; anything longer should be a decision somebody typed.
+ */
+export const SHARE_DEFAULT_SEC = 15 * 60;
 /** `owner` is every pre-sites account's role and means admin. One place. */
 export function isAdminRole(role) {
     if (typeof role !== "string")
@@ -147,6 +161,15 @@ export function parseSiteList(raw, ctx = {}) {
             .arr("$.unassigned_hubs", o.unassigned_hubs)
             .map((h, i) => c.str(`$.unassigned_hubs[${i}]`, h));
     }
+    if (o.others !== undefined) {
+        out.others = c.arr("$.others", o.others).map((raw, i) => {
+            const e = c.obj(`$.others[${i}]`, raw);
+            return {
+                site_id: c.str(`$.others[${i}].site_id`, e.site_id),
+                name: c.str(`$.others[${i}].name`, e.name),
+            };
+        });
+    }
     c.done("site list", ctx);
     return out;
 }
@@ -206,6 +229,9 @@ function shareOne(c, path, raw) {
         expires_at: c.str(`${path}.expires_at`, o.expires_at),
         created_at: c.str(`${path}.created_at`, o.created_at),
         decided_at: c.strOrNull(`${path}.decided_at`, o.decided_at),
+        // Tolerated as absent for a server that predates it, and read as null,
+        // which is the same thing an offer with nothing to say sends.
+        message: o.message === undefined ? null : c.strOrNull(`${path}.message`, o.message),
     };
     if (o.incoming !== undefined)
         out.incoming = c.bool(`${path}.incoming`, o.incoming);

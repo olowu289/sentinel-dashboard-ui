@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.5.0
+
+Additive. Nothing in 0.4.0 changed shape.
+
+Sharing stops being a page you visit and becomes something that happens where
+the video is, so the model gains the two things a card needs and the one thing
+a live share was missing.
+
+### Added - a share can SAY something
+
+- **`Share.message`**, and `createShare({ message })`.
+  ⚠ **Required on a REQUEST**, where it is the only thing the site being asked
+  has to decide on. The server refuses a request without one. Optional on an
+  offer, which carries its own meaning in its scope and its duration.
+  `SHARE_MESSAGE_MAX` (500) is exported so a box can count down rather than be
+  refused after sending.
+- A server that predates the field reads as `message: null`, which is also what
+  an offer with nothing to say sends.
+
+### Added - a request names no cameras
+
+- **`createShare({ scope })` is now optional**, and an omitted scope goes on the
+  wire as `[]`.
+  ⚠ **This is the shape of asking.** Site 1 knows Site 2 by NAME and by nothing
+  else: not its hubs, not its masts, not how many cameras it has. So a request
+  cannot name what it wants, and the site answering is the one that chooses.
+  `acceptShare` then requires a non-empty scope, because a share that lends
+  nothing becomes an active share the asker cannot tell apart from being
+  ignored.
+- An OFFER still requires a scope, and the server still refuses one naming
+  cameras the offering site does not own.
+
+### Added - more time
+
+- **`extendShare(shareId, durationSec)`** - `POST /v1/shares/{id}/extend`.
+  Measured FROM NOW, not from the old expiry: "another fifteen minutes" means
+  fifteen minutes from when somebody says it.
+  Only the site that OWNS the cameras may extend, whichever direction the share
+  started in (`403` otherwise), and only while it is live (`409`). A revoked or
+  expired share cannot be brought back this way: ask again, which leaves a
+  record of having asked.
+- **`SHARE_DEFAULT_SEC`** (900) - fifteen minutes, the default a UI should
+  offer. The short one is the safe one, because the failure that matters when
+  it is not your camera is the share nobody notices outliving its reason.
+
 ## 0.4.0
 
 Additive. Nothing in 0.3.0 changed shape.

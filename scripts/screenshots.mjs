@@ -44,6 +44,22 @@ const SCREENS = [
   ["banner", "incoming-request-banner"],
   ["rail", "icon-rail"],
   ["ptz-yielded", "ptz-yielded-to-owner"],
+  // Every state a card can be in. The brief asks for each by name, and they
+  // are the part of this feature nobody can review from prose.
+  ["card-request", "card-new-request"],
+  ["card-expanded", "card-expanded"],
+  ["card-offer", "card-offer"],
+  ["card-undo", "card-declined-undo"],
+  ["card-accepted", "card-accepted"],
+  ["card-ended", "card-ended"],
+  ["card-stack", "card-stack"],
+  ["sharing-new", "sharing-new-request"],
+  ["sharing-offer", "sharing-share-a-feed"],
+  ["sharing-incoming", "sharing-incoming"],
+  ["sharing-outgoing", "sharing-outgoing"],
+  ["sharing-active", "sharing-active"],
+  ["sharing-history", "sharing-history"],
+  ["sharing-empty", "sharing-empty"],
 ];
 
 /** The two widths the brief asks for. Heights are generous; shots are full page. */

@@ -39,6 +39,9 @@ import {
   type ViewerSession,
 } from "@kallon/sentry-sdk";
 import { SweepRadar } from "@/components/SweepRadar";
+import { QuickShare } from "@/components/sharing/QuickShare";
+import { useNotifications } from "@/lib/notifications";
+import { useCapabilities } from "@/lib/useSites";
 
 /**
  * The device's own countdown to an auto-resume, as `m:ss`.
@@ -339,6 +342,12 @@ export function useTileControls({
    * PTZ command succeeds -- whichever comes first. Setting `null` cancels the
    * timer, so a success does not leave an old one armed to fire later.
    */
+  /* For the Share control at the bottom of this file: what this server is,
+     and the stack to open the form in. Both are cheap -- the capability probe
+     is cached for the page and the stack is a context read. */
+  const caps = useCapabilities();
+  const { notify } = useNotifications();
+
   const [ptzError, setPtzErrorState] = useState<string | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setPtzError = useCallback((message: string | null) => {
@@ -1014,6 +1023,46 @@ export function useTileControls({
       onSelect: () => setOverlays((o) => !o),
     },
   ];
+
+  /* ── SHARE THIS CAMERA, WITHOUT LEAVING IT ──────────────────────────────
+
+     The form opens as a NOTIFICATION CARD rather than a popover, and that is
+     not a shortcut: the card is already the surface this product uses for
+     anything that must happen over live video without covering it. It lands
+     in the same corner, stacks with whatever else is there, closes the same
+     way, and is reachable by keyboard like everything else in the stack.
+
+     Only on a server that HAS sites. On a hub there is nobody to share with,
+     and a control that opens a form with an empty site list is worse than no
+     control at all. */
+  const canShare = caps?.features.sites === true && feed.index !== undefined;
+  if (canShare) {
+    controls.push({
+      id: "share",
+      label: "Share this camera with another site",
+      icon: "/icons/group-grid.svg",
+      disabled: isDead,
+      onSelect: () =>
+        notify({
+          id: `quickshare:${feed.id}`,
+          kind: "share",
+          at: Date.now(),
+          /* Persistent: it is a form somebody is filling in, and a form that
+             fades while you are choosing is worse than no form. */
+          persistent: true,
+          title: `Share ${feed.name}`,
+          render: ({ dismiss }) => (
+            createElement(QuickShare, {
+              compact: true,
+              deviceId: feed.towerId,
+              camera: feed.index,
+              cameraLabel: feed.name,
+              onDone: dismiss,
+            })
+          ),
+        }),
+    });
+  }
 
   /* ── THE SWEEP'S TWO CONTROLS ────────────────────────────────────────────
 

@@ -20,5 +20,5 @@ export const API_PREFIX = "/v1";
 /* ------------------------------------------------------------------ *
  * Sites, people and sharing
  * ------------------------------------------------------------------ */
-export { isAdminRole, isShareLive, parseAudit, parseCapabilities, parsePeopleList, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
+export { SHARE_DEFAULT_SEC, SHARE_MESSAGE_MAX, isAdminRole, isShareLive, parseAudit, parseCapabilities, parsePeopleList, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
 //# sourceMappingURL=index.js.map

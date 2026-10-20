@@ -1,4 +1,6 @@
 import { motion } from "motion/react";
+import { QuickShare } from "@/components/sharing/QuickShare";
+import { useCapabilities } from "@/lib/useSites";
 import {
   useEffect,
   useRef,
@@ -310,6 +312,9 @@ export function CameraSettingsPanel({
   className?: string;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  /* Sharing exists only where sites do. One cached probe for the page. */
+  const caps = useCapabilities();
+  const canShare = caps?.features.sites === true;
   const [editingZones, setEditingZones] = useState(false);
 
   /* What the collapsed row says. One camera speaks for itself; two agreeing
@@ -712,6 +717,37 @@ export function CameraSettingsPanel({
               />
             </Row>
           </Group>
+
+          {/* ── SHARING, UNDER CAMERA, ON A SERVER THAT HAS SITES ──────────
+
+              The second way into the same flow: a camera's own settings. The
+              other is the Share control on the tile, and both mount
+              `QuickShare`, so neither can offer something the other does not.
+
+              Absent entirely on a hub. There is nobody to share with there,
+              and a row that opens an empty site picker is a worse answer than
+              no row. */}
+          {canShare ? (
+            <Group title="Sharing">
+              {feeds.map((f, i) => (
+                <Row
+                  key={f.id}
+                  label={feeds.length > 1 ? `Share ${f.name}` : "Share this camera"}
+                  value=""
+                  expanded={open === `share:${f.id}`}
+                  onToggle={() => toggle(`share:${f.id}`)}
+                  last={i === feeds.length - 1}
+                >
+                  <QuickShare
+                    deviceId={f.towerId}
+                    camera={f.index}
+                    cameraLabel={f.name}
+                    onDone={() => toggle(`share:${f.id}`)}
+                  />
+                </Row>
+              ))}
+            </Group>
+          ) : null}
 
           <Group title="Audio">
             <RowSwitch

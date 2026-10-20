@@ -136,6 +136,37 @@
   --color-advice-banner: #f5cc45;
   --color-advice-ink: #110d00;
 
+  /* ── NOTIFICATIONS ────────────────────────────────────────────────────
+
+     Cards that float over live video, one colour per TYPE, and the names are
+     the types rather than the hues: a token called `notify-share` can be
+     restyled, and a token called `notify-blue` can only be renamed.
+
+     ⚠ TWO COLOURS ARE NOT AVAILABLE HERE, AND NEITHER IS NEGOTIABLE.
+     --color-terra means LIVE and nothing else; a card borrowing it would put
+     "live" on a wall of tiles that are not. --color-alert-banner is the
+     alarm, held for the detections and faults that are coming, because a
+     colour that has meant "somebody is asking you something" all week cannot
+     also mean "somebody is in the yard".
+
+     So sharing takes a COOL BLUE, which this palette has never spent. It is
+     the one thing on screen that is about people rather than about the site,
+     and it reads as information at a glance without ever reading as an alarm. */
+  --color-notify-share: #8fb0ff;
+  /* The card's own fill: dark enough to sit on video, blue enough to belong to
+     the accent above. Not --color-panel, so a share card is distinguishable
+     from every other floating surface in the product at a glance. */
+  --color-notify-share-wash: #141a2b;
+  --color-notify-share-line: #2b3450;
+  /* Ink on a SOLID notify fill (the accept button). */
+  --color-notify-share-ink: #0a1020;
+
+  /* A statement with nothing to answer: a share ended, an offer expired.
+     Deliberately colourless -- it reports, it does not ask. */
+  --color-notify-system: #c1c1c1;
+  --color-notify-system-wash: #1b1b1d;
+  --color-notify-system-line: #2c2c30;
+
   /* The clip player. The stage is the same value as --color-card-hover and is
      its own token anyway: one is the colour a card takes under the pointer and
      the other is the surround a piece of evidence is looked at against, and
@@ -263,6 +294,17 @@
   --color-action: #111827;       /* the primary button fill inverts... */
   --color-action-ink: #ffffff;   /* ...and so does its ink, together */
   --color-critical-ink: #ffffff; /* UNCHANGED: the red fill does not invert */
+
+  /* Notifications, light. The accent darkens to hold its contrast on a white
+     card; the wash becomes the palest blue that is still visibly not white,
+     because the card has to read as a card over a light page too. */
+  --color-notify-share: #2f5bd7;
+  --color-notify-share-wash: #eef2ff;
+  --color-notify-share-line: #c9d6ff;
+  --color-notify-share-ink: #ffffff; /* on the solid fill, which inverts here */
+  --color-notify-system: #4b5563;
+  --color-notify-system-wash: #ffffff;
+  --color-notify-system-line: #e2e4e9;
   --color-sub: #374151;
   --color-muted: #6b7280;
   --color-dim: rgba(55, 65, 81, 0.7);

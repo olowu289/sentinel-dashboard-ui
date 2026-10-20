@@ -1030,7 +1030,8 @@ export class SentryClient {
                 direction: req.direction,
                 my_site_id: req.mySiteId,
                 other_site_id: req.otherSiteId,
-                scope: req.scope,
+                scope: req.scope ?? [],
+                message: req.message,
                 live: req.live ?? true,
                 ptz: req.ptz ?? false,
                 playback: req.playback ?? false,
@@ -1088,6 +1089,32 @@ export class SentryClient {
      * open feeds on those cameras are gone. Either side may revoke, and so may
      * an admin; revoking twice is not an error.
      */
+    /**
+     * Give a live share longer — `POST /v1/shares/{id}/extend`.
+     *
+     * ⚠ FROM NOW, NOT FROM ITS OLD EXPIRY. "Another fifteen minutes" means
+     * fifteen minutes from the moment somebody says it.
+     *
+     * Only the site that OWNS the cameras may extend, whichever direction the
+     * share started in, and only while it is live. A share that has expired or
+     * been revoked is finished: ask again instead, which leaves a record of
+     * having asked.
+     *
+     * @throws {ApiError} `403 forbidden` — the borrowing site cannot extend its
+     *   own access.
+     * @throws {ApiError} `409 already_decided` — it is not live any more.
+     */
+    async extendShare(shareId, durationSec, opts = {}) {
+        const path = `/v1/shares/${encodeURIComponent(shareId)}/extend`;
+        const { status, body } = await this.http.send({
+            method: "POST",
+            path,
+            accept: "json",
+            json: { duration_sec: durationSec },
+            ...pick(opts),
+        });
+        return parseShare(body, { status, path });
+    }
     async revokeShare(shareId, opts = {}) {
         const path = `/v1/shares/${encodeURIComponent(shareId)}/revoke`;
         const { status, body } = await this.http.send({

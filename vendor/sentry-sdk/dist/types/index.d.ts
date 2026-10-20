@@ -21,6 +21,6 @@ export type { ApiError, ApiErrorCode, ApiErrorEnvelope, CameraIndex, CameraInfo,
 export declare const PROTOCOL_VERSION = 1;
 /** Base path of the viewer-facing API (§4.2). One versioned base URL, as v1 had. */
 export declare const API_PREFIX = "/v1";
-export { isAdminRole, isShareLive, parseAudit, parseCapabilities, parsePeopleList, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
-export type { AuditEntry, AuditResponse, Capabilities, Cell, PeopleListResponse, Person, Share, ShareDirection, ShareListResponse, ShareScopeEntry, ShareStatus, Site, SiteDetailResponse, SiteListResponse, SiteStatus, } from "./sites.js";
+export { SHARE_DEFAULT_SEC, SHARE_MESSAGE_MAX, isAdminRole, isShareLive, parseAudit, parseCapabilities, parsePeopleList, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
+export type { AuditEntry, AuditResponse, Capabilities, Cell, PeopleListResponse, Person, Share, ShareDirection, ShareListResponse, ShareScopeEntry, ShareStatus, Site, SiteDetailResponse, SiteListResponse, SiteName, SiteStatus, } from "./sites.js";
 //# sourceMappingURL=index.d.ts.map

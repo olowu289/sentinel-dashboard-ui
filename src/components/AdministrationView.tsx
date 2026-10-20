@@ -849,23 +849,17 @@ function AuditPane() {
 
 export function AdministrationView({
   onNavigate,
-  sites = true,
-  admin = false,
 }: {
   onNavigate?: (id: string) => void;
-  /** Does this server have sites? Passed to the rail so it agrees with here. */
-  sites?: boolean;
-  admin?: boolean;
 }) {
   const [pane, setPane] = useState<PaneId>("sites");
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
-      <IconRail
-        active="admin"
-        onSelect={onNavigate}
-        sites={sites}
-        admin={admin}
-      />
+      {/* No `sites`/`admin` here: the rail asks the server itself. Passing
+          them from a screen is a second source of truth that can disagree
+          with the probe, and nine screens forgetting to was the bug that hid
+          this very page from the people who administer it. */}
+      <IconRail active="admin" onSelect={onNavigate} />
       <div className="min-h-0 flex-1 overflow-y-auto px-[16px] py-[20px] sm:px-[24px]">
         <div className="mx-auto flex max-w-[920px] flex-col gap-[20px]">
       <PaneHead

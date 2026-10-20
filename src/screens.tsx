@@ -230,6 +230,14 @@ function install(mode: Mode) {
 
   window.fetch = (async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" ? input : (input as Request).url);
+    /* THE CAPABILITY PROBE ANSWERS IN EVERY MODE, before the mode is even
+       looked at. "loading" and "failed" are states of THIS SCREEN's data, not
+       of what the server is: letting them swallow /v1/capabilities would empty
+       the rail as well, and a screenshot of a refused page would also be a
+       screenshot of a rail that is missing two destinations for an unrelated
+       reason. */
+    if (url.includes("/v1/capabilities"))
+      return body({ role: "datacenter", features: { sites: true } });
     if (mode === "loading") {
       // Never resolves: this is what the skeleton state actually looks like.
       return new Promise<Response>(() => {});
@@ -243,8 +251,6 @@ function install(mode: Mode) {
       );
     }
     const empty = mode === "empty";
-    if (url.includes("/v1/capabilities"))
-      return body({ role: "datacenter", features: { sites: true } });
     if (url.includes("/v1/admin/people"))
       return body({ people: empty ? [] : PEOPLE });
     if (url.includes("/v1/admin/audit"))
@@ -373,9 +379,9 @@ function Harness() {
         </div>
       </div>
     ) : which.startsWith("shares") ? (
-      <SharesView hasSites admin={false} />
+      <SharesView />
     ) : (
-      <AdministrationView sites admin />
+      <AdministrationView />
     );
 
   return (

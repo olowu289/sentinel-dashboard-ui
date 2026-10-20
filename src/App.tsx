@@ -4,7 +4,7 @@ import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
 import { FootageView } from "@/components/FootageView";
 import { useSession } from "@/components/AuthProvider";
-import { can, navAllowed } from "@/lib/features";
+import { can, navAllowed, navVisible } from "@/lib/features";
 import {
   clearSection,
   sectionFromHash,
@@ -900,7 +900,9 @@ export function SentinelApp() {
          finds nothing — so a screen cannot be reached by typing an address.
          Every way in goes through this function, which makes it the whole
          client-side surface. The server gates its own routes regardless. */
-      if (!navAllowed(features, id)) return;
+      if (!navVisible(id, { features, serverHasSites: sitesEnabled, isAdmin })) {
+        return;
+      }
       /* Every destination but Playback leaves the board. Playback is layered
          over whatever it was opened from, the board included. */
       if (id !== "playback") {
@@ -994,8 +996,11 @@ export function SentinelApp() {
     /* `features` is a dependency because this callback READS it. Without it
        the memoised router keeps the set it was built with, so a feature
        revoked while somebody is signed in would be enforced by the rail and
-       not by the router -- the exact split this gate exists to avoid. */
-    [show, features],
+       not by the router -- the exact split this gate exists to avoid. The
+       same goes for the two site values: the capability probe answers AFTER
+       the first render, and a router memoised before it would refuse Shares
+       and Administration for the life of the session. */
+    [show, features, sitesEnabled, isAdmin],
   );
 
   const applyRejectMatch = useCallback((id: string) => {
@@ -1625,17 +1630,9 @@ export function SentinelApp() {
         ) : null}
         <div className="min-h-0 flex-1">
       {onAdmin ? (
-        <AdministrationView
-          onNavigate={navigate}
-          sites={sitesEnabled}
-          admin={isAdmin}
-        />
+        <AdministrationView onNavigate={navigate} />
       ) : onShares ? (
-        <SharesView
-          onNavigate={navigate}
-          hasSites={sitesEnabled}
-          admin={isAdmin}
-        />
+        <SharesView onNavigate={navigate} />
       ) : onSettings ? (
         <SettingsView
           onNavigate={navigate}

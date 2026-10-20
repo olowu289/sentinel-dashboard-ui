@@ -329,15 +329,8 @@ function ShareForm({
 
 export function SharesView({
   onNavigate,
-  // `hasSites`, not `sites`: this screen already has a `sites` of its own from
-  // useSites(), and two things called sites in one component is how the rail
-  // ends up gated on a list of sites rather than on whether the server has any.
-  hasSites = true,
-  admin = false,
 }: {
   onNavigate?: (id: string) => void;
-  hasSites?: boolean;
-  admin?: boolean;
 }) {
   const sites = useSites();
   const shares = useShares();
@@ -376,12 +369,8 @@ export function SharesView({
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
-      <IconRail
-        active="shares"
-        onSelect={onNavigate}
-        sites={hasSites}
-        admin={admin}
-      />
+      {/* See the note in AdministrationView: the rail answers for itself. */}
+      <IconRail active="shares" onSelect={onNavigate} />
       <div className="min-h-0 flex-1 overflow-y-auto px-[16px] py-[20px] sm:px-[24px]">
         <div className="mx-auto flex max-w-[920px] flex-col gap-[20px]">
       <PaneHead

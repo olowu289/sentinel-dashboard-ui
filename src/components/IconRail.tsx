@@ -1,7 +1,9 @@
 import { useCallback, useRef, useState } from "react";
+import { isAdminRole } from "@kallon/sentry-sdk";
 import { useSession } from "@/components/AuthProvider";
 import { SignOutConfirm } from "@/components/SignOutConfirm";
-import { navAllowed } from "@/lib/features";
+import { navVisible } from "@/lib/features";
+import { useCapabilities } from "@/lib/useSites";
 import { MaskIcon } from "./Icon";
 
 /**
@@ -72,26 +74,33 @@ const NAV: {
   { id: "admin", label: "Administration", icon: "/icons/nav-admin.svg" },
 ];
 
-/** The two ids above that depend on the server rather than on the account. */
-const SITE_NAV = new Set(["shares", "admin"]);
-
 export function IconRail({
   active = "towers",
   onSelect,
   onMore,
   moreOpen = false,
   className = "",
-  sites = false,
-  admin = false,
+  sites,
+  admin,
 }: {
   active?: string;
   onSelect?: (id: string) => void;
   onMore?: () => void;
   moreOpen?: boolean;
   className?: string;
-  /** Does this SERVER have sites? From `GET /v1/capabilities`. */
+  /**
+   * OVERRIDES, for a harness with no server. Leave them out in the app.
+   *
+   * ⚠ THEY USED TO DEFAULT TO `false` AND THAT WAS THE BUG. Nine of the
+   * ten screens that draw this rail passed neither, so Administration and
+   * Shares appeared on exactly two screens: Shares and Administration. An
+   * admin could only find the icon by already being where it goes.
+   *
+   * `undefined` now means "ask", not "no", and the rail answers for itself
+   * below. A screen cannot take a destination away by forgetting a prop.
+   */
   sites?: boolean;
-  /** Is this account an administrator? `owner` counts. */
+  /** As `sites`: an override, not a requirement. `owner` counts as admin. */
   admin?: boolean;
 }) {
   /* ── WHAT THIS ACCOUNT MAY SEE ──────────────────────────────────────────
@@ -103,7 +112,12 @@ export function IconRail({
      `navAllowed` is the same function `App.tsx`'s router refuses with, so an
      item cannot be visible and unreachable, or hidden and reachable — which is
      exactly the drift the note above NAV warns about. */
-  const { features } = useSession();
+  const { features, account } = useSession();
+  /* ASKED HERE, NOT PASSED IN. One cached probe for the life of the page
+     (`lib/api/sites.ts`), so a rail on every screen is still one request. */
+  const caps = useCapabilities();
+  const serverHasSites = sites ?? caps?.features.sites === true;
+  const isAdmin = admin ?? (serverHasSites && isAdminRole(account?.role));
   return (
     <nav
       aria-label="Primary"
@@ -128,18 +142,14 @@ export function IconRail({
           centred on the 24px glyphs so the hit target clears WCAG 2.2 without
           disturbing the spacing. */}
       <ul className="absolute left-1/2 top-[233px] flex -translate-x-1/2 flex-col items-center gap-[24px]">
-        {NAV.filter((item) => {
-          // THE SERVER-DEPENDENT TWO, FIRST. `navAllowed` reads the account's
-          // feature list, which says nothing about whether this node has sites,
-          // so these two are answered before it: on a hub both are absent
-          // however many features the account has.
-          if (SITE_NAV.has(item.id)) {
-            if (!sites) return false;
-            if (item.id === "admin") return admin;
-            return true;
-          }
-          return navAllowed(features, item.id);
-        }).map((item) => {
+        {NAV.filter((item) =>
+          // ONE DECISION, IN `lib/features.ts`, which the router reads too.
+          // The server-dependent two (Shares, Administration) cannot come from
+          // the account's feature list: it says nothing about whether this
+          // node has sites, and on a hub neither exists however many features
+          // the account has.
+          navVisible(item.id, { features, serverHasSites, isAdmin }),
+        ).map((item) => {
           const isActive = active === item.id && !item.unavailable;
           return (
             <li key={item.id} className="flex h-[24px] items-center">

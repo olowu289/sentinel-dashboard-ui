@@ -41,7 +41,6 @@ const SCREENS = [
   ["admin-failed", "administration-refused"],
   ["shares", "shares"],
   ["shares-empty", "shares-empty"],
-  ["banner", "incoming-request-banner"],
   ["rail", "icon-rail"],
   ["ptz-yielded", "ptz-yielded-to-owner"],
   // Every state a card can be in. The brief asks for each by name, and they

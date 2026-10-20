@@ -30,7 +30,6 @@ import "./index.css";
 import { AuthContextForHarness } from "@/components/AuthProvider";
 import { AdministrationView } from "@/components/AdministrationView";
 import { SharesView } from "@/components/SharesView";
-import { ShareRequestBanner } from "@/components/ShareRequestBanner";
 import { IconRail } from "@/components/IconRail";
 import { NotificationProvider, useNotifications } from "@/lib/notifications";
 import { NotificationStack } from "@/components/NotificationStack";
@@ -359,7 +358,6 @@ const SCREENS = [
   { id: "admin-failed", label: "Administration · refused", mode: "failed" },
   { id: "shares", label: "Shares", mode: "full" },
   { id: "shares-empty", label: "Shares · nothing waiting", mode: "empty" },
-  { id: "banner", label: "Incoming request banner", mode: "full" },
   /* THE RAIL IS HERE FOR ITS ICONS. Administration had no glyph of its own and
      borrowed the Settings gear, so the rail carried two identical gears; the
      drawn `nav-admin` is the fix, and a rail nobody photographs is a rail
@@ -611,21 +609,6 @@ function Harness() {
       </div>
     ) : which === "ptz-yielded" ? (
       <PtzYielded />
-    ) : which === "banner" ? (
-      <div className="flex h-full w-full flex-col bg-ink">
-        <ShareRequestBanner
-          shares={SHARES.filter((s) => s.status === "pending" && s.incoming) as never}
-          onReview={() => {}}
-          onAnswered={() => {}}
-        />
-        <div className="flex flex-1 items-center justify-center">
-          <p className="max-w-[420px] px-[24px] text-center text-[0.8125rem] leading-[20px] text-muted">
-            The banner sits above whatever is on screen and pushes it down. It
-            is not a modal, it does not take focus, and it never covers a
-            camera.
-          </p>
-        </div>
-      </div>
     ) : which.startsWith("shares") ? (
       <SharesView />
     ) : (

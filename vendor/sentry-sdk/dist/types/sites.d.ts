@@ -68,6 +68,21 @@ export interface Cell {
 export interface SiteName {
     readonly site_id: string;
     readonly name: string;
+    /**
+     * Does this site have ANY camera?
+     *
+     * ⚠ ONE BIT, AND A DELIBERATE EXCEPTION. A site knows another site's NAME
+     * and nothing else -- not its hubs, not its masts, not how many cameras it
+     * has -- because those are exactly what a share exists to hand over
+     * deliberately. This is the one thing that leaks, and it is the smallest
+     * thing that stops a dead end: a request to a site with no cameras can
+     * never become anything, so such a site is not offered as one to ask.
+     *
+     * Absent on a server that predates it. Read an absent value as TRUE and let
+     * the server refuse: hiding every site because an older DC did not say is
+     * worse than offering one that turns out to be empty.
+     */
+    readonly has_cameras?: boolean;
 }
 export interface SiteListResponse {
     readonly sites: readonly Site[];
@@ -174,6 +189,24 @@ export interface Share {
      * the answer to a different question is worse than no number.
      */
     readonly asked_duration_sec?: number | null;
+    /**
+     * The ORGANIZATION'S ADMINISTRATOR made this, not the owning site.
+     *
+     * An admin share is an OFFER: it lends the owner site's cameras to the
+     * viewer site, and the VIEWER accepts or declines it. The only thing that
+     * differs is who started it, which is why this is a flag and not a third
+     * `direction`.
+     *
+     * ⚠ IT CHANGES WHOSE SHARE IT IS TO UNDO. The owning site never agreed to
+     * it, so it has nothing to withdraw: `can_answer`, `can_end` and
+     * `can_extend` all come back false for that side, and its card is an
+     * information card. The administrator can end it and the borrowing site can
+     * always hand it back.
+     *
+     * Absent on a server that predates it, read as false, which is what every
+     * share made by a site is.
+     */
+    readonly by_admin?: boolean;
     /**
      * What the site that started this SAID.
      *

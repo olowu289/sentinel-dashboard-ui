@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:lib": "esbuild src/lib/footageTimeline.ts src/lib/sweepAngle.ts src/lib/time.ts --bundle --format=esm --platform=neutral --outdir=node_modules/.cache/footage-test --out-extension:.js=.mjs && node --test test/footageTimeline.test.mjs test/sweepAngle.test.mjs test/time.test.mjs",
-    "test": "node --test --test-timeout=180000 test/vendoredSdk.test.mjs test/durations.test.mjs test/navVisible.test.mjs test/sectorColumn.test.mjs test/adminDevices.test.mjs test/sharing.test.mjs test/csp.test.mjs test/account.test.mjs test/features.test.mjs test/settingsRoute.test.mjs test/passwordHints.test.mjs test/signOut.test.mjs",
+    "test": "node --test --test-timeout=180000 test/vendoredSdk.test.mjs test/durations.test.mjs test/said.test.mjs test/navVisible.test.mjs test/sectorColumn.test.mjs test/adminDevices.test.mjs test/sharing.test.mjs test/csp.test.mjs test/account.test.mjs test/features.test.mjs test/settingsRoute.test.mjs test/passwordHints.test.mjs test/signOut.test.mjs",
     "check:sdk": "node scripts/check-vendored-sdk.mjs",
     "screenshots": "node scripts/screenshots.mjs"
   },

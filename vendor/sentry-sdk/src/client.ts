@@ -1246,66 +1246,138 @@ export class SentryClient {
   }
 
   /**
-   * Ask for access, or offer your own cameras — `POST /v1/shares`.
+   * Start a share - `POST /v1/shares`.
    *
-   * `direction: "request"` asks another site for theirs; `"offer"` hands them
-   * yours. Either way the result is **pending**: an offer is not permission to
-   * be looked at, and the other side has to answer.
+   * ── THREE SHAPES, BECAUSE THEY ARE THREE DIFFERENT ACTS ───────────────
    *
-   * `myS iteId` must be one of your own sites (403 otherwise), and an offer may
-   * only name cameras your own site owns — without that a site could pass on
-   * access it was lent.
+   * A REQUEST is a question. It names NO cameras, because the site asking
+   * cannot see what the other site has, which is the whole reason sharing
+   * exists. It carries a message and how long it wants, and the owner
+   * answering chooses the towers, the controls, the playback and the final
+   * length.
+   *
+   * An OFFER is a complete sentence. The site sending it picks the cameras,
+   * the controls, the playback window and how long; the receiving site only
+   * answers. {@link acceptShare} on an offer therefore takes nothing, and the
+   * server refuses a body that would change the terms.
+   *
+   * An ADMIN share is an offer made by the organization's administrator, of
+   * one site's cameras to another. The administrator names BOTH sites: `from`
+   * is where the cameras are and `to` is who gets to see them. The viewing
+   * site accepts or declines it; the owning site is told, and cannot accept,
+   * decline, end or extend it (`by_admin` on the resulting share says so).
+   *
+   * ⚠ AN ADMIN DOES NOT REQUEST ON A SITE'S BEHALF, AND THE SERVER REFUSES
+   * ONE. That used to be possible, and it put a card in front of the owning
+   * site reading "the other site is asking for yours" about a request that
+   * site had never made; the admin could not answer it either, because nobody
+   * answers their own, so it sat there until it expired.
+   *
+   * `durationSec` is required in all three, between {@link SHARE_MIN_SEC} and
+   * {@link SHARE_MAX_SEC}. There is no silent default: a share is somebody
+   * else's cameras, and how long for is a decision rather than a fallback.
    */
   async createShare(
-    req: {
-      direction: ShareDirection;
-      /**
-       * Which of the caller's sites is party to this.
-       *
-       * ⚠ OPTIONAL ON AN OFFER. "Share this camera" starts from a camera,
-       * and a client cannot know which of its sites owns it: the fleet
-       * projection carries no site, by design. The server derives it from the
-       * scope, which it has to validate anyway, and refuses when none of your
-       * sites owns those cameras (`403`) or when more than one does (`422`).
-       *
-       * A REQUEST must name it: a request names no cameras, so there is
-       * nothing to derive it from, and which of your sites is asking is a
-       * choice rather than a fact.
-       */
-      mySiteId?: string;
-      otherSiteId: string;
-      /**
-       * ⚠ OMIT IT ON A REQUEST. The site asking does not know what the
-       * other site has -- it knows a NAME on a list, which is all a share ever
-       * reveals about the other side -- so a request names no cameras and the
-       * site answering chooses them. Required on an offer, which can only
-       * offer what the offering site owns.
-       */
-      scope?: readonly ShareScopeEntry[];
-      /**
-       * ⚠ REQUIRED ON A REQUEST, where it is the only thing the other site
-       * has to decide on. The server refuses a request without one.
-       */
-      message?: string;
-      live?: boolean;
-      ptz?: boolean;
-      playback?: boolean;
-      playbackFrom?: string;
-      playbackTo?: string;
-      durationSec?: number;
-    },
+    req:
+      | {
+          direction: "request";
+          /**
+           * Which of the caller's sites is asking. REQUIRED here: a request
+           * names no cameras, so there is nothing to derive it from, and which
+           * of your sites is asking is a choice rather than a fact.
+           */
+          mySiteId: string;
+          /**
+           * The site being asked. It must have cameras: the server refuses a
+           * request to a site with none, because such a request can never
+           * become anything.
+           */
+          otherSiteId: string;
+          /** Required. The only thing the other site has to decide on. */
+          message: string;
+          /** How long the asker WANTS. The owner sets what it becomes. */
+          durationSec: number;
+        }
+      | {
+          direction: "offer";
+          /**
+           * ⚠ OPTIONAL ON AN OFFER. "Share this camera" starts from a
+           * camera, and a client cannot know which of its sites owns it: the
+           * fleet projection carries no site, by design. The server derives it
+           * from the scope, which it has to validate anyway, and refuses when
+           * none of your sites owns those cameras (`403`) or when more than
+           * one does (`422`).
+           */
+          mySiteId?: string;
+          otherSiteId: string;
+          /** Required: an offer may only offer what the offering site owns. */
+          scope: readonly ShareScopeEntry[];
+          message?: string;
+          live?: boolean;
+          ptz?: boolean;
+          playback?: boolean;
+          playbackFrom?: string;
+          playbackTo?: string;
+          durationSec: number;
+        }
+      | {
+          /**
+           * The administrator sharing one site's cameras with another.
+           *
+           * On the wire this is an offer, because that is what it is: the
+           * cameras travel from `fromSiteId` to `toSiteId` and the receiving
+           * site answers. The separate shape exists so that an admin cannot
+           * accidentally send the site-to-site one, where `mySiteId` means
+           * "mine" and here it does not.
+           */
+          direction: "admin";
+          /** Where the cameras ARE. The admin names it; it is not theirs. */
+          fromSiteId: string;
+          /** Who gets to see them, and who accepts or declines. */
+          toSiteId: string;
+          scope: readonly ShareScopeEntry[];
+          message?: string;
+          live?: boolean;
+          ptz?: boolean;
+          playback?: boolean;
+          playbackFrom?: string;
+          playbackTo?: string;
+          durationSec: number;
+        },
     opts: RequestOptions = {},
   ): Promise<Share> {
     const path = "/v1/shares";
-    const { status, body } = await this.http.send({
-      method: "POST",
-      path,
-      accept: "json",
-      json: {
-        direction: req.direction,
+    /* ⚠ BUILT PER SHAPE, NOT BY NARROWING AFTERWARDS. These are three
+       different acts and the bodies differ in what they must NOT contain: a
+       request sends no scope and no permissions, because what it is granted
+       is the answering site's decision. Reading fields off the union and
+       letting `undefined` sort it out is how a request ends up asserting
+       `ptz: false` it had no business asserting. */
+    let json: Record<string, unknown>;
+    if (req.direction === "request") {
+      json = {
+        direction: "request",
         my_site_id: req.mySiteId,
         other_site_id: req.otherSiteId,
-        scope: req.scope ?? [],
+        scope: [],
+        message: req.message,
+        live: true,
+        ptz: false,
+        playback: false,
+        duration_sec: req.durationSec,
+      };
+    } else {
+      // An OFFER and an ADMIN share carry the same terms; they differ only in
+      // who names the sites, and in who the server sees making the call. The
+      // server decides `by_admin` from the SESSION, never from the body: a
+      // client that said so could say it falsely.
+      const from = req.direction === "admin" ? req.fromSiteId : req.mySiteId;
+      const to = req.direction === "admin" ? req.toSiteId : req.otherSiteId;
+      json = {
+        direction: "offer",
+        my_site_id: from,
+        other_site_id: to,
+        scope: req.scope,
         message: req.message,
         live: req.live ?? true,
         ptz: req.ptz ?? false,
@@ -1313,18 +1385,39 @@ export class SentryClient {
         playback_from: req.playbackFrom,
         playback_to: req.playbackTo,
         duration_sec: req.durationSec,
-      },
+      };
+    }
+    const { status, body } = await this.http.send({
+      method: "POST",
+      path,
+      accept: "json",
+      json,
       ...pick(opts),
     });
     return parseShare(body, { status, path });
   }
 
   /**
-   * Accept a share, narrowing it first — `POST /v1/shares/{id}/accept`.
+   * Accept a share - `POST /v1/shares/{id}/accept`.
    *
-   * Every field is optional and omitting one keeps what was asked for. The
-   * party giving something up is the one answering, which is why they may
-   * change the scope, the permissions and the duration here.
+   * ⚠ WHAT MAY BE CHANGED HERE DEPENDS ON WHO STARTED IT, and the server
+   * decides that, not this method.
+   *
+   * On a REQUEST the account answering is the one giving something up, so they
+   * choose the scope (required: a request names none), the controls, the
+   * playback window and the final `durationSec`, which may be less or more than
+   * the share's {@link Share.asked_duration_sec}, within
+   * {@link SHARE_MIN_SEC}..{@link SHARE_MAX_SEC}.
+   *
+   * On an OFFER, pass nothing. The offer already said what it lends and for how
+   * long, and the server answers `422` to a body that would change any of it.
+   * Sending the same values back is fine; sending different ones is refused
+   * rather than ignored, so a client cannot believe it narrowed something it
+   * did not.
+   *
+   * An ADMIN share is an offer, so the same applies: the viewing site accepts
+   * it as sent or declines it. The OWNING site cannot answer it at all, and
+   * `can_answer` on its copy says so.
    */
   async acceptShare(
     shareId: string,

@@ -79,6 +79,21 @@ export interface Cell {
 export interface SiteName {
   readonly site_id: string;
   readonly name: string;
+  /**
+   * Does this site have ANY camera?
+   *
+   * ⚠ ONE BIT, AND A DELIBERATE EXCEPTION. A site knows another site's NAME
+   * and nothing else -- not its hubs, not its masts, not how many cameras it
+   * has -- because those are exactly what a share exists to hand over
+   * deliberately. This is the one thing that leaks, and it is the smallest
+   * thing that stops a dead end: a request to a site with no cameras can
+   * never become anything, so such a site is not offered as one to ask.
+   *
+   * Absent on a server that predates it. Read an absent value as TRUE and let
+   * the server refuse: hiding every site because an older DC did not say is
+   * worse than offering one that turns out to be empty.
+   */
+  readonly has_cameras?: boolean;
 }
 
 export interface SiteListResponse {
@@ -193,6 +208,24 @@ export interface Share {
    * the answer to a different question is worse than no number.
    */
   readonly asked_duration_sec?: number | null;
+  /**
+   * The ORGANIZATION'S ADMINISTRATOR made this, not the owning site.
+   *
+   * An admin share is an OFFER: it lends the owner site's cameras to the
+   * viewer site, and the VIEWER accepts or declines it. The only thing that
+   * differs is who started it, which is why this is a flag and not a third
+   * `direction`.
+   *
+   * ⚠ IT CHANGES WHOSE SHARE IT IS TO UNDO. The owning site never agreed to
+   * it, so it has nothing to withdraw: `can_answer`, `can_end` and
+   * `can_extend` all come back false for that side, and its card is an
+   * information card. The administrator can end it and the borrowing site can
+   * always hand it back.
+   *
+   * Absent on a server that predates it, read as false, which is what every
+   * share made by a site is.
+   */
+  readonly by_admin?: boolean;
   /**
    * What the site that started this SAID.
    *
@@ -442,10 +475,16 @@ export function parseSiteList(raw: unknown, ctx: Ctx = {}): SiteListResponse {
   if (o.others !== undefined) {
     out.others = c.arr("$.others", o.others).map((raw, i) => {
       const e = c.obj(`$.others[${i}]`, raw);
-      return {
+      const row: Record<string, unknown> = {
         site_id: c.str(`$.others[${i}].site_id`, e.site_id),
         name: c.str(`$.others[${i}].name`, e.name),
       };
+      // Absent is not false. See the field: an older server says nothing, and
+      // hiding every site would be worse than offering an empty one.
+      if (e.has_cameras !== undefined) {
+        row.has_cameras = c.bool(`$.others[${i}].has_cameras`, e.has_cameras);
+      }
+      return row as unknown as SiteName;
     });
   }
   c.done("site list", ctx);
@@ -514,6 +553,9 @@ function shareOne(c: Check, path: string, raw: unknown): Share {
       o.asked_duration_sec === undefined || o.asked_duration_sec === null
         ? null
         : c.num(`${path}.asked_duration_sec`, o.asked_duration_sec),
+    // Absent reads as FALSE, like the `can_*` below: a share made by a site
+    // is the thing every older server could produce.
+    by_admin: o.by_admin === undefined ? false : c.bool(`${path}.by_admin`, o.by_admin),
     // Tolerated as absent for a server that predates it, and read as null,
     // which is the same thing an offer with nothing to say sends.
     message:

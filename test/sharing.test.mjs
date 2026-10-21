@@ -217,6 +217,93 @@ describe("what goes on the wire", () => {
   });
 });
 
+describe("narrowing a tower to some of its cameras", () => {
+  // ⚠ "ALL CAMERAS" IS AN EMPTY LIST, and every chip is drawn pressed to
+  // say so. Clicking a pressed chip has to take that camera AWAY. It used to
+  // start from an empty list and ADD it, so clicking "Cam 2" on a mast
+  // showing "all cameras" shared camera 2 alone: the opposite of what was
+  // pressed. A browser test narrowing to camera 1 got camera 2.
+  //
+  // The rule lives in `TowerPicker`, so this exercises the same arithmetic
+  // rather than the component: given what is chosen and what the mast has,
+  // what does clicking one chip leave?
+  const after = (chosenCameras, clicked, every) => {
+    const list =
+      chosenCameras && chosenCameras.length > 0 ? [...chosenCameras] : [...every];
+    const at = list.indexOf(clicked);
+    if (at >= 0) list.splice(at, 1);
+    else list.push(clicked);
+    return list.sort((a, b) => a - b);
+  };
+
+  test("clicking one chip on a whole mast leaves the others", () => {
+    assert.deepEqual(after(undefined, 2, [1, 2]), [1]);
+    assert.deepEqual(after([], 1, [1, 2, 3]), [2, 3]);
+  });
+
+  test("clicking a chosen one removes it", () => {
+    assert.deepEqual(after([1, 2], 2, [1, 2]), [1]);
+  });
+
+  test("and clicking an unchosen one adds it back", () => {
+    assert.deepEqual(after([1], 2, [1, 2]), [1, 2]);
+  });
+
+  test("emptying the list is 'no cameras', which the caller turns into the mast", () => {
+    // TowerPicker writes `{device_id}` with no list when this comes back
+    // empty, which is "the whole mast" and what the chips then show.
+    assert.deepEqual(after([2], 2, [1, 2]), []);
+  });
+});
+
+describe("an administrator's share", () => {
+  // ⚠ IT WAS NOT SENT BY EITHER SITE. "You offered yours" and "is offering
+  // theirs" are both false of it: the owning site offered nothing and the
+  // viewing site was not offered anything BY THEM.
+  const adminShare = (over = {}) =>
+    ({ by_admin: true, direction: "offer", status: "pending", ...over });
+
+  test("neither site is said to have sent it", () => {
+    assert.equal(r.otherSiteRole(adminShare({ incoming: true })),
+      "being shared with them");
+    assert.equal(r.otherSiteRole(adminShare({ incoming: false })),
+      "being shared with you");
+  });
+
+  test("and once it is live it says so without crediting a site", () => {
+    assert.equal(r.otherSiteRole(adminShare({ incoming: true, status: "active" })),
+      "shared with them");
+    assert.equal(r.otherSiteRole(adminShare({ incoming: false, status: "active" })),
+      "shared with you");
+  });
+
+  test("the OWNING site gets a notice, and nobody else does", () => {
+    // `incoming` is true when one of MY sites owns the cameras, which for an
+    // admin share is the site being TOLD.
+    assert.equal(r.isAdminNotice(adminShare({ incoming: true })), true);
+    assert.equal(r.isAdminNotice(adminShare({ incoming: false })), false,
+      "the viewing site gets a card it can answer, not a notice");
+  });
+
+  test("and a site-to-site share is never a notice", () => {
+    for (const direction of ["request", "offer"]) {
+      for (const incoming of [true, false]) {
+        assert.equal(
+          r.isAdminNotice({ direction, incoming, status: "pending" }),
+          false,
+        );
+      }
+    }
+  });
+
+  test("a site-to-site share still reads the way it did", () => {
+    assert.equal(r.otherSiteRole({ direction: "offer", incoming: false,
+      status: "pending" }), "is offering theirs");
+    assert.equal(r.otherSiteRole({ direction: "request", incoming: true,
+      status: "pending" }), "is asking for yours");
+  });
+});
+
 describe("what a scope covers", () => {
   test("no camera list means the whole mast, now and later", () => {
     const whole = { device_id: "kln_1" };

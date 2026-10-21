@@ -27,12 +27,14 @@
  * everything finished, because "did we ever lend them that" is a real question.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import type { Share } from "@kallon/sentry-sdk";
+import type { Share, Site } from "@kallon/sentry-sdk";
 import { SHARE_DEFAULT_SEC } from "@kallon/sentry-sdk";
 import { ENTER, FADE } from "@/lib/motion";
 import { timeLeftLabel } from "@/lib/notifications";
+import { said } from "@/lib/said";
+import { toIso } from "@/lib/shareRules";
 import {
   otherSiteName,
   scopeSummary,
@@ -75,6 +77,7 @@ import {
 type SectionId =
   | "new"
   | "offer"
+  | "admin"
   | "incoming"
   | "outgoing"
   | "all"
@@ -103,8 +106,7 @@ const SECTIONS: readonly { id: SectionId; label: string }[] = [
  * the authority administration does have here.
  */
 const ADMIN_SECTIONS: readonly { id: SectionId; label: string }[] = [
-  { id: "new", label: "New request" },
-  { id: "offer", label: "Share a feed" },
+  { id: "admin", label: "Share cameras" },
   { id: "all", label: "All shares" },
   { id: "active", label: "Active" },
   { id: "history", label: "History" },
@@ -230,6 +232,15 @@ function ShareRow({
           </>
         )}
         <span className="ml-auto flex items-center gap-[8px]">
+          {/* ⚠ ON EVERY LIST IT APPEARS IN. An admin share turns up in
+              Outgoing, Active, History and All shares, and in three of those
+              the owning site has no buttons and no obvious reason why. This
+              is the reason, said once, where the row is drawn. */}
+          {share.by_admin ? (
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+              By the administrator
+            </span>
+          ) : null}
           <StatusPill status={share.status} />
         </span>
       </div>
@@ -289,7 +300,11 @@ function NewRequest({ acting }: { acting: ReturnType<typeof useActingSite> }) {
      never contains the first: a site cannot share with itself, and it
      appeared in its own list until this was the only list. */
   const mySite = acting.site?.site_id ?? "";
-  const others = acting.others;
+  /* ⚠ THE ONES WORTH ASKING, which excludes a site with no cameras:
+     such a request can never become anything, and it used to be possible
+     to send one. An OFFER to an empty site is perfectly sensible, so only
+     this form is narrowed. */
+  const others = acting.othersToAsk;
 
   /* ONE RULE, FOR BOTH FORMS. See `composeIsReady`: the length used to be
      pre-filled, so "ready" never had to mention it and every share somebody
@@ -305,7 +320,7 @@ function NewRequest({ acting }: { acting: ReturnType<typeof useActingSite> }) {
       setState(initialCompose());
       setSent(true);
     } catch (err) {
-      setError((err as { message?: string })?.message ?? "That did not send.");
+      setError(said(err, "That request did not go out."));
     } finally {
       setBusy(false);
     }
@@ -417,7 +432,7 @@ function OfferFeed({
       setState({ ...initialCompose(), scope: [] });
       setSent(true);
     } catch (err) {
-      setError((err as { message?: string })?.message ?? "That did not send.");
+      setError(said(err, "That offer did not go out."));
     } finally {
       setBusy(false);
     }
@@ -521,6 +536,237 @@ function OfferFeed({
 }
 
 /* ------------------------------------------------------------------ *
+ * The administrator sharing one site's cameras with another
+ * ------------------------------------------------------------------ */
+
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY AN ADMIN HAS ONE FORM AND NOT THE SITE'S TWO
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * An admin used to use the site forms, "on behalf of" a site. Asking North
+ * Gate for its cameras on West Yard's behalf put a card in front of North Gate
+ * reading "West Yard is asking for yours" -- which West Yard had not done and
+ * knew nothing about -- and the admin could not answer it either, because
+ * nobody answers their own. It sat there until it expired.
+ *
+ * So an administrator SHARES. They name where the cameras are, who gets to see
+ * them, and on what terms. On the wire it is an offer, because that is what it
+ * is: the receiving site accepts or declines, with no other choices.
+ *
+ * ⚠ AND THE OWNING SITE IS TOLD, NOT ASKED. It gets an information card: what
+ * was shared, with whom, for how long, by the administrator. It cannot accept,
+ * decline, end or extend it. That is a real transfer of authority and it is
+ * deliberate -- an admin who can move a cell between sites can already decide
+ * which site sees a camera -- and it is why every one of these is in the audit
+ * log with the admin's name on it.
+ */
+function AdminShare() {
+  const feed = useShareFeed();
+  const sites = useSites();
+  const [fromSiteId, setFromSiteId] = useState("");
+  const [toSiteId, setToSiteId] = useState("");
+  const [state, setState] = useState<ComposeState>(initialCompose);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+
+  const all = useMemo<readonly Site[]>(() => sites.value?.sites ?? [], [sites.value]);
+  /* ⚠ ONLY SITES THAT HAVE CAMERAS CAN BE SHARED FROM. A site with none is
+     not a mistake to explain after the fact -- it is simply not one of the
+     answers to "where are the cameras". */
+  const sources = useMemo(
+    () => all.filter((s) => (s.hubs?.length ?? 0) > 0),
+    [all],
+  );
+  const targets = useMemo(
+    () => all.filter((s) => s.site_id !== fromSiteId),
+    [all, fromSiteId],
+  );
+  const towers = useSiteTowers(fromSiteId || null);
+
+  const ready =
+    Boolean(fromSiteId) &&
+    Boolean(toSiteId) &&
+    state.scope.length > 0 &&
+    state.durationSec > 0;
+
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await feed.create({
+        direction: "admin",
+        fromSiteId,
+        toSiteId,
+        scope: state.scope,
+        ...(state.message.trim() ? { message: state.message.trim() } : {}),
+        live: true,
+        ptz: state.ptz,
+        playback: state.playback,
+        ...(state.playback
+          ? { playbackFrom: toIso(state.from), playbackTo: toIso(state.to) }
+          : {}),
+        durationSec: state.durationSec,
+      });
+      const toName = all.find((s) => s.site_id === toSiteId)?.name ?? "them";
+      setSent(toName);
+      setState(initialCompose());
+      setToSiteId("");
+    } catch (err) {
+      setError(said(err, "That share did not go out."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (sites.loading && all.length === 0) {
+    return <Loading rows={3} label="Loading sites" />;
+  }
+  if (sites.error) return <Failed message={sites.error} onRetry={sites.reload} />;
+
+  return (
+    <Section
+      title="Share a site's cameras"
+      blurb="You choose both sites and the terms. The site receiving them accepts or declines; the site they belong to is told."
+    >
+      {sources.length === 0 ? (
+        <Empty
+          title="No site has cameras yet"
+          why="Add a cell to a site in Administration, and its towers can be shared."
+        />
+      ) : (
+        <div className="flex flex-col gap-[14px]">
+          <label className="flex flex-col gap-[6px]">
+            <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
+              Cameras at
+            </span>
+            <SitePicker
+              sites={sources}
+              value={fromSiteId}
+              onChange={(next) => {
+                setFromSiteId(next);
+                /* The towers belong to the site that was just deselected, so
+                   a scope carried across would name cameras the new site does
+                   not own, and the server would refuse it with a sentence
+                   about laundering. */
+                setState((s) => ({ ...s, scope: [] }));
+                if (next === toSiteId) setToSiteId("");
+              }}
+            />
+          </label>
+
+          <label className="flex flex-col gap-[6px]">
+            <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
+              Shared with
+            </span>
+            <SitePicker sites={targets} value={toSiteId} onChange={setToSiteId} />
+          </label>
+
+          <div className="flex flex-col gap-[6px]">
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
+              Towers
+            </span>
+            <TowerPicker
+              towers={towers.towers}
+              loading={towers.loading}
+              value={state.scope}
+              onChange={(scope) => setState({ ...state, scope })}
+              emptyNote={
+                fromSiteId
+                  ? "That site has no towers to share."
+                  : "Choose where the cameras are first."
+              }
+            />
+            {towers.error ? (
+              <p className="text-[0.75rem] text-critical">{towers.error}</p>
+            ) : null}
+          </div>
+
+          <Allow
+            label="Controls"
+            detail="They can point the camera. The owning site always wins a contest for it."
+            on={state.ptz}
+            onChange={(ptz) => setState({ ...state, ptz })}
+          />
+          <Allow
+            label="Playback"
+            detail="They can watch recorded footage from the window below."
+            on={state.playback}
+            onChange={(playback) => setState({ ...state, playback })}
+          />
+          <AnimatePresence initial={false}>
+            {state.playback ? (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={FADE}
+                className="overflow-hidden"
+              >
+                <PlaybackWindow
+                  from={state.from}
+                  to={state.to}
+                  onChange={(from, to) => setState({ ...state, from, to })}
+                />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
+          <div className="flex flex-col gap-[6px]">
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
+              For how long
+            </span>
+            <DurationPicker
+              value={state.durationSec}
+              onChange={(durationSec) => setState({ ...state, durationSec })}
+            />
+          </div>
+
+          <label className="flex flex-col gap-[6px]">
+            <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
+              Why (optional)
+            </span>
+            <MessageBox
+              value={state.message}
+              onChange={(message) => setState({ ...state, message })}
+              placeholder="Contractors on site this week."
+            />
+          </label>
+
+          {error ? (
+            <p className="text-[0.8125rem] text-critical" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {sent ? (
+            <p className="text-[0.8125rem] text-notify-share" role="status">
+              Shared. {sent} can accept or decline it, and the site it came from
+              has been told.
+            </p>
+          ) : null}
+          <div>
+            <PrimaryButton onClick={() => void send()} disabled={!ready || busy}>
+              {busy
+                ? "Sharing..."
+                : !fromSiteId
+                  ? "Choose where the cameras are"
+                  : !toSiteId
+                    ? "Choose who sees them"
+                    : state.scope.length === 0
+                      ? "Choose towers"
+                      : state.durationSec <= 0
+                        ? "Choose how long"
+                        : "Share"}
+            </PrimaryButton>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * Answering, on the page: the same controls the card mounts
  * ------------------------------------------------------------------ */
 
@@ -547,7 +793,7 @@ function IncomingRow({ share }: { share: Share }) {
         );
       else await feed.decline(share.share_id);
     } catch (err) {
-      setError((err as { message?: string })?.message ?? "That did not go through.");
+      setError(said(err, "That answer did not go through."));
     } finally {
       setBusy(false);
     }
@@ -720,9 +966,15 @@ export function SharingPane({
      form cannot assemble a list that includes the site it is acting for. */
   const acting = useActingSite();
   const sections = acting.isAdmin ? ADMIN_SECTIONS : SECTIONS;
-  const [tab, setTab] = useState<SectionId>(
-    acting.isAdmin && startOn === "incoming" ? "all" : startOn,
-  );
+  /* AN ADMIN HAS NO "new" OR "offer": those are a site acting for itself, and
+     an admin is not a site. Anything that would have landed there lands on the
+     one form they do have. */
+  const [tab, setTab] = useState<SectionId>(() => {
+    if (!acting.isAdmin) return startOn;
+    if (startOn === "incoming") return "all";
+    if (startOn === "new" || startOn === "offer") return "admin";
+    return startOn;
+  });
   const mine = acting.candidates;
 
   if (sites.loading && mine.length === 0) {
@@ -738,6 +990,8 @@ export function SharingPane({
         return <NewRequest acting={acting} />;
       case "offer":
         return <OfferFeed acting={acting} initialScope={initialOfferScope} />;
+      case "admin":
+        return <AdminShare />;
       case "all":
         return (
           <Section
@@ -786,7 +1040,7 @@ export function SharingPane({
         return (
           <Section
             title="Waiting on them"
-            blurb="What you have asked for or offered, and where it got to."
+            blurb="What you have asked for or offered, where it got to, and anything the administrator has shared from your site."
           >
             {feed.awaitingThem.length === 0 ? (
               <Empty

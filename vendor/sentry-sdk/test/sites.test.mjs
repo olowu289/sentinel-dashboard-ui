@@ -176,9 +176,11 @@ test("listShares parses the whole share shape", async () => {
 });
 
 test("createShare sends the snake_case body the server expects", async () => {
+  // ⚠ AN OFFER, because that is the shape that carries terms. A REQUEST
+  // sends none of them: see the test below.
   const { client, calls } = clientFor([{ status: 201, body: { share: SHARE } }]);
   await client.createShare({
-    direction: "request",
+    direction: "offer",
     mySiteId: "site_2",
     otherSiteId: "site_1",
     scope: [{ device_id: "kln_north_000001" }],
@@ -191,10 +193,12 @@ test("createShare sends the snake_case body the server expects", async () => {
   });
   const body = JSON.parse(calls[0].init.body);
   assert.deepEqual(body, {
-    direction: "request",
+    direction: "offer",
     my_site_id: "site_2",
     other_site_id: "site_1",
     scope: [{ device_id: "kln_north_000001" }],
+    // `message` is absent, not null: JSON.stringify drops an undefined value,
+    // so an offer with nothing to say sends no key at all.
     live: true,
     ptz: true,
     playback: true,
@@ -202,7 +206,32 @@ test("createShare sends the snake_case body the server expects", async () => {
     playback_to: "2026-10-02T00:00:00Z",
     duration_sec: 7200,
   });
-  assert.equal(calls[0].init.method, "POST");
+});
+
+test("a REQUEST asserts nothing about what it will be granted", async () => {
+  // The site asking cannot see what the other site has, and what it is
+  // granted is the answering site's decision. It used to forward whatever the
+  // caller passed, so a request could go out claiming `ptz: true`.
+  const { client, calls } = clientFor([{ status: 201, body: { share: SHARE } }]);
+  await client.createShare({
+    direction: "request",
+    mySiteId: "site_2",
+    otherSiteId: "site_1",
+    message: "Our truck is at your gate.",
+    durationSec: 7200,
+  });
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body, {
+    direction: "request",
+    my_site_id: "site_2",
+    other_site_id: "site_1",
+    scope: [],
+    message: "Our truck is at your gate.",
+    live: true,
+    ptz: false,
+    playback: false,
+    duration_sec: 7200,
+  });
 });
 
 test("createShare defaults to live only, no PTZ, no playback", async () => {

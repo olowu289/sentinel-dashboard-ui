@@ -79,6 +79,8 @@ export interface ActingSite {
    * can assemble a different one.
    */
   readonly others: readonly Site[];
+  /** The ones worth ASKING: an empty site has nothing to lend. */
+  readonly othersToAsk: readonly Site[];
 }
 
 export function useActingSite(): ActingSite {
@@ -128,11 +130,34 @@ export function useActingSite(): ActingSite {
       name: o.name,
       status: "active" as const,
       created_at: "",
+      /* ⚠ THE DIRECTORY CARRIES NO HUBS, deliberately: a site knows another
+         site's NAME and nothing else. `has_cameras` is the one bit the server
+         does say, and it is kept here so `othersToAsk` can use it. */
       hubs: [] as readonly string[],
+      has_cameras: o.has_cameras,
     }));
     const all = isAdmin ? [...candidates] : [...candidates, ...directory];
     return all.filter((s) => s.site_id !== (site?.site_id ?? chosen));
   }, [sites.value, candidates, isAdmin, site, chosen]);
+
+  /**
+   * The sites worth ASKING, which is not the same list as the ones worth
+   * OFFERING to.
+   *
+   * ⚠ A SITE WITH NO CAMERAS IS NOT SOMEBODY TO ASK. Asking one used to be
+   * possible: the request was created, the owner opened it, the picker said
+   * "This site has no towers to lend yet", and the only way out was a refusal
+   * written for a programmer. An OFFER to such a site is perfectly sensible --
+   * you are giving them yours -- so only this list is narrowed.
+   *
+   * `has_cameras` absent means an older server that does not say, and the site
+   * stays: offering one that turns out to be empty is better than hiding them
+   * all. The server refuses it either way, in words.
+   */
+  const othersToAsk = useMemo<readonly Site[]>(
+    () => others.filter((s) => (s as { has_cameras?: boolean }).has_cameras !== false),
+    [others],
+  );
 
   return {
     site,
@@ -142,5 +167,6 @@ export function useActingSite(): ActingSite {
     loading: sites.loading && candidates.length === 0,
     choose,
     others,
+    othersToAsk,
   };
 }

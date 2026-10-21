@@ -20,6 +20,7 @@
 
 import { useMemo, useState } from "react";
 import type { Site } from "@kallon/sentry-sdk";
+import { said } from "@/lib/said";
 import { useShareFeed } from "@/lib/useShareFeed";
 import { useSites } from "@/lib/useSites";
 import {
@@ -118,7 +119,7 @@ export function QuickShare({
          matters next is the other site's answer. */
       setTimeout(() => onDone?.(), 2400);
     } catch (err) {
-      setError((err as { message?: string })?.message ?? "That did not send.");
+      setError(said(err, "That share did not go out."));
       setBusy(false);
     }
   };

@@ -72,6 +72,23 @@ const has = (what, text, needle) =>
 const hasNot = (what, text, needle) =>
   !(text ?? "").includes(needle) ? ok(what) : bad(what, `unexpected ${JSON.stringify(needle)}`);
 
+/** Every device one person is shown, read from coordination as that person. */
+const API = process.env.VITE_COORDINATION_URL ?? "http://127.0.0.1:9099";
+async function fleetDevices(login) {
+  const auth = await fetch(`${API}/v1/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ login, password: PASSWORD }),
+  });
+  if (!auth.ok) return `login ${auth.status}`;
+  const { session_ref: ref } = await auth.json();
+  const r = await fetch(`${API}/v1/viewer/towers`, {
+    headers: { Authorization: `Bearer ${ref}` },
+  });
+  if (!r.ok) return `fleet ${r.status}`;
+  return ((await r.json()).towers ?? []).map((t) => t.device_id);
+}
+
 const browser = await chromium.launch();
 
 /** A signed-in browser for one person, watching for failed API calls. */
@@ -132,16 +149,17 @@ const ada = await signIn(`ada.${ORG}`);
 
 console.log("=== 0. the borrower's fleet, before any share ===");
 {
-  const ids = await dele.page.evaluate(async () => {
-    const ref = JSON.parse(localStorage.getItem("sentinel.session") ?? "{}")?.ref;
-    const r = await fetch("/v1/viewer/towers", { headers: { Authorization: `Bearer ${ref}` } });
-    return r.ok ? (await r.json()).towers.map((t) => t.device_id) : [`ERR ${r.status}`];
-  }).catch(() => null);
-  // Read through the page so it is the SAME origin and session the app uses.
+  /* ⚠ READ FROM THE API, NOT FROM INSIDE THE PAGE. This used to be a
+     relative `fetch("/v1/viewer/towers")` run in the page, which goes to the
+     dev server on 5173 -- and that answers index.html for anything it does
+     not recognise, so the JSON parse threw, the catch swallowed it, and the
+     check printed "could not read the fleet" and carried on. A check that
+     reports its own failure as a shrug is not a check. */
+  const ids = await fleetDevices(`dele.${ORG}`);
   if (Array.isArray(ids)) {
     hasNot("West Yard cannot see North Gate's hub mast", ids.join(","), MAST);
   } else {
-    console.log("  (could not read the fleet through the page; relying on the UI below)");
+    bad("could not read the borrower's fleet", String(ids));
   }
 }
 

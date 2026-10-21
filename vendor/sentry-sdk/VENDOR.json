@@ -64,7 +64,7 @@
     "src/sites.ts": "3005111a643809736452d6c040199e4814b6137ae56b1edfa4954e7a03517c19",
     "src/validate.ts": "b13e43ae818f399637590e2be1cf8bd7fe8b9ba5263c7337a5dbc58ceba93e69",
     "test/cells.test.mjs": "f82b065b4f1bb0a59d40230452a8af66a4b5bdbc7ff1d82810388fd5f2f2b669",
-    "test/fixtures/admin_people_reply.json": "33eee92db7c6b9ed6e222d85511dde16ce89fd46a23213ad41ee3fc9a0713576",
+    "test/fixtures/admin_people_reply.json": "6d48e71a60ae5dba7c2618452d6c62916386d2f1bf45880b5984d9d965299959",
     "test/people-shape.test.mjs": "950034c28759f7cb468dc1629c31694b58238c3a22d5972e6f24dda4d1162515",
     "test/ptz-priority.test.mjs": "7d77d81cd9d4835b0ee3971a47bcea059d48eebe2f03233af3a0e7bf18fe888d",
     "test/ptz-step-sweep.test.mjs": "661be5af9fc5dd4c45c27cb264173658391f401f2910102cca0064d87ea0aeb3",

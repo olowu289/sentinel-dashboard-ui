@@ -329,11 +329,19 @@ function DecorativeQr() {
 /* ---------------------------------------------------------------- 2b */
 
 /**
- * The real registration: a pairing code and a site name.
+ * The real registration: a pairing code and THE TOWER'S NAME.
  *
  * Both, together, because both are what `POST /v1/viewer/claims` takes. The
  * name is not a nicety collected later — it is carried into the tower record at
  * enrolment and there is no route to change it afterwards.
+ *
+ * ⚠ IT NAMES THE TOWER, NOT THE SITE, AND THE FIELD USED TO SAY OTHERWISE.
+ * The label read SITE NAME and the hint said "this is the name your team will
+ * use on the radio", so the first release tower was registered as "BASE SITE":
+ * somebody answered the question they were asked, truthfully, and the hub now
+ * holds a mast called after the place it stands in. The site is already chosen
+ * elsewhere (a tower is added to a cell, and a cell is in a site); what nothing
+ * else can supply is what to call this mast.
  */
 function EnterCode({
   onRegistered,
@@ -437,20 +445,20 @@ function EnterCode({
 
         <label className="flex flex-col gap-[8px]">
           <span className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-            SITE NAME
+            TOWER NAME
           </span>
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={onKey}
             disabled={phase.kind === "pending"}
-            placeholder="WAREHOUSE: PARKING LOT"
+            placeholder="NORTH GATE MAST"
             autoComplete="off"
             className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink uppercase outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
           />
           <span className="text-[0.75rem] leading-[16px] text-muted">
-            Place, then zone. This is the name your team will use on the radio —
-            it is set now and travels with the tower.
+            What to call THIS MAST, not the site it stands on. It is set now,
+            travels with the tower, and is what your team will use on the radio.
           </span>
         </label>
 

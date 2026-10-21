@@ -1015,27 +1015,71 @@ class SentryClient {
         return (0, sites_js_1.parseShareList)(body, { status, path });
     }
     /**
-     * Ask for access, or offer your own cameras — `POST /v1/shares`.
+     * Start a share - `POST /v1/shares`.
      *
-     * `direction: "request"` asks another site for theirs; `"offer"` hands them
-     * yours. Either way the result is **pending**: an offer is not permission to
-     * be looked at, and the other side has to answer.
+     * ── THREE SHAPES, BECAUSE THEY ARE THREE DIFFERENT ACTS ───────────────
      *
-     * `myS iteId` must be one of your own sites (403 otherwise), and an offer may
-     * only name cameras your own site owns — without that a site could pass on
-     * access it was lent.
+     * A REQUEST is a question. It names NO cameras, because the site asking
+     * cannot see what the other site has, which is the whole reason sharing
+     * exists. It carries a message and how long it wants, and the owner
+     * answering chooses the towers, the controls, the playback and the final
+     * length.
+     *
+     * An OFFER is a complete sentence. The site sending it picks the cameras,
+     * the controls, the playback window and how long; the receiving site only
+     * answers. {@link acceptShare} on an offer therefore takes nothing, and the
+     * server refuses a body that would change the terms.
+     *
+     * An ADMIN share is an offer made by the organization's administrator, of
+     * one site's cameras to another. The administrator names BOTH sites: `from`
+     * is where the cameras are and `to` is who gets to see them. The viewing
+     * site accepts or declines it; the owning site is told, and cannot accept,
+     * decline, end or extend it (`by_admin` on the resulting share says so).
+     *
+     * ⚠ AN ADMIN DOES NOT REQUEST ON A SITE'S BEHALF, AND THE SERVER REFUSES
+     * ONE. That used to be possible, and it put a card in front of the owning
+     * site reading "the other site is asking for yours" about a request that
+     * site had never made; the admin could not answer it either, because nobody
+     * answers their own, so it sat there until it expired.
+     *
+     * `durationSec` is required in all three, between {@link SHARE_MIN_SEC} and
+     * {@link SHARE_MAX_SEC}. There is no silent default: a share is somebody
+     * else's cameras, and how long for is a decision rather than a fallback.
      */
     async createShare(req, opts = {}) {
         const path = "/v1/shares";
-        const { status, body } = await this.http.send({
-            method: "POST",
-            path,
-            accept: "json",
-            json: {
-                direction: req.direction,
+        /* ⚠ BUILT PER SHAPE, NOT BY NARROWING AFTERWARDS. These are three
+           different acts and the bodies differ in what they must NOT contain: a
+           request sends no scope and no permissions, because what it is granted
+           is the answering site's decision. Reading fields off the union and
+           letting `undefined` sort it out is how a request ends up asserting
+           `ptz: false` it had no business asserting. */
+        let json;
+        if (req.direction === "request") {
+            json = {
+                direction: "request",
                 my_site_id: req.mySiteId,
                 other_site_id: req.otherSiteId,
-                scope: req.scope ?? [],
+                scope: [],
+                message: req.message,
+                live: true,
+                ptz: false,
+                playback: false,
+                duration_sec: req.durationSec,
+            };
+        }
+        else {
+            // An OFFER and an ADMIN share carry the same terms; they differ only in
+            // who names the sites, and in who the server sees making the call. The
+            // server decides `by_admin` from the SESSION, never from the body: a
+            // client that said so could say it falsely.
+            const from = req.direction === "admin" ? req.fromSiteId : req.mySiteId;
+            const to = req.direction === "admin" ? req.toSiteId : req.otherSiteId;
+            json = {
+                direction: "offer",
+                my_site_id: from,
+                other_site_id: to,
+                scope: req.scope,
                 message: req.message,
                 live: req.live ?? true,
                 ptz: req.ptz ?? false,
@@ -1043,17 +1087,38 @@ class SentryClient {
                 playback_from: req.playbackFrom,
                 playback_to: req.playbackTo,
                 duration_sec: req.durationSec,
-            },
+            };
+        }
+        const { status, body } = await this.http.send({
+            method: "POST",
+            path,
+            accept: "json",
+            json,
             ...pick(opts),
         });
         return (0, sites_js_1.parseShare)(body, { status, path });
     }
     /**
-     * Accept a share, narrowing it first — `POST /v1/shares/{id}/accept`.
+     * Accept a share - `POST /v1/shares/{id}/accept`.
      *
-     * Every field is optional and omitting one keeps what was asked for. The
-     * party giving something up is the one answering, which is why they may
-     * change the scope, the permissions and the duration here.
+     * ⚠ WHAT MAY BE CHANGED HERE DEPENDS ON WHO STARTED IT, and the server
+     * decides that, not this method.
+     *
+     * On a REQUEST the account answering is the one giving something up, so they
+     * choose the scope (required: a request names none), the controls, the
+     * playback window and the final `durationSec`, which may be less or more than
+     * the share's {@link Share.asked_duration_sec}, within
+     * {@link SHARE_MIN_SEC}..{@link SHARE_MAX_SEC}.
+     *
+     * On an OFFER, pass nothing. The offer already said what it lends and for how
+     * long, and the server answers `422` to a body that would change any of it.
+     * Sending the same values back is fine; sending different ones is refused
+     * rather than ignored, so a client cannot believe it narrowed something it
+     * did not.
+     *
+     * An ADMIN share is an offer, so the same applies: the viewing site accepts
+     * it as sent or declines it. The OWNING site cannot answer it at all, and
+     * `can_answer` on its copy says so.
      */
     async acceptShare(shareId, changes = {}, opts = {}) {
         const path = `/v1/shares/${encodeURIComponent(shareId)}/accept`;

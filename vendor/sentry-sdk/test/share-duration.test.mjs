@@ -136,6 +136,51 @@ test("an offer may leave its own site to the server to derive", async () => {
   assert.equal(body(seen).my_site_id, undefined);
 });
 
+// ── the administrator's share ───────────────────────────────────────────
+test("an admin share goes up as an OFFER, with the sites the admin named", async () => {
+  // On the wire it IS an offer: the cameras travel from one site to another
+  // and the receiving site answers. The separate shape exists so an admin
+  // cannot send the site-to-site one, where `mySiteId` means "mine".
+  const { client, seen } = recording({ share: SHARE });
+  await client.createShare({
+    direction: "admin",
+    fromSiteId: "site_a",
+    toSiteId: "site_b",
+    scope: [{ device_id: "kln_lab_000003", cameras: [1] }],
+    ptz: true,
+    durationSec: 4 * 3600,
+  });
+  const sent = body(seen);
+  assert.equal(sent.direction, "offer", "an admin share is an offer");
+  assert.equal(sent.my_site_id, "site_a", "where the cameras are");
+  assert.equal(sent.other_site_id, "site_b", "who gets to see them");
+  assert.equal(sent.ptz, true);
+  assert.equal(sent.duration_sec, 4 * 3600);
+});
+
+test("the client never CLAIMS to be an administrator", async () => {
+  // ⚠ THE SERVER DECIDES IT FROM THE SESSION. A flag in the body would be
+  // a client asserting its own authority, which is the one thing every rule
+  // in this area exists to stop.
+  const { client, seen } = recording({ share: SHARE });
+  await client.createShare({
+    direction: "admin",
+    fromSiteId: "site_a",
+    toSiteId: "site_b",
+    scope: [{ device_id: "kln_lab_000003" }],
+    durationSec: 900,
+  });
+  const sent = body(seen);
+  assert.equal(sent.by_admin, undefined, "the body asserted it");
+  assert.equal(sent.admin, undefined);
+});
+
+test("by_admin comes back on the share, and is false for a site's own", () => {
+  assert.equal(parseShare({ share: { ...SHARE, by_admin: true } }).by_admin, true);
+  assert.equal(parseShare({ share: SHARE }).by_admin, false,
+    "absent reads as false, which is what every share made by a site is");
+});
+
 // ── accepting ───────────────────────────────────────────────────────────
 test("accepting an offer sends an empty decision, because it is accepted as sent", async () => {
   const { client, seen } = recording({ share: { ...SHARE, status: "active" } });

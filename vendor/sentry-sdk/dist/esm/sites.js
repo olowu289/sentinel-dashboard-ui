@@ -184,10 +184,16 @@ export function parseSiteList(raw, ctx = {}) {
     if (o.others !== undefined) {
         out.others = c.arr("$.others", o.others).map((raw, i) => {
             const e = c.obj(`$.others[${i}]`, raw);
-            return {
+            const row = {
                 site_id: c.str(`$.others[${i}].site_id`, e.site_id),
                 name: c.str(`$.others[${i}].name`, e.name),
             };
+            // Absent is not false. See the field: an older server says nothing, and
+            // hiding every site would be worse than offering an empty one.
+            if (e.has_cameras !== undefined) {
+                row.has_cameras = c.bool(`$.others[${i}].has_cameras`, e.has_cameras);
+            }
+            return row;
         });
     }
     c.done("site list", ctx);
@@ -253,6 +259,9 @@ function shareOne(c, path, raw) {
         asked_duration_sec: o.asked_duration_sec === undefined || o.asked_duration_sec === null
             ? null
             : c.num(`${path}.asked_duration_sec`, o.asked_duration_sec),
+        // Absent reads as FALSE, like the `can_*` below: a share made by a site
+        // is the thing every older server could produce.
+        by_admin: o.by_admin === undefined ? false : c.bool(`${path}.by_admin`, o.by_admin),
         // Tolerated as absent for a server that predates it, and read as null,
         // which is the same thing an offer with nothing to say sends.
         message: o.message === undefined ? null : c.strOrNull(`${path}.message`, o.message),

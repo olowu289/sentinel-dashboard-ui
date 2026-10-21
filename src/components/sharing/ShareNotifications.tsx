@@ -36,6 +36,8 @@ import {
   timeLeftLabel,
   useNotifications,
 } from "@/lib/notifications";
+import { said } from "@/lib/said";
+import { isAdminNotice } from "@/lib/shareRules";
 import {
   otherSiteName,
   scopeSummary,
@@ -181,7 +183,7 @@ export function PendingCard({
         } else await feed.decline(share.share_id);
         onDone();
       } catch (err) {
-        setError((err as { message?: string })?.message ?? "That did not go through.");
+        setError(said(err, "That answer did not go through."));
         setBusy(false);
       }
     },
@@ -235,9 +237,28 @@ export function PendingCard({
   return (
     <div>
       <p className="text-[0.8125rem] leading-[18px] text-body-ink">
-        <span className="font-display">{who}</span>{" "}
-        {isRequest ? "would like to see your cameras." : "is offering you cameras."}
+        {/* ⚠ AN ADMIN SHARE DID NOT COME FROM THE OTHER SITE, and saying
+            "North Gate is offering you cameras" about one would be putting
+            words in their mouth: they were not asked either. */}
+        {share.by_admin ? (
+          <>
+            Cameras at <span className="font-display">{who}</span> are being
+            shared with you.
+          </>
+        ) : (
+          <>
+            <span className="font-display">{who}</span>{" "}
+            {isRequest
+              ? "would like to see your cameras."
+              : "is offering you cameras."}
+          </>
+        )}
       </p>
+      {share.by_admin ? (
+        <p className="mt-[4px] font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+          By the administrator
+        </p>
+      ) : null}
       {share.message ? (
         <div className="mt-[8px]">
           <Quote text={share.message} />
@@ -389,6 +410,61 @@ export function AcceptedCard({
   );
 }
 
+/**
+ * Your cameras were shared by the administrator. Nothing to answer.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY THIS CARD HAS NO BUTTONS
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * An administrator sharing one site's cameras with another does not ask the
+ * owning site. It never agreed, so it has nothing to withdraw: it cannot
+ * accept, decline, end or extend this, and the server refuses all four.
+ *
+ * That is a real transfer of authority and the card does not pretend
+ * otherwise. It says what was shared, with whom, for how long, and that the
+ * administrator did it. A Close, because it is a statement, and the statement
+ * stays in Sharing > History and in the audit log with a name on it.
+ *
+ * ⚠ NO "END NOW" EVEN GREYED OUT. A disabled button is a promise that
+ * something could be allowed, and this one never will be for this site.
+ */
+export function AdminNoticeCard({
+  share,
+  onDone,
+}: {
+  share: Share;
+  onDone: () => void;
+}) {
+  return (
+    <div>
+      <p className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+        By the administrator
+      </p>
+      <p className="mt-[4px] text-[0.8125rem] leading-[18px] text-body-ink">
+        Your cameras are now shared with{" "}
+        <span className="font-display">{share.viewer_site_name}</span>.
+      </p>
+      <p className="mt-[4px] text-[0.75rem] text-muted">
+        {scopeSummary(share.scope)}
+        {share.ptz ? " · controls" : ""}
+        {share.playback ? " · playback" : ""}
+        {share.asked_duration_sec
+          ? ` · ${sayDuration(share.asked_duration_sec)}`
+          : ""}
+      </p>
+      {share.message ? (
+        <div className="mt-[8px]">
+          <Quote text={share.message} />
+        </div>
+      ) : null}
+      <Buttons>
+        <Quiet onClick={onDone}>Close</Quiet>
+      </Buttons>
+    </div>
+  );
+}
+
 /** A statement: declined, revoked, expired. Nothing to answer. */
 export function EndedCard({ text, onDone }: { text: string; onDone: () => void }) {
   return (
@@ -456,6 +532,30 @@ export function ShareDeck() {
 
              Persistent: a question that fades is a question answered by
              whoever was looking elsewhere. */
+          /* ── THE OWNING SITE OF AN ADMIN SHARE IS TOLD, NOT ASKED ─────
+
+             It cannot answer, end or extend it, so `can_answer` is false and
+             the card above is not for it. But its cameras have just been
+             shared with somebody, which it has every right to know the moment
+             it happens rather than by noticing a row in a list.
+
+             TRANSIENT, because there is nothing to answer, and it carries no
+             buttons for the same reason. `isAdminNotice` is the one place
+             that decides this. */
+          if (share.status === "pending" && !was && isAdminNotice(share)) {
+            notify({
+              id: `${id}:notice`,
+              kind: "share",
+              at: Date.parse(share.created_at) || Date.now(),
+              ttlMs: ACTIONABLE_TTL_MS,
+              title: `${share.viewer_site_name} was given your cameras`,
+              render: ({ dismiss: close }) => (
+                <AdminNoticeCard share={share} onDone={close} />
+              ),
+            });
+            continue;
+          }
+
           if (share.status === "pending" && share.can_answer && !was) {
             notify({
               id,

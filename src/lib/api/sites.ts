@@ -37,6 +37,7 @@ import type {
   CellListResponse,
   PeopleListResponse,
   Person,
+  SentryClient,
   Share,
   ShareListResponse,
   ShareScopeEntry,
@@ -92,22 +93,19 @@ export function listShares(): Promise<ShareListResponse> {
   return getClient().listShares();
 }
 
-export function createShare(req: {
-  direction: "request" | "offer";
-  /** Optional on an OFFER: the server derives it from the cameras. */
-  mySiteId?: string;
-  otherSiteId: string;
-  /** Omitted on a REQUEST: the asking site cannot know the other's cameras. */
-  scope?: readonly ShareScopeEntry[];
-  /** REQUIRED on a request. The server refuses one without it. */
-  message?: string;
-  live?: boolean;
-  ptz?: boolean;
-  playback?: boolean;
-  playbackFrom?: string;
-  playbackTo?: string;
-  durationSec?: number;
-}): Promise<Share> {
+/**
+ * What starting a share takes.
+ *
+ * ⚠ TAKEN FROM THE SDK, NOT RESTATED. This was a hand-written copy of the
+ * same shape, and the first time it drifted was the moment the SDK learned
+ * that a request carries no scope and an admin names both sites: the copy
+ * still said one permissive object, so nothing here failed to compile and a
+ * request could still go out asserting permissions it had no business
+ * asserting.
+ */
+export type NewShareRequest = Parameters<SentryClient["createShare"]>[0];
+
+export function createShare(req: NewShareRequest): Promise<Share> {
   return getClient().createShare(req);
 }
 

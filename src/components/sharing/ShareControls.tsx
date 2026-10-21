@@ -269,9 +269,17 @@ export function TowerPicker({
     onChange(next);
   };
 
-  const toggleCamera = (deviceId: string, camera: number) => {
+  const toggleCamera = (deviceId: string, camera: number, every: readonly number[]) => {
     const current = chosen.get(deviceId);
-    const list = current ? [...current] : [];
+    /* ⚠ "ALL CAMERAS" IS AN EMPTY LIST, AND TOGGLING FROM IT MEANS
+       REMOVING ONE. A tower picked with no camera list covers the whole mast,
+       and every chip is drawn pressed to say so. Clicking a pressed chip
+       therefore has to take that camera AWAY -- it used to start from an
+       empty list and ADD it, so clicking "Cam 2" on a two-camera mast that
+       showed "all cameras" shared camera 2 alone, which is the opposite of
+       what was pressed. Found by a browser test narrowing a share to camera 1
+       and getting camera 2. */
+    const list = current && current.length > 0 ? [...current] : [...every];
     const at = list.indexOf(camera);
     if (at >= 0) list.splice(at, 1);
     else list.push(camera);
@@ -346,7 +354,7 @@ export function TowerPicker({
                           key={c}
                           type="button"
                           aria-pressed={picked}
-                          onClick={() => toggleCamera(t.deviceId, c)}
+                          onClick={() => toggleCamera(t.deviceId, c, t.cameras)}
                           className={`rounded-[4px] border px-[6px] py-[2px] text-[0.6875rem] transition-colors ${
                             picked
                               ? "border-notify-share/60 text-notify-share"

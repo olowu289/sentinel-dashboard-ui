@@ -26,6 +26,7 @@
 
 import { motion } from "motion/react";
 import { IconRail } from "@/components/IconRail";
+import { said } from "@/lib/said";
 import { useCallback, useMemo, useState } from "react";
 import type { Share, SiteListResponse } from "@kallon/sentry-sdk";
 import { isShareLive } from "@kallon/sentry-sdk";
@@ -181,6 +182,9 @@ function ShareForm({
   const [mySiteId, setMySiteId] = useState(mine[0]?.site_id ?? "");
   const [otherSiteId, setOtherSiteId] = useState("");
   const [towers, setTowers] = useState("");
+  /* Required on a REQUEST, where it is the only thing the other site has
+     to go on; optional on an offer, which carries its own meaning. */
+  const [reason, setReason] = useState("");
   const [ptz, setPtz] = useState(false);
   const [playback, setPlayback] = useState(false);
   const [hours, setHours] = useState("2");
@@ -196,40 +200,64 @@ function ShareForm({
         .map((t) => t.trim())
         .filter(Boolean)
         .map((device_id) => ({ device_id }));
-      if (!scope.length) {
-        setError("Name at least one tower.");
+      if (direction === "offer" && !scope.length) {
+        setError("Name at least one tower to share.");
+        setBusy(false);
+        return;
+      }
+      if (direction === "request" && !reason.trim()) {
+        setError("Say what you need. It is the only thing they have to go on.");
         setBusy(false);
         return;
       }
       const h = Number(hours);
-      await createShare({
-        direction,
-        mySiteId,
-        otherSiteId,
-        scope,
-        live: true,
-        ptz,
-        playback,
-        // A WINDOW IS REQUIRED WHEN PLAYBACK IS, and it is the last `h` hours of
-        // footage rather than an open end: the server refuses playback with no
-        // window, and an unbounded one is not something to offer by accident.
-        playbackFrom: playback
-          ? new Date(Date.now() - h * 3600_000).toISOString()
-          : undefined,
-        playbackTo: playback ? new Date().toISOString() : undefined,
-        durationSec: Number.isFinite(h) && h > 0 ? Math.round(h * 3600) : 7200,
-      });
+      const durationSec =
+        Number.isFinite(h) && h > 0 ? Math.round(h * 3600) : 7200;
+      if (direction === "request") {
+        /* ⚠ A REQUEST NAMES NO CAMERAS, and this form used to send the
+           towers somebody typed into it along with `ptz` and `playback`. The
+           site asking cannot see what the other site has -- that is the whole
+           reason it is asking -- and what it is granted is the answering
+           site's decision. The field above still collects them, because this
+           screen is also the OFFER form; they are simply not sent here. */
+        await createShare({
+          direction: "request",
+          mySiteId,
+          otherSiteId,
+          message: reason.trim(),
+          durationSec,
+        });
+      } else {
+        await createShare({
+          direction: "offer",
+          mySiteId,
+          otherSiteId,
+          scope,
+          ...(reason.trim() ? { message: reason.trim() } : {}),
+          live: true,
+          ptz,
+          playback,
+          // A WINDOW IS REQUIRED WHEN PLAYBACK IS, and it is the last `h` hours
+          // of footage rather than an open end: the server refuses playback
+          // with no window, and an unbounded one is not something to offer by
+          // accident.
+          playbackFrom: playback
+            ? new Date(Date.now() - h * 3600_000).toISOString()
+            : undefined,
+          playbackTo: playback ? new Date().toISOString() : undefined,
+          durationSec,
+        });
+      }
       onDone();
     } catch (err) {
-      const e = err as { message?: string; status?: number };
       setError(
-        e?.status === 403
+        (err as { status?: number })?.status === 403
           ? "That is not one of your sites, or those are not your cameras."
-          : e?.message || "Could not send that.",
+          : said(err, "That did not go out."),
       );
       setBusy(false);
     }
-  }, [direction, mySiteId, otherSiteId, towers, ptz, playback, hours, onDone]);
+  }, [direction, mySiteId, otherSiteId, towers, reason, ptz, playback, hours, onDone]);
 
   return (
     <motion.form
@@ -271,17 +299,34 @@ function ShareForm({
           />
         </Field>
       </div>
-      <Field
-        label="Towers"
-        hint="One or more device ids, separated by spaces or commas."
-      >
-        <input
-          value={towers}
-          onChange={(e) => setTowers(e.target.value)}
-          placeholder="kln_northgate_000001"
-          className={inputClass}
-        />
-      </Field>
+      {/* ⚠ TOWERS ONLY ON AN OFFER. The site asking cannot see what the
+          other site has, so there is nothing for it to name here: it says what
+          it needs and the site answering chooses the cameras. */}
+      {direction === "offer" ? (
+        <Field
+          label="Towers"
+          hint="One or more device ids, separated by spaces or commas."
+        >
+          <input
+            value={towers}
+            onChange={(e) => setTowers(e.target.value)}
+            placeholder="kln_northgate_000001"
+            className={inputClass}
+          />
+        </Field>
+      ) : (
+        <Field
+          label="Why"
+          hint="The only thing the other site has to decide on."
+        >
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Our truck is at your gate this afternoon."
+            className={inputClass}
+          />
+        </Field>
+      )}
       <div className="flex flex-wrap items-end gap-[20px]">
         <Field label="Hours">
           <input

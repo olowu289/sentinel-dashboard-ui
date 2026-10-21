@@ -276,9 +276,29 @@ export function borrowedFrom(
  */
 export function otherSiteRole(share: Share): string {
   const mine = share.incoming === true;
+  /* ⚠ AN ADMIN SHARE WAS NOT SENT BY EITHER SITE, so neither "you offered
+     yours" nor "is offering theirs" is true of it. The owning site did not
+     offer anything and the viewing site was not offered anything BY THEM. */
+  if (share.by_admin) {
+    if (share.status !== "pending") return mine ? "shared with them" : "shared with you";
+    return mine ? "being shared with them" : "being shared with you";
+  }
   if (share.status !== "pending") return mine ? "has yours" : "lending to you";
   if (share.direction === "request") return mine ? "is asking for yours" : "you asked them";
   return mine ? "you offered yours" : "is offering theirs";
+}
+
+/**
+ * Is this share one the OWNING site is only being TOLD about?
+ *
+ * An administrator sharing one site's cameras with another gives the owning
+ * site an information card: what was shared, with whom, for how long, and by
+ * whom. It cannot accept, decline, end or extend it, and the server says so
+ * through `can_*` -- this is the question the UI asks to know not to draw an
+ * empty row of buttons and a heading that implies a decision.
+ */
+export function isAdminNotice(share: Share): boolean {
+  return Boolean(share.by_admin) && share.incoming === true;
 }
 
 /** The other site's name, whichever side of the share I am on. */

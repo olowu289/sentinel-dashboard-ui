@@ -55,6 +55,7 @@ import type { Share, ShareScopeEntry } from "@kallon/sentry-sdk";
 import { isShareLive } from "@kallon/sentry-sdk";
 import { borrowedFrom } from "@/lib/shareRules";
 import {
+  type NewShareRequest,
   acceptShare,
   createShare,
   declineShare,
@@ -76,29 +77,17 @@ export interface AcceptChoices {
   durationSec?: number;
 }
 
-export interface NewShare {
-  direction: "request" | "offer";
-  /**
-   * Which of MY sites is party to this.
-   *
-   * ⚠ OPTIONAL ON AN OFFER, AND DELIBERATELY. "Share this camera" starts
-   * from a camera, and a browser cannot know which of your sites owns it: the
-   * fleet projection carries no site. The server derives it from the scope,
-   * which it has to check anyway, and refuses when none of your sites owns
-   * those cameras or when more than one does. A REQUEST must name it: it
-   * names no cameras, so there is nothing to derive it from.
-   */
-  mySiteId?: string;
-  otherSiteId: string;
-  scope?: readonly ShareScopeEntry[];
-  message?: string;
-  live?: boolean;
-  ptz?: boolean;
-  playback?: boolean;
-  playbackFrom?: string;
-  playbackTo?: string;
-  durationSec?: number;
-}
+/**
+ * What starting a share takes.
+ *
+ * ⚠ ONE DEFINITION, IN THE SDK. This restated the shape, and so did
+ * `lib/api/sites.ts`: three copies of a thing that is a CONTRACT, which is the
+ * one kind of thing that must not be copied. When the SDK learned that a
+ * request carries no scope and that an administrator names both sites, the
+ * copies went on describing one permissive object and nothing failed to
+ * compile.
+ */
+export type NewShare = NewShareRequest;
 
 interface Feed {
   readonly shares: readonly Share[];

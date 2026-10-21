@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { said } from "@/lib/said";
 
 /**
  * One pattern for "this action is in flight / it failed / try it again".
@@ -75,12 +76,18 @@ const CONFIRM_MS = 2_200;
  * carries the uniform credential message, `PlaybackError` carries "the tower
  * did not answer", the claim errors carry a real next step. Replacing any of
  * that with "Something went wrong" would throw away the only part an operator
- * can act on, so the message is carried through untouched.
+ * can act on, so a sentence written for a person is carried through untouched.
+ *
+ * ⚠ IT USED TO BE `err.message` WHOLESALE, and that is not the same thing.
+ * Every failed action in the app — acknowledging an alert, renaming a tower,
+ * ending a share — printed whatever the error carried, and what an error
+ * carries includes our own client library's sentences about paths and shapes.
+ * `said` is the one place that decides whether words were written for a
+ * person; everything else goes to the console under a reference.
  */
 export function mutationMessage(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
   if (typeof err === "string" && err) return err;
-  return "The action did not complete";
+  return said(err, "The action did not complete. Try it again.");
 }
 
 export interface Mutation {

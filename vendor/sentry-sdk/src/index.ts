@@ -201,6 +201,7 @@ export type {
   RemoveCellResponse,
   RemoveSiteResponse,
   RemoveTowerResponse,
+  Organization,
   PeopleListResponse,
   Person,
   Share,

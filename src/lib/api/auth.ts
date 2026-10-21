@@ -161,12 +161,49 @@ const REACH_MESSAGE = {
   no_endpoint: "Signing in isn't available right now",
   server_error: "Something went wrong at our end",
   bad_response: "Something went wrong at our end",
-  /* Coordination's brute-force lock (its H-1 fix). Keyed on the organization
-     name as typed and on the caller's address, so it says nothing about
-     whether the organization exists — which is why it is not an auth verdict
-     and gets its own line rather than the uniform "wrong password". */
-  throttled: "Too many sign-in attempts. Wait a few minutes and try again",
+  /* ⚠ THERE IS NO `throttled` HERE ANY MORE. Coordination's brute-force lock
+     used to land in this table, which made it a one-line message like an
+     outage — and it is not an outage, it is a state with a clock on it. It is
+     `AuthLockedError` now, and the sign-in screen draws a countdown from it. */
 } as const;
+
+/**
+ * Sign-in is LOCKED for this login, for `retryAfterSec` more seconds.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY THIS IS NOT AN `AuthUnreachableError` ANY MORE
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A lock used to arrive as `AuthUnreachableError("throttled")`, whose message
+ * is "Too many sign-in attempts. Wait a few minutes and try again" — and the
+ * seconds the server had sent were put in `detail`, which nothing shows. So
+ * the screen told somebody to wait "a few minutes" while the exact number sat
+ * in the response, and the person guessed, came back early, and extended their
+ * own lockout.
+ *
+ * It is its own error because it is its own STATE rather than a message: while
+ * it runs, the button is disabled and counting down, and when it reaches zero
+ * the screen comes back by itself. Nothing else on this path behaves that way.
+ *
+ * `retryAfterSec` is taken from the BODY first and the header second. The body
+ * is authoritative because a cross-origin page cannot read `Retry-After`
+ * unless the server exposes it — which is exactly the bug that hid the number
+ * on sentri.watch. Both are sent now; preferring the body means the countdown
+ * is right even against a coordination that does not expose the header.
+ */
+export class AuthLockedError extends Error {
+  /** Whole seconds left on the lock, as the server counted them. */
+  readonly retryAfterSec: number;
+
+  constructor(retryAfterSec: number) {
+    super("Sign-in is paused for this login");
+    this.name = "AuthLockedError";
+    this.retryAfterSec =
+      Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? Math.ceil(retryAfterSec)
+        : 0;
+  }
+}
 
 /**
  * Coordination could not be reached, or answered something that was not an
@@ -255,14 +292,21 @@ export async function login(
     throw new AuthUnreachableError("no_endpoint");
   }
   if (response.status === 429) {
-    /* Retry-After is whole seconds. Rounded UP to minutes so the wording never
-       promises a sooner retry than the lock allows. */
-    const seconds = Number(response.headers.get("Retry-After"));
-    const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds / 60) : 0;
-    throw new AuthUnreachableError(
-      "throttled",
-      minutes ? `try again in ${minutes} min` : undefined,
-    );
+    /* THE NUMBER, FROM WHEREVER IT CAN BE READ. The body first (no CORS rule
+       can hide it), the header second, and 0 if neither arrives — a lock with
+       no number still disables the button, it just cannot count. */
+    let seconds = 0;
+    try {
+      const body = (await response.json()) as { retry_after_sec?: unknown };
+      if (typeof body?.retry_after_sec === "number") seconds = body.retry_after_sec;
+    } catch {
+      /* A 429 with no JSON body is still a 429. */
+    }
+    if (!seconds) {
+      const header = Number(response.headers.get("Retry-After"));
+      if (Number.isFinite(header) && header > 0) seconds = header;
+    }
+    throw new AuthLockedError(seconds);
   }
   if (!response.ok) {
     throw new AuthUnreachableError("server_error", `HTTP ${response.status}`);

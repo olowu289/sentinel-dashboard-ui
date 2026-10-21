@@ -1,4 +1,5 @@
 import { motion } from "motion/react";
+import { said } from "@/lib/said";
 import {
   useCallback,
   useEffect,
@@ -111,7 +112,15 @@ function failureFor(err: unknown): Failure {
        coordination answers 403 precisely so the browser does not sign the
        person out over a typo, and `AccountFieldError` is what carries that
        distinction into the UI. */
-    return { field: err.field, message: err.message, tone: "critical" };
+    return {
+      field: err.field,
+      /* Through `said` even here, and the reason is not distrust of the
+         server: this arm carries whatever a validator wrote, and the one on
+         the sharing cards is how `scope: must be a non-empty list of towers`
+         reached a customer. A plain sentence passes through untouched. */
+      message: said(err, "That could not be changed. Check it and try again."),
+      tone: "critical",
+    };
   }
   if (err instanceof AccountThrottledError) {
     /* Not a verdict about what was typed, so it goes on the form rather than
@@ -136,10 +145,11 @@ function failureFor(err: unknown): Failure {
     }
     return { field: "form", message: err.message, tone: "warn" };
   }
-  console.debug("[account] change failed with an unrecognised error:", err);
   return {
     field: "form",
-    message: "Something went wrong. Please try again in a moment.",
+    /* The console line and the reference come from `said`, which is where
+       every unrecognised failure in the app now goes. */
+    message: said(err, "Something went wrong. Please try again in a moment."),
     tone: "warn",
   };
 }

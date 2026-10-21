@@ -285,8 +285,38 @@ export interface Person {
     readonly sites: readonly string[];
     readonly created_at?: string;
 }
+/**
+ * The organization the Administration area is working in.
+ *
+ * ⚠ `name` AND `slug` ARE TWO DIFFERENT VALUES AND BOTH ARE NEEDED. `name` is
+ * what the customer calls themselves — `Terra Industries`, spaces and capitals
+ * — and `slug` is the half after the dot in every person's login:
+ * `terra-industries`. A rename changes the first and never the second, because
+ * changing the second would change every person's login at the same moment.
+ *
+ * A screen that adds people cannot say what the new login will be without the
+ * slug. One that guessed printed `they will sign in as guest2.<organization>`
+ * — in production, with the angle brackets, to an administrator who passed it
+ * on to the person it was about.
+ */
+export interface Organization {
+    readonly org_id: string;
+    readonly name: string;
+    /**
+     * Empty only for an organization that has not been given one yet. Such an
+     * organization cannot have people at all, and the server says so (409
+     * `no_org_slug`) rather than inventing a login half.
+     */
+    readonly slug: string;
+}
 export interface PeopleListResponse {
     readonly people: readonly Person[];
+    /**
+     * Absent from a server that predates it, and from an answer to a caller
+     * whose account belongs to no organization. Optional for that reason only:
+     * every current DC sends it.
+     */
+    readonly org?: Organization;
 }
 export interface AuditEntry {
     readonly seq: number;

@@ -40,6 +40,7 @@
  */
 
 import { AnimatePresence, motion } from "motion/react";
+import { SUPPORT_HINT, said } from "@/lib/said";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ManagedCell, Site } from "@kallon/sentry-sdk";
 
@@ -64,33 +65,33 @@ type Phase =
   | { kind: "queued"; name: string; message: string }
   | { kind: "failed"; code: string; message: string };
 
-/** The errors the server can answer with, in words for the person reading them. */
-function humanError(code: string, message: string): string {
+/**
+ * The errors the server can answer with, in words for the person reading them.
+ *
+ * ⚠ EVERY ARM NOW GOES THROUGH `said`, including the ones that pass the
+ * server's own sentence on. The server's words are better than anything here
+ * when it names a cell and a count -- "North Camp is full: 8 of 8 towers" --
+ * and they are worse than anything here when a validator wrote them. `said` is
+ * the single place that tells those apart, and the codes with their own
+ * wording live in its table rather than in a second copy here.
+ */
+function humanError(err: unknown, code: string, message: string): string {
   switch (code) {
     case "claim_refused":
     case "invalid_request":
-      /* The server's own message is better than anything here: it names the
-         field and the rule. */
-      return message;
-    case "claim_conflict":
-      return "Another account is already waiting for that code. If that was "
-        + "you on another screen, finish there; if not, the code is not yours "
-        + "to use.";
     case "cell_full":
-      return message;
-    case "hub_offline":
-      return "That cell is offline, so nothing could be sent to it.";
-    case "hub_timeout":
-      return "That cell did not answer in time. Nothing was sent. Try again in "
-        + "a moment.";
-    case "cell_unknown":
-      return "That cell is not one you can add to.";
-    case "site_unknown":
-      return "That site is not one you can add to.";
     case "no_pairing_code":
-      return message;
+      /* The server's own message names the cell, the count or the rule. */
+      return said(err, "That could not be added. Check the details and try again.");
     default:
-      return message || "That did not work, and the server did not say why.";
+      /* `claim_conflict`, `hub_offline`, `hub_timeout`, `cell_unknown` and
+         `site_unknown` all have their own sentence in `said`'s table. */
+      return said(
+        err,
+        message
+          ? "That did not work. Try it again; " + SUPPORT_HINT + "."
+          : "That did not work, and the server did not say why.",
+      );
   }
 }
 
@@ -198,7 +199,7 @@ export function AddDeviceDrawer({
       setPhase({
         kind: "failed",
         code: String(e.code ?? ""),
-        message: humanError(String(e.code ?? ""), String(e.message ?? "")),
+        message: humanError(e, String(e.code ?? ""), String(e.message ?? "")),
       });
     }
   }, [ready, what, site, cell, name, code, onAdded]);

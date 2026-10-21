@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { SUPPORT_HINT, said } from "@/lib/said";
 import type {
   AuditResponse,
   Capabilities,
@@ -49,25 +50,41 @@ export interface Loaded<T> {
   readonly reload: () => void;
 }
 
-/** What to say about a failure, in words an operator can act on. */
-function describe(err: unknown): string {
-  const e = err as { code?: string; status?: number; message?: string };
+/**
+ * What to say about a failure, in words an operator can act on.
+ *
+ * ⚠ THIS USED TO END IN `return e?.message || ...`, AND THAT IS HOW
+ * "people list from /v1/admin/people is not the documented shape" reached a
+ * customer. The message came from our own client library, so it was written
+ * for us: an API path and the word "documented", on the People screen, while
+ * the person it was about had in fact been created.
+ *
+ * Every loader now says WHAT did not load and what to do next, and the error
+ * itself goes through the one place that decides whether a server sentence is
+ * fit to show (`lib/said.ts`), which also puts the technical detail in the
+ * console under a reference.
+ */
+function describe(err: unknown, what: string): string {
+  const e = err as { code?: string; status?: number };
   if (e?.status === 403 || e?.code === "forbidden") {
-    return "This account may not see that.";
+    return `This account may not see ${what}.`;
   }
   if (e?.status === 404) {
-    return "That is not available on this server.";
+    return `${capitalise(what)} is not available on this server.`;
   }
-  if (e?.status === 401 || e?.code === "unauthorized") {
-    return "Your session has expired. Sign in again.";
-  }
-  if (e?.code === "network_error" || e?.status === 0) {
-    return "Could not reach coordination. Check the connection and try again.";
-  }
-  return e?.message || "Something went wrong loading this.";
+  return said(
+    err,
+    `We could not load ${what}. Refresh the page; ${SUPPORT_HINT}.`,
+  );
 }
 
-function useLoader<T>(load: () => Promise<T>, enabled = true): Loaded<T> {
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** `what` names what is being loaded, for the sentence shown if it fails. */
+function useLoader<T>(load: () => Promise<T>, what: string,
+                      enabled = true): Loaded<T> {
   const [value, setValue] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +108,7 @@ function useLoader<T>(load: () => Promise<T>, enabled = true): Loaded<T> {
         if (!live) return;
         // THE VALUE IS LEFT ALONE on a failed reload. A list that empties
         // itself because a refresh failed reads as "everything was deleted".
-        setError(describe(err));
+        setError(describe(err, what));
         setLoading(false);
       });
     return () => {
@@ -99,7 +116,7 @@ function useLoader<T>(load: () => Promise<T>, enabled = true): Loaded<T> {
     };
     // `load` is a fresh closure each render by design; `tick` is the reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, tick]);
+  }, [enabled, tick, what]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { value, loading, error, reload };
@@ -128,11 +145,11 @@ export function useCapabilities(): Capabilities | null {
 }
 
 export function useSites(enabled = true): Loaded<SiteListResponse> {
-  return useLoader(listSites, enabled);
+  return useLoader(listSites, "the site list", enabled);
 }
 
 export function useShares(enabled = true): Loaded<ShareListResponse> {
-  return useLoader(listShares, enabled);
+  return useLoader(listShares, "your shares", enabled);
 }
 
 /**
@@ -147,7 +164,7 @@ export function useShares(enabled = true): Loaded<ShareListResponse> {
  * tower to their own cells and has to be able to choose one.
  */
 export function useCells(enabled = true): Loaded<CellListResponse> {
-  return useLoader(listCells, enabled);
+  return useLoader(listCells, "the cells", enabled);
 }
 
 /**
@@ -159,15 +176,15 @@ export function useCells(enabled = true): Loaded<CellListResponse> {
  */
 export function useCell(hubId: string | null): Loaded<CellDetailResponse> {
   const load = useCallback(() => getCell(hubId ?? ""), [hubId]);
-  return useLoader(load, Boolean(hubId));
+  return useLoader(load, "this cell", Boolean(hubId));
 }
 
 export function useAdminShares(enabled = true): Loaded<ShareListResponse> {
-  return useLoader(adminListShares, enabled);
+  return useLoader(adminListShares, "the shares in this organization", enabled);
 }
 
 export function usePeople(enabled = true): Loaded<PeopleListResponse> {
-  return useLoader(adminListPeople, enabled);
+  return useLoader(adminListPeople, "the people list", enabled);
 }
 
 export function useAudit(
@@ -180,5 +197,5 @@ export function useAudit(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [filter.action, filter.limit],
   );
-  return useLoader(load, enabled);
+  return useLoader(load, "the activity log", enabled);
 }

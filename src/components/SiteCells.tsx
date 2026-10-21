@@ -55,6 +55,7 @@ import {
   QuietButton,
   inputClass,
 } from "@/components/SitesPrimitives";
+import { SUPPORT_HINT, said } from "@/lib/said";
 
 /** What a failed action should say, in words an operator can act on. */
 function why(err: unknown): string {
@@ -65,8 +66,9 @@ function why(err: unknown): string {
     case "site_not_empty":
     case "already_there":
       /* The server's message names the counts and the names. Nothing written
-         here could be more useful than that. */
-      return String(e.message);
+         here could be more useful than that -- as long as it reads like a
+         sentence, and `said` is the one place that decides. */
+      return said(err, "That cell cannot take this change.");
     case "hub_offline":
       return "That cell is offline, so this has NOT happened. Try again when it is back.";
     case "hub_timeout":
@@ -74,7 +76,7 @@ function why(err: unknown): string {
     case "forbidden":
       return "Only an administrator can do that.";
     default:
-      return String(e?.message || "That did not work.");
+      return said(err, `That did not work. Try it again; ${SUPPORT_HINT}.`);
   }
 }
 

@@ -307,8 +307,39 @@ export interface Person {
   readonly created_at?: string;
 }
 
+/**
+ * The organization the Administration area is working in.
+ *
+ * ⚠ `name` AND `slug` ARE TWO DIFFERENT VALUES AND BOTH ARE NEEDED. `name` is
+ * what the customer calls themselves — `Terra Industries`, spaces and capitals
+ * — and `slug` is the half after the dot in every person's login:
+ * `terra-industries`. A rename changes the first and never the second, because
+ * changing the second would change every person's login at the same moment.
+ *
+ * A screen that adds people cannot say what the new login will be without the
+ * slug. One that guessed printed `they will sign in as guest2.<organization>`
+ * — in production, with the angle brackets, to an administrator who passed it
+ * on to the person it was about.
+ */
+export interface Organization {
+  readonly org_id: string;
+  readonly name: string;
+  /**
+   * Empty only for an organization that has not been given one yet. Such an
+   * organization cannot have people at all, and the server says so (409
+   * `no_org_slug`) rather than inventing a login half.
+   */
+  readonly slug: string;
+}
+
 export interface PeopleListResponse {
   readonly people: readonly Person[];
+  /**
+   * Absent from a server that predates it, and from an answer to a caller
+   * whose account belongs to no organization. Optional for that reason only:
+   * every current DC sends it.
+   */
+  readonly org?: Organization;
 }
 
 export interface AuditEntry {
@@ -601,9 +632,20 @@ export function parsePeopleList(raw: unknown, ctx: Ctx = {}): PeopleListResponse
       login: c.str(`${at}.login`, po.login),
       role: c.str(`${at}.role`, po.role),
       status: c.str(`${at}.status`, po.status),
-      sites: c
-        .arr(`${at}.sites`, po.sites)
-        .map((s, j) => c.str(`${at}.sites[${j}]`, s)),
+      /* ⚠ ABSENT IS TOLERATED, AND THAT IS THE LESSON FROM THE ONE THAT
+         REACHED PRODUCTION. `POST /v1/admin/people` answered without `sites`,
+         this parser required it, and so `createPerson` threw AFTER the person
+         had been created: the administrator saw a failure, the person existed,
+         and the only way to find out was the audit log.
+
+         The server sends it from every route now. This stays tolerant anyway,
+         because the two halves ship separately and a client must not reject an
+         answer over a field it can do without (§2.2). Empty is also simply the
+         truth for somebody who is in no site yet. */
+      sites:
+        po.sites === undefined
+          ? []
+          : c.arr(`${at}.sites`, po.sites).map((s, j) => c.str(`${at}.sites[${j}]`, s)),
     };
     // SPREAD, NOT DEFAULTED. An absent `name` means this login is an
     // ORGANIZATION, which is a different thing from a person with a blank
@@ -615,8 +657,24 @@ export function parsePeopleList(raw: unknown, ctx: Ctx = {}): PeopleListResponse
     }
     return row as unknown as Person;
   });
+  /* THE ORGANIZATION, when the server sends it. Tolerated as absent rather
+     than required, because `createPerson` reuses this parser on a reply that
+     carries one person and no organization — and because a server one version
+     behind sends no `org` at all, which is a compatible answer and not a
+     broken one. §2.2: a client that rejects a field's absence turns a
+     compatible change into an outage. */
+  let org: Organization | undefined;
+  if (o.org !== undefined) {
+    const oo = c.obj("$.org", o.org);
+    org = {
+      org_id: c.str("$.org.org_id", oo.org_id),
+      name: c.str("$.org.name", oo.name),
+      // "" is a real value here: an organization that has no login slug yet.
+      slug: oo.slug === undefined ? "" : c.str("$.org.slug", oo.slug),
+    };
+  }
   c.done("people list", ctx);
-  return { people };
+  return org === undefined ? { people } : { people, org };
 }
 
 export function parseAudit(raw: unknown, ctx: Ctx = {}): AuditResponse {

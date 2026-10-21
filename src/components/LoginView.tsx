@@ -1,12 +1,24 @@
 import { motion } from "motion/react";
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { useSession } from "@/components/AuthProvider";
 import { ENTER, FADE } from "@/lib/motion";
 import {
+  AuthLockedError,
   AuthRejectedError,
   AuthUnreachableError,
-  UNIFORM_AUTH_MESSAGE,
 } from "@/lib/api/auth";
+import {
+  LOCKED_MESSAGE,
+  deadlineFor,
+  forgetLock,
+  formatCountdown,
+  lockedButtonLabel,
+  lockedUntil,
+  rememberLock,
+  secondsLeft,
+  wrongCredentialMessage,
+} from "@/lib/lockout";
+import { said } from "@/lib/said";
 
 /**
  * Signing in.
@@ -66,6 +78,17 @@ type Failure =
   | null;
 
 /**
+ * A LOCK IS NOT A FAILURE MESSAGE, IT IS A STATE WITH A CLOCK.
+ *
+ * `until` is an absolute moment, not a number of seconds, so a tab that sat in
+ * the background and a page that was refreshed both read the same truth out of
+ * it. Everything on screen -- the countdown, the disabled button, whether the
+ * lock is over at all -- is derived from `until - now`, and the only thing
+ * that ticks is `now`.
+ */
+type Lock = { until: number } | null;
+
+/**
  * The second line, chosen by WHY the sign-in did not go through.
  *
  * ⚠ THIS USED TO BE ONE HARDCODED SENTENCE printed for every failure that was
@@ -78,12 +101,11 @@ type Failure =
  * somebody off to restart a service that was working perfectly and had simply
  * said no.
  *
- * A LOCK GETS NO SECOND LINE. Its own sentence is already complete and already
- * says the only thing that helps: wait. Everything else gets one short line
- * naming something the person can actually do.
+ * A LOCK IS NO LONGER IN THIS TABLE AT ALL: it is its own state above, with
+ * its own countdown. Everything left here gets one short line naming something
+ * the person can actually do.
  */
 const HINT: Record<AuthUnreachableError["reason"], string | undefined> = {
-  throttled: undefined,
   network: "Check your connection and try again.",
   no_endpoint: "Please try again in a moment.",
   server_error: "Please try again in a moment.",
@@ -96,6 +118,41 @@ export function LoginView() {
   const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
   const [failure, setFailure] = useState<Failure>(null);
+  const [lock, setLock] = useState<Lock>(null);
+  /* THE ONLY THING THAT TICKS. One second, and only while a lock is running:
+     a sign-in screen with a permanent interval on it is a screen that wakes a
+     phone up once a second to draw nothing. */
+  const [now, setNow] = useState(() => Date.now());
+
+  const lockLeft = lock ? secondsLeft(lock.until, now) : 0;
+  const locked = lockLeft > 0;
+
+  useEffect(() => {
+    if (!lock) return;
+    const t = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(t);
+  }, [lock]);
+
+  /* AND IT CLEARS ITSELF. When the countdown reaches zero the lock state goes,
+     which re-enables the button and removes the message with no reload and no
+     second request -- the person is simply allowed to try again. */
+  useEffect(() => {
+    if (lock && secondsLeft(lock.until, now) === 0) {
+      forgetLock(organizationName);
+      setLock(null);
+      setFailure(null);
+    }
+  }, [lock, now, organizationName]);
+
+  /* ⚠ A REFRESH MUST NOT LOOK LIKE A FRESH START. The deadline was remembered
+     per login when the server sent it, so typing (or restoring) a login that
+     is still locked shows the time it has left rather than a button that will
+     answer 429 the moment it is pressed. */
+  useEffect(() => {
+    const until = lockedUntil(organizationName);
+    setLock(until ? { until } : null);
+    if (until) setNow(Date.now());
+  }, [organizationName]);
 
   const wasReturning = status === "ended";
 
@@ -104,6 +161,10 @@ export function LoginView() {
        while the first call is still open. `pending` is the same flag that
        disables the button, so the two cannot disagree. */
     if (pending) return;
+    /* A LOCKED LOGIN DOES NOT SEND. The button is disabled, but Enter is bound
+       separately and a lock that only disabled the button would still spend an
+       attempt -- and every attempt made while locked EXTENDS the lock. */
+    if (locked) return;
     if (!organizationName || !password) return;
     setFailure(null);
 
@@ -115,13 +176,39 @@ export function LoginView() {
          organization name can be fixed without retyping it. It is never
          persisted anywhere either way. */
       setPassword("");
+      forgetLock(organizationName);
     } catch (err) {
-      if (err instanceof AuthRejectedError) {
+      if (err instanceof AuthLockedError) {
+        /* THE SERVER'S OWN NUMBER, as a deadline. Remembered against this
+           login so a refresh shows what is left, and shown as a countdown
+           beside a button that re-enables itself when it runs out. */
+        const until = deadlineFor({ retryAfterSec: err.retryAfterSec });
+        setNow(Date.now());
+        if (until) {
+          rememberLock(organizationName, until);
+          setLock({ until });
+        } else {
+          /* A lock with no number: say so plainly rather than counting down
+             from nothing. */
+          setLock(null);
+          setFailure({
+            kind: "unreachable",
+            message: LOCKED_MESSAGE,
+            hint: "Try again shortly.",
+          });
+        }
+      } else if (err instanceof AuthRejectedError) {
         /* ONE message for every credential failure. Unknown organization, wrong
            password and disabled account are indistinguishable here because
            coordination makes them indistinguishable on the wire — this screen
-           must not undo the anti-enumeration property. */
-        setFailure({ kind: "rejected", message: UNIFORM_AUTH_MESSAGE });
+           must not undo the anti-enumeration property. The only help it offers
+           is about SPELLING, and the example is built from what was typed
+           rather than from a placeholder: `name.<organization>` is what one of
+           these screens used to print, and somebody typed it in. */
+        setFailure({
+          kind: "rejected",
+          message: wrongCredentialMessage(organizationName),
+        });
       } else if (err instanceof AuthUnreachableError) {
         setFailure({
           kind: "unreachable",
@@ -130,18 +217,17 @@ export function LoginView() {
         });
       } else {
         /* Not one of ours, so its message was written for a developer and may
-           be anything at all — a stack-shaped string, a bare status. The person
-           gets the same plain line every other failure gets; the error itself
-           goes where it can be read. */
-        console.debug("[auth] sign-in failed with an unrecognised error:", err);
+           be anything at all — a stack-shaped string, a bare status. `said`
+           decides whether any of it is fit to show and puts the rest in the
+           console under a reference. */
         setFailure({
           kind: "unreachable",
-          message: "Something went wrong",
+          message: said(err, "Something went wrong signing in."),
           hint: "Please try again in a moment.",
         });
       }
     }
-  }, [pending, signIn, organizationName, password]);
+  }, [pending, locked, signIn, organizationName, password]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "Enter") return;
@@ -149,7 +235,8 @@ export function LoginView() {
     void submit();
   };
 
-  const canSubmit = organizationName.length > 0 && password.length > 0 && !pending;
+  const canSubmit =
+    organizationName.length > 0 && password.length > 0 && !pending && !locked;
   const rejected = failure?.kind === "rejected";
 
   return (
@@ -284,9 +371,48 @@ export function LoginView() {
               </label>
             </div>
 
+            {/* ⚠ THE LOCKOUT, WITH A CLOCK ON IT. Its own block above the
+                failure line, because it is not a failure line: it is a state
+                that ends by itself, and the countdown is the only part that
+                answers the question the person actually has.
+
+                `aria-live="polite"` on the time alone, not on the sentence:
+                announcing the whole paragraph once a second is unusable, and
+                announcing nothing leaves a screen-reader user with a disabled
+                button and no reason. */}
+            {locked && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={ENTER}
+                role="status"
+                data-locked="true"
+                className="flex flex-col gap-[4px] rounded-[8px] bg-warn/12 px-[14px] py-[12px]"
+              >
+                <p className="text-[0.8125rem] leading-[20px] text-warn">
+                  {LOCKED_MESSAGE}{" "}
+                  <span className="whitespace-nowrap">
+                    You can try again in{" "}
+                    <span
+                      aria-live="polite"
+                      data-countdown="true"
+                      className="font-mono text-body-ink"
+                    >
+                      {formatCountdown(lockLeft)}
+                    </span>
+                    .
+                  </span>
+                </p>
+                <p className="text-[0.75rem] leading-[16px] text-muted">
+                  Nothing is wrong with the account. Trying again before the
+                  time is up makes the wait longer.
+                </p>
+              </motion.div>
+            )}
+
             {/* On the fields rather than as a page banner, which is where this
                 app already puts a credential-shaped error. */}
-            {failure && (
+            {failure && !locked && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -318,7 +444,11 @@ export function LoginView() {
               aria-busy={pending || undefined}
               className="h-[57px] w-full rounded-[8px] bg-action text-[1rem] leading-[20px] font-medium text-action-ink transition-colors hover:bg-overlay/90 disabled:cursor-not-allowed disabled:bg-overlay/25 disabled:text-action-ink/40"
             >
-              {pending ? "SIGNING IN…" : "SIGN IN"}
+              {locked
+                ? lockedButtonLabel(lockLeft)
+                : pending
+                  ? "SIGNING IN…"
+                  : "SIGN IN"}
             </button>
           </div>
         </motion.div>

@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { said } from "@/lib/said";
 import { getSite } from "@/lib/api/sites";
 import { listFleet } from "@/lib/api/fleet";
 import type { PickableTower } from "@/components/sharing/ShareControls";
@@ -76,9 +77,7 @@ export function useSiteTowers(siteId: string | null | undefined): SiteTowers {
         setState({
           towers: [],
           loading: false,
-          error:
-            (err as { message?: string })?.message ??
-            "Could not load this site's towers.",
+          error: said(err, "Could not load this site's towers. Try again."),
         });
       });
     return () => {

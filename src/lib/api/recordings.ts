@@ -177,6 +177,10 @@ export function describeRecordingFailure(err: unknown): string {
   if (typeof status === "number" && status >= 500) {
     return "THE HUB COULDN'T SERVE THAT FOOTAGE";
   }
-  if (code) return `PLAYBACK FAILED — ${String(code).toUpperCase()}`;
-  return "PLAYBACK FAILED";
+  /* ⚠ THE CODE USED TO BE IN THIS SENTENCE: `PLAYBACK FAILED —
+     RESPONSE_INVALID`, on a tile, in front of somebody whose job is cameras.
+     A machine code is for the console; the tile gets the only thing it can
+     act on. */
+  if (code) console.error("[footage] playback failed:", code, err);
+  return "PLAYBACK FAILED — TRY AGAIN";
 }

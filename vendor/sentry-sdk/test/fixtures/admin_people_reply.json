@@ -1,0 +1,28 @@
+{
+  "people": [
+    {
+      "account_id": "acct_FIXTURE_ORG",
+      "login": "Terra Industries",
+      "role": "owner",
+      "status": "active",
+      "created_at": "2026-10-21T00:00:00.000Z",
+      "sites": []
+    },
+    {
+      "account_id": "acct_FIXTURE_PERSON",
+      "login": "guest2.terra-industries",
+      "role": "site_user",
+      "status": "active",
+      "created_at": "2026-10-21T00:00:00.000Z",
+      "sites": [
+        "site_FIXTURE"
+      ],
+      "name": "guest2"
+    }
+  ],
+  "org": {
+    "org_id": "org_terra",
+    "name": "Terra Industries",
+    "slug": "terra-industries"
+  }
+}

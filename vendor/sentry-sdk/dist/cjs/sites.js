@@ -322,9 +322,19 @@ function parsePeopleList(raw, ctx = {}) {
             login: c.str(`${at}.login`, po.login),
             role: c.str(`${at}.role`, po.role),
             status: c.str(`${at}.status`, po.status),
-            sites: c
-                .arr(`${at}.sites`, po.sites)
-                .map((s, j) => c.str(`${at}.sites[${j}]`, s)),
+            /* ⚠ ABSENT IS TOLERATED, AND THAT IS THE LESSON FROM THE ONE THAT
+               REACHED PRODUCTION. `POST /v1/admin/people` answered without `sites`,
+               this parser required it, and so `createPerson` threw AFTER the person
+               had been created: the administrator saw a failure, the person existed,
+               and the only way to find out was the audit log.
+      
+               The server sends it from every route now. This stays tolerant anyway,
+               because the two halves ship separately and a client must not reject an
+               answer over a field it can do without (§2.2). Empty is also simply the
+               truth for somebody who is in no site yet. */
+            sites: po.sites === undefined
+                ? []
+                : c.arr(`${at}.sites`, po.sites).map((s, j) => c.str(`${at}.sites[${j}]`, s)),
         };
         // SPREAD, NOT DEFAULTED. An absent `name` means this login is an
         // ORGANIZATION, which is a different thing from a person with a blank
@@ -338,8 +348,24 @@ function parsePeopleList(raw, ctx = {}) {
         }
         return row;
     });
+    /* THE ORGANIZATION, when the server sends it. Tolerated as absent rather
+       than required, because `createPerson` reuses this parser on a reply that
+       carries one person and no organization — and because a server one version
+       behind sends no `org` at all, which is a compatible answer and not a
+       broken one. §2.2: a client that rejects a field's absence turns a
+       compatible change into an outage. */
+    let org;
+    if (o.org !== undefined) {
+        const oo = c.obj("$.org", o.org);
+        org = {
+            org_id: c.str("$.org.org_id", oo.org_id),
+            name: c.str("$.org.name", oo.name),
+            // "" is a real value here: an organization that has no login slug yet.
+            slug: oo.slug === undefined ? "" : c.str("$.org.slug", oo.slug),
+        };
+    }
     c.done("people list", ctx);
-    return { people };
+    return org === undefined ? { people } : { people, org };
 }
 function parseAudit(raw, ctx = {}) {
     const c = new Check();

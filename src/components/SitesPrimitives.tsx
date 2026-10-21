@@ -219,18 +219,26 @@ export function QuietButton({
   onClick,
   disabled,
   danger,
+  label,
 }: {
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   /** A revoke or a disable. Red is the product's fault colour and this is one. */
   danger?: boolean;
+  /**
+   * What a screen reader should say, when the visible word is not enough.
+   * "Copy" beside a login is clear to somebody looking at the login and
+   * ambiguous to somebody being read the page.
+   */
+  label?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={label}
       className={
         "rounded-[8px] border px-[12px] py-[6px] text-[0.8125rem] transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action " +
         (danger

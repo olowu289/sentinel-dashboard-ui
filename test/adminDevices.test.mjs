@@ -98,12 +98,21 @@ describe("the add drawer", () => {
     assert.match(source, /nothing to redo/i);
   });
 
-  test("every failure path offers a way forward", () => {
+  test("every failure path offers a way forward", async () => {
     /* The product's rule: absence is diagnostic. Each of these is a sentence
-       that says what to DO, not just what went wrong. */
+       that says what to DO, not just what went wrong.
+
+       ⚠ AND THEY MOVED, DELIBERATELY. The drawer used to hold its own
+       `switch` over these codes, Settings held a chain of `instanceof`, every
+       loader held a fallback, and none of them knew about the others -- so one
+       failure had four wordings and one of those was wrong on the screen it
+       appeared on. `lib/said.ts` is the one table now, so the codes are looked
+       for in whichever of the two files is entitled to hold them. */
+    const central = await read("lib/said.ts");
+    const both = [source, stripComments(central)].join(" ");
     for (const code_ of ["cell_full", "hub_offline", "claim_conflict",
                          "cell_unknown", "site_unknown"]) {
-      assert.match(source, new RegExp(`"${code_}"`),
+      assert.match(both, new RegExp(`\\b${code_}\\b`),
         `${code_} has no message of its own`);
     }
   });

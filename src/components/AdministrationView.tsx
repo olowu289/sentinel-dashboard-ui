@@ -39,6 +39,7 @@ import { IconRail } from "@/components/IconRail";
 import { useSession } from "@/components/AuthProvider";
 import { useCallback, useMemo, useState } from "react";
 import type { Person, Share, Site } from "@kallon/sentry-sdk";
+import { said } from "@/lib/said";
 import { isShareLive } from "@kallon/sentry-sdk";
 import {
   adminAddPerson,
@@ -127,11 +128,10 @@ function SitesPane() {
         setDeleting(null);
         reloadAll();
       } catch (err) {
-        const e = err as { code?: string; message?: string };
         /* The server names what is still in it, which is more useful than
-           anything written here: "North Camp still has 2 cell(s) and 1
-           person(s)". */
-        setError(String(e?.message || "Could not delete that site."));
+           anything written here: "North Camp still has 2 cells and 1 person".
+           `said` keeps that and refuses anything written for a programmer. */
+        setError(said(err, "Could not delete that site. Try again."));
         setDeleting(null);
       } finally {
         setBusy(false);
@@ -149,11 +149,11 @@ function SitesPane() {
       setNewName("");
       sites.reload();
     } catch (err) {
-      const e = err as { status?: number; message?: string };
+      const e = err as { status?: number };
       setError(
         e?.status === 409
           ? "A site with that name already exists."
-          : e?.message || "Could not create that site.",
+          : said(err, "Could not create that site. Try again."),
       );
     } finally {
       setBusy(false);
@@ -422,6 +422,35 @@ function SitesPane() {
  * People
  * ------------------------------------------------------------------ */
 
+/**
+ * Copy a login to the clipboard, and say that it happened.
+ *
+ * ⚠ IT FALLS BACK RATHER THAN FAILING SILENTLY. `navigator.clipboard` needs a
+ * secure context and a permission, and a hub's LAN dashboard is served over
+ * plain HTTP to a browser that will refuse it. When it refuses, the button
+ * says to select it instead — the login beside it is `select-all` text, which
+ * is why that is a complete answer and not an apology.
+ */
+function CopyLogin({ login }: { login: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
+  const copy = useCallback(() => {
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(login);
+        setState("copied");
+        setTimeout(() => setState("idle"), 2_000);
+      } catch {
+        setState("manual");
+      }
+    })();
+  }, [login]);
+  return (
+    <QuietButton onClick={copy} label={`Copy the login ${login}`}>
+      {state === "copied" ? "Copied" : state === "manual" ? "Select it" : "Copy"}
+    </QuietButton>
+  );
+}
+
 function PeoplePane() {
   const people = usePeople();
   const sites = useSites();
@@ -468,11 +497,11 @@ function PeoplePane() {
       setJustAdded(created);
       people.reload();
     } catch (err) {
-      const e = err as { status?: number; code?: string; message?: string };
+      const e = err as { status?: number; code?: string };
       setError(
         e?.code === "name_taken" || e?.status === 409
           ? "Somebody in this organization already has that name."
-          : e?.message || "Could not add that person.",
+          : said(err, "Could not add that person. Check the name and try again."),
       );
     } finally {
       setBusy(false);
@@ -488,11 +517,11 @@ function PeoplePane() {
         setRenaming(null);
         people.reload();
       } catch (err) {
-        const e = err as { code?: string; message?: string };
+        const e = err as { code?: string };
         setError(
           e?.code === "name_taken"
             ? "Somebody in this organization already has that name."
-            : String(e?.message || "Could not change that name."),
+            : said(err, "Could not change that name. Try again."),
         );
       } finally {
         setBusy(false);
@@ -550,6 +579,11 @@ function PeoplePane() {
 
   const rows = people.value?.people ?? [];
   const allSites = sites.value?.sites ?? [];
+  /* THE ORGANIZATION'S LOGIN HALF. Every person's login is `name.slug`, and
+     this screen cannot say what a new login will be without it. "" when the
+     server does not send one, and every sentence that would have used it
+     falls back rather than guessing. */
+  const orgSlug = people.value?.org?.slug ?? "";
 
   return (
     <div className="flex flex-col gap-[20px]">
@@ -565,15 +599,27 @@ function PeoplePane() {
           transition={ENTER}
           className="flex flex-wrap items-center justify-between gap-[10px] rounded-[10px] border border-line bg-card/60 px-[14px] py-[12px]"
         >
-          <span className="flex flex-col gap-[2px]">
+          <span className="flex flex-col gap-[4px]">
             <span className="font-display text-[0.875rem] text-body-ink">
               {justAdded.name ?? justAdded.login} can sign in now
             </span>
+            {/* ⚠ THE WHOLE LOGIN, EXACTLY AS TYPED AT THE PROMPT, and a
+                button that copies it. An administrator read
+                `guest2.<organization>` off this screen and passed it on,
+                because the hint below used to say that and this line was a
+                sentence somebody had to pick the login out of. */}
+            <span className="flex flex-wrap items-center gap-[8px]">
+              <code
+                data-login={justAdded.login}
+                className="select-all rounded-[6px] bg-ink/40 px-[8px] py-[3px] font-mono text-[0.8125rem] text-body-ink"
+              >
+                {justAdded.login}
+              </code>
+              <CopyLogin login={justAdded.login} />
+            </span>
             <span className="text-[0.8125rem] text-muted">
-              Their login is 
-              <span className="font-mono text-body-ink">{justAdded.login}</span>
-              , and the password you just set. They can change the password
-              in Settings; the login never changes.
+              That is their login, with the password you just set. They can
+              change the password in Settings; the login never changes.
             </span>
           </span>
           <QuietButton onClick={() => setJustAdded(null)}>Got it</QuietButton>
@@ -588,8 +634,14 @@ function PeoplePane() {
               <Field
                 label="Name"
                 hint={
-                  name.trim()
-                    ? `They will sign in as ${name.trim().toLowerCase()}.<organization>`
+                  /* ⚠ THE REAL SLUG, FROM THE SERVER. This said
+                     `they will sign in as guest2.<organization>` -- angle
+                     brackets and all -- because the page never knew the
+                     organization's login half. `GET /v1/admin/people` says
+                     it now. With no slug there is nothing to promise, so the
+                     hint falls back to the rule rather than inventing one. */
+                  name.trim() && orgSlug
+                    ? `They will sign in as ${name.trim().toLowerCase()}.${orgSlug}`
                     : "Lower case letters, digits and hyphens. No dots: the dot is what separates a name from its organization."
                 }
               >
@@ -721,10 +773,21 @@ function PeoplePane() {
                     </span>
                     {/* THE LOGIN, quiet and monospaced. It is a credential,
                         not a name, and it is here because somebody on the
-                        phone to this person needs to read it out. */}
-                    <span className="font-mono text-[0.6875rem] text-muted/80">
-                      {p.login}
-                    </span>
+                        phone to this person needs to read it out.
+
+                        ⚠ NOT WHEN IT IS THE NAME BESIDE IT. An organization's
+                        own account has no `name`, the line above falls back to
+                        the login, and this printed it a second time:
+                        `guest2.terra-industries guest2.terra-industries` was
+                        on screen in production. */}
+                    {p.name && p.name !== p.login ? (
+                      <span
+                        data-login={p.login}
+                        className="select-all font-mono text-[0.6875rem] text-muted/80"
+                      >
+                        {p.login}
+                      </span>
+                    ) : null}
                     <span className="font-mono text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
                       {isAdmin ? "administrator" : "site user"}
                     </span>

@@ -136,6 +136,24 @@ export interface TowerHealthReading {
     lastSeenSec?: number;
     quality?: number;
     sector?: string;
+    /**
+     * How strong the link is, dBm — read off the Ubiquiti radio over read-only
+     * SNMP (airMAX MIB), never guessed.
+     *
+     * ⚠ ABSENT IS "NOT MEASURED", AND THE ROW MUST SAY SO. A site with no SNMP
+     * community configured, a radio that would not answer, and a reading
+     * outside plausible RF all arrive here as absence. The Radio link row
+     * grades this into Good/Fair/Weak, so a zero substituted anywhere upstream
+     * would grade as a perfect link on a mast nobody measured.
+     */
+    signalDbm?: number;
+    /**
+     * Which end measured `signalDbm`: `"tower"` is the mast's own radio
+     * hearing the hub — the number an installer aiming a dish wants — and
+     * `"hub"` is the sector radio hearing the mast. They differ by a few dB,
+     * so the row says which one it has.
+     */
+    signalFrom?: string;
   };
   /**
    * The hub's own radio sectors. Hub mast only — a tower has no sectors, it is
@@ -157,7 +175,35 @@ export interface TowerHealthReading {
     associations: string;
     stations?: string[];
     towers?: string[];
+    /**
+     * How well this sector hears each mast it can name.
+     *
+     * Present only where the hub's station reader used read-only SNMP. Absent
+     * on the older password path, which scrapes MACs off an HTTP status page —
+     * so absent is "not measured", and a mast in `towers` with no entry here
+     * is associated and unmeasured.
+     */
+    towerSignals?: { deviceId: string; signalDbm: number }[];
   }[];
+  /**
+   * Where this device's footage is written, and how long it lasts there.
+   *
+   * ⚠ READ-ONLY ON EVERY SCREEN, FOR NOW. Both rows this feeds — Recording
+   * mode and Keep footage — used to be drop-downs over `CameraSettings`, which
+   * is local state nothing reads: a customer picked "90 days", the chevron
+   * closed, and the hub kept deleting at whatever it was actually set to.
+   *
+   * `effectiveDays` is what the sweep is ACTUALLY keeping and `boundBy` says
+   * which limit is deciding. Printing `retainDays` alone would promise thirty
+   * days of footage on a hub whose disk filled at twelve.
+   */
+  recording?: {
+    mode?: string;
+    stream?: string;
+    retainDays?: number;
+    effectiveDays?: number;
+    boundBy?: string;
+  };
 }
 
 /**
@@ -192,6 +238,22 @@ export interface TowerHealthReading {
  */
 export interface Tower {
   id: string;
+  /**
+   * What KIND of box this is: `"hub"` for a hub's own mast, absent for a
+   * tower.
+   *
+   * ⚠ THE SETTINGS SCREEN CANNOT GUESS IT, AND IT WAS GUESSING. A hub's own
+   * mast is projected as a tower and belongs on the fleet board as one — it
+   * has cameras, a link and a label. Its SETTINGS are a different screen: a
+   * tower's Network group shows the radio link to its hub, a hub's shows its
+   * uplink to the cloud and the sectors masts associate with. Inferring that
+   * from `health.sectors` is wrong for every single-radio hub, which reports
+   * none and would be drawn as a tower with no radio link at all.
+   *
+   * Absent means tower, which is what every release before this field already
+   * implies.
+   */
+  kind?: "hub";
   /** Site the tower watches, e.g. "WAREHOUSE: PARKING LOT". */
   site: string;
   status: TowerStatus;

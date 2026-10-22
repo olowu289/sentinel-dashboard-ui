@@ -78,6 +78,13 @@ const SCREENS = [
   ["tile-ended", "tile-access-ended"],
   ["tile-offline", "tile-camera-offline"],
   ["ptz-refused", "ptz-not-included-in-the-share"],
+  /* ── TOWER SETTINGS, AND A HUB MAST'S ───────────────────────────────
+     Which rows are READINGS and which are controls is the whole change, and
+     it is visible rather than describable: "Keep footage for" with no chevron
+     and "Set by Kallon" under it, and a Network group that says different
+     things on the two boxes. */
+  ["settings-tower", "tower-settings-real-data"],
+  ["settings-hub", "hub-mast-settings-real-data"],
 ];
 
 /** The two widths the brief asks for. Heights are generous; shots are full page. */
@@ -119,6 +126,15 @@ async function main() {
     const page = await ctx.newPage();
 
     for (const [id, name] of SCREENS) {
+      /* ⚠ A PANEL THAT SCROLLS INSIDE ITSELF DEFEATS `fullPage`. The harness
+         root is `h-screen overflow-hidden` and the settings panel scrolls
+         within it, so a full-page shot captures the window and nothing below
+         it -- which on this screen means the Camera group and none of Network,
+         Storage, Power or About, i.e. none of the rows this round changed.
+         The viewport is grown for those screens instead, which costs one
+         resize and photographs the whole column. */
+      const tall = id.startsWith("settings-");
+      await page.setViewportSize({ width, height: tall ? 2400 : height });
       await page.goto(`${base}?screen=${id}`, { waitUntil: "networkidle" });
       // The loading screen never settles by design, so do not wait for it.
       // The add-drawer outcome screens fill the form and press Add on a

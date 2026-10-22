@@ -35,6 +35,7 @@ import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
 import { listFleet, renameTower as renameTowerOnServer } from "@/lib/api/fleet";
+import type { CloudReading } from "@/lib/api/fleet";
 import { setHome } from "@/lib/api/ptz";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
@@ -227,6 +228,13 @@ export function SentinelApp() {
      A REAL tower reports no battery at all, so nothing moves and the card says
      so. See the note on `Tower`. */
   const [towers, setTowers] = useState<Tower[]>(seededFleet ? TOWERS : []);
+  /* THE SITE'S LINK TO KALLON CLOUD. One fact about the server that answered,
+     so it is held once here rather than copied into every tower -- see
+     `CloudReading`. Set only by `listFleet`: the single-tower routes answer
+     about a tower and carry no such block, and overwriting this from one of
+     them would blank a row that is still true. `undefined` is "the server did
+     not say", which the Network group renders in words. */
+  const [cloud, setCloud] = useState<CloudReading | undefined>(undefined);
   /* Loading and failure for the real fleet. `null` problem means fine.
      Deliberately not a spinner-forever: an absent tower is an answer. */
   const [fleetLoading, setFleetLoading] = useState(!seededFleet);
@@ -270,6 +278,7 @@ export function SentinelApp() {
         if (controller.signal.aborted) return;
         setTowers(snapshot.towers);
         setFeeds(snapshot.feeds);
+        setCloud(snapshot.cloud);
         setReachProblem(null);
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -307,6 +316,7 @@ export function SentinelApp() {
           const snapshot = await listFleet();
           setTowers(snapshot.towers);
           setFeeds(snapshot.feeds);
+          setCloud(snapshot.cloud);
           setReachProblem(null);
         } catch (err) {
           setReachProblem(classifyReach(err));
@@ -335,6 +345,7 @@ export function SentinelApp() {
       const snapshot = await listFleet();
       setTowers(snapshot.towers);
       setFeeds(snapshot.feeds);
+      setCloud(snapshot.cloud);
     } catch {
       /* Deliberately silent. See above. */
     }
@@ -1302,6 +1313,7 @@ export function SentinelApp() {
           if (!controller.signal.aborted && !stopped) {
             setTowers(snapshot.towers);
             setFeeds(snapshot.feeds);
+            setCloud(snapshot.cloud);
           }
         }
       } catch {
@@ -1851,6 +1863,7 @@ export function SentinelApp() {
              on them, not on wherever the last visit was left. */
           key={`${open.id}|${open.showAlerts}`}
           tower={openTowerRecord}
+          cloud={cloud}
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
           playback={playback}

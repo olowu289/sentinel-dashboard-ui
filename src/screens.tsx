@@ -50,6 +50,9 @@ import { DEFAULT_FEATURES, type Feature } from "@/lib/features";
 import { resetCapabilities } from "@/lib/api/sites";
 import { resetClient } from "@/lib/api/client";
 import { AUDIT_GROUPS, groupOf } from "@/lib/auditSentence";
+import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
+import { DEFAULT_CAMERA_SETTINGS, type CameraFeed, type Tower } from "@/lib/types";
+import type { CloudReading } from "@/lib/api/fleet";
 
 /* ------------------------------------------------------------------ *
  * Fixtures: a plausible organization, not a tidy one
@@ -625,6 +628,15 @@ const SCREENS = [
   { id: "tile-offline", label: "Tile: camera offline", mode: "full" },
   /* And the refusal a shared viewer meets when steering was not included. */
   { id: "ptz-refused", label: "PTZ: not included in the share", mode: "full" },
+  /* ── TOWER SETTINGS, AND A HUB MAST'S ───────────────────────────────
+     Photographed because the whole point of the change is which rows are
+     READINGS and which are controls, and that is visible and not describable:
+     a reviewer has to see that "Keep footage for" has no chevron and carries
+     "Set by Kallon" under it, and that the Network group says different things
+     on the two boxes. Lab-shaped values throughout -- a mast at -62 dBm on
+     sector B, a hub on fibre with three sectors and an archive disk. */
+  { id: "settings-tower", label: "Tower settings (real data)", mode: "full" },
+  { id: "settings-hub", label: "Hub mast settings (real data)", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -1071,6 +1083,177 @@ function PtzRefused() {
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Tower settings, and a hub mast's: every row real, read-only, or absent
+ * ------------------------------------------------------------------ */
+
+/* ⚠ LAB VALUES, SHAPED EXACTLY AS THE WIRE CARRIES THEM. Each one is here to
+   put a particular row into the state worth photographing:
+
+     radio.signal_dbm -62 from the TOWER's own radio    -> "Good · -62 dBm"
+     recording mode hub, stream main                    -> the 2K stream
+     disk absent on the tower                           -> "Recorded at the hub"
+     battery absent                                     -> "Not connected"
+     cloud connected over Fibre at 42 ms                -> the Kallon Cloud row
+
+   Nothing here is a reading the product invents: every field below exists on
+   the wire, and a reviewer comparing this frame to a lab tower should see the
+   same rows with that tower's numbers in them. */
+const SETTINGS_TOWER: Tower = {
+  id: "kln_northgate_000001",
+  site: "NORTH GATE",
+  status: "online",
+  online: true,
+  asOf: Date.now() - 20_000,
+  healthAsOf: Date.now() - 20_000,
+  connectedAt: Date.now() - 3 * 24 * 3600 * 1000 - 4 * 3600 * 1000,
+  model: "TWR-2CR-PTZ",
+  serial: "KLN-T-2610-0001",
+  boardSerial: "1424422012345",
+  firmware: "v1.5.0-255",
+  firmwareChannel: "stable",
+  health: {
+    radio: {
+      associated: true,
+      nodeId: 1,
+      state: "up",
+      sector: "B",
+      signalDbm: -62,
+      signalFrom: "tower",
+    },
+    /* The footage is the hub's. A tower on an SD card has no disk to offer and
+       must not print its root filesystem as the site's storage.
+
+       ⚠ AND NO `stream`. `RECORD_STREAM` says what THIS box would write; with
+       the hub writing, the hub's config decides, and a tower repeating its own
+       unused value would state somebody else's behaviour from the one box that
+       cannot know it. The hub's own fixture below carries the stream. */
+    recording: { mode: "hub" },
+    thermal: { socC: 47, state: "ok" },
+  },
+};
+
+/** The hub's own mast: its uplink, its sectors, its archive. */
+const SETTINGS_HUB: Tower = {
+  id: "kln_hub_kaduna",
+  site: "KADUNA HUB",
+  status: "online",
+  online: true,
+  kind: "hub",
+  asOf: Date.now() - 12_000,
+  healthAsOf: Date.now() - 12_000,
+  connectedAt: Date.now() - 9 * 24 * 3600 * 1000,
+  model: "HUB-3S",
+  serial: "KLN-H-2610-0001",
+  boardSerial: "1424498765432",
+  firmware: "v1.5.0-255",
+  firmwareChannel: "stable",
+  /* The ARCHIVE disk, from the archiver's own status file -- not a fixture and
+     not the hub's root filesystem. */
+  storageUsedGb: 1218,
+  storageTotalGb: 2118,
+  health: {
+    disk: { freePct: 42.5 },
+    /* ⚠ THE ROW THAT WAS A PROMISE ABOUT EVIDENCE. Asked for thirty days, and
+       the disk fills at about twelve, so both numbers are here and the screen
+       says which is deciding. */
+    recording: {
+      mode: "hub",
+      stream: "sub",
+      retainDays: 30,
+      effectiveDays: 12.4,
+      boundBy: "disk",
+    },
+    sectors: [
+      {
+        id: "A",
+        state: "up",
+        azimuth: 0,
+        ssid: "kallon-kaduna",
+        associations: "observed",
+        towers: ["kln_northgate_000001"],
+        towerSignals: [{ deviceId: "kln_northgate_000001", signalDbm: -62 }],
+      },
+      {
+        id: "B",
+        state: "up",
+        azimuth: 120,
+        ssid: "kallon-kaduna",
+        associations: "observed",
+        towers: ["kln_southpit_000003", "kln_yard_000004"],
+        towerSignals: [
+          { deviceId: "kln_southpit_000003", signalDbm: -58 },
+          { deviceId: "kln_yard_000004", signalDbm: -77 },
+        ],
+      },
+      /* A radio that would not answer its station list. `associations:
+         "unknown"` carries NO tower list, and the row says the masts were not
+         read rather than claiming the sector is empty. */
+      { id: "C", state: "up", azimuth: 240, associations: "unknown" },
+    ],
+  },
+};
+
+const SETTINGS_FEEDS: CameraFeed[] = [
+  {
+    id: "kln_northgate_000001:1",
+    towerId: "kln_northgate_000001",
+    index: 1,
+    name: "GATE",
+    state: "live",
+    ptz: true,
+    profiles: [
+      { id: "sub", resolution: { width: 704, height: 576 }, default: true },
+      { id: "main", resolution: { width: 2560, height: 1440 } },
+    ],
+  },
+  {
+    id: "kln_northgate_000001:2",
+    towerId: "kln_northgate_000001",
+    index: 2,
+    name: "YARD",
+    state: "live",
+    ptz: false,
+    profiles: [
+      { id: "sub", resolution: { width: 704, height: 576 }, default: true },
+      { id: "main", resolution: { width: 2560, height: 1440 } },
+    ],
+  },
+] as unknown as CameraFeed[];
+
+const SETTINGS_CLOUD: CloudReading = {
+  connected: true,
+  iface: "Fibre",
+  since: new Date(Date.now() - 9 * 24 * 3600 * 1000).toISOString(),
+  latencyMs: 42,
+};
+
+function SettingsScreen({ which }: { which: string }) {
+  const hub = which === "settings-hub";
+  const feeds = hub
+    ? (SETTINGS_FEEDS.slice(0, 1).map((f) => ({
+        ...f,
+        id: "kln_hub_kaduna:1",
+        towerId: "kln_hub_kaduna",
+        name: "HUB MAST",
+      })) as CameraFeed[])
+    : SETTINGS_FEEDS;
+  return (
+    <div className="flex h-full w-full justify-end bg-ink">
+      <CameraSettingsPanel
+        tower={hub ? SETTINGS_HUB : SETTINGS_TOWER}
+        cloud={SETTINGS_CLOUD}
+        feeds={feeds}
+        settings={DEFAULT_CAMERA_SETTINGS}
+        onChange={() => {}}
+        onRename={() => {}}
+        onClose={() => {}}
+        className="w-[420px] max-w-full"
+      />
+    </div>
+  );
+}
+
 function Harness() {
   const [which, setWhich] = useState<string>(
     new URLSearchParams(location.search).get("screen") ?? "admin-sites",
@@ -1114,6 +1297,8 @@ function Harness() {
       <PtzYielded />
     ) : which === "ptz-refused" ? (
       <PtzRefused />
+    ) : which.startsWith("settings-") ? (
+      <SettingsScreen which={which} />
     ) : which.startsWith("tile-") ? (
       <TileState which={which} />
     ) : which.startsWith("shares") ? (

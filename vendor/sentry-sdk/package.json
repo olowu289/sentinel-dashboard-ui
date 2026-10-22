@@ -34,7 +34,7 @@
     "prepack": "npm run build",
     "vendor:manifest": "node scripts/vendor-manifest.mjs --write",
     "vendor:check": "node scripts/vendor-manifest.mjs --check",
-    "test": "node --test test/smoke.test.mjs test/sites.test.mjs test/people-shape.test.mjs test/cells.test.mjs test/share-duration.test.mjs test/ptz-step-sweep.test.mjs test/ptz-priority.test.mjs test/sector-health.test.mjs && node scripts/vendor-manifest.mjs --check",
+    "test": "node --test test/smoke.test.mjs test/sites.test.mjs test/people-shape.test.mjs test/cells.test.mjs test/share-duration.test.mjs test/ptz-step-sweep.test.mjs test/ptz-priority.test.mjs test/sector-health.test.mjs test/settings-real-data.test.mjs && node scripts/vendor-manifest.mjs --check",
     "pretest": "npm run build"
   },
   "devDependencies": {

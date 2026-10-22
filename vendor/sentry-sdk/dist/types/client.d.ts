@@ -31,7 +31,7 @@
  */
 import type { AddDeviceResponse, AuditResponse, Capabilities, CellDetailResponse, CellListResponse, MoveCellResponse, PeopleListResponse, Person, RemoveCellResponse, RemovePersonResponse, RemoveSiteResponse, RemoveTowerResponse, Share, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
 import type { HttpOptions, RequestOptions } from "./http.js";
-import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
+import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type TowerListResponse, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
 export type SessionRef = SessionId | Pick<ViewerSession, "session_id" | "offer_url" | "ice_url">;
 export interface SentryClientOptions extends HttpOptions {
@@ -88,6 +88,22 @@ export declare class SentryClient {
      * `"live"` is exactly the reading §A.3.2 forbids.
      */
     listTowers(opts?: RequestOptions): Promise<TowerInfo[]>;
+    /**
+     * The same call as {@link listTowers}, with the server's own facts kept —
+     * `GET /v1/viewer/towers` in full.
+     *
+     * ⚠ WHY THERE ARE TWO. `listTowers` returns `.towers` and throws the rest of
+     * the body away, which was free until the reply grew a fact that is not
+     * about any one tower: `cloud`, whether the box that answered is reaching
+     * Kallon Cloud (see {@link CloudHealth}). Every tower in the list shows the
+     * same answer on its settings screen, so it rides at the top of the reply
+     * rather than being copied into each tower's health — and a caller that
+     * wants it needs the envelope, not the array.
+     *
+     * `listTowers` is unchanged and stays the common case. This is the one to
+     * call when a screen reports the site's link to the cloud.
+     */
+    listFleet(opts?: RequestOptions): Promise<TowerListResponse>;
     /**
      * One tower with its health — `GET /v1/viewer/towers/{device_id}` (§4.2.3).
      *

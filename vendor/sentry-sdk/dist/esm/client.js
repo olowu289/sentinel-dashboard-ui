@@ -100,6 +100,24 @@ export class SentryClient {
      * `"live"` is exactly the reading §A.3.2 forbids.
      */
     async listTowers(opts = {}) {
+        return (await this.listFleet(opts)).towers;
+    }
+    /**
+     * The same call as {@link listTowers}, with the server's own facts kept —
+     * `GET /v1/viewer/towers` in full.
+     *
+     * ⚠ WHY THERE ARE TWO. `listTowers` returns `.towers` and throws the rest of
+     * the body away, which was free until the reply grew a fact that is not
+     * about any one tower: `cloud`, whether the box that answered is reaching
+     * Kallon Cloud (see {@link CloudHealth}). Every tower in the list shows the
+     * same answer on its settings screen, so it rides at the top of the reply
+     * rather than being copied into each tower's health — and a caller that
+     * wants it needs the envelope, not the array.
+     *
+     * `listTowers` is unchanged and stays the common case. This is the one to
+     * call when a screen reports the site's link to the cloud.
+     */
+    async listFleet(opts = {}) {
         const path = "/v1/viewer/towers";
         const { status, body } = await this.http.send({
             method: "GET",
@@ -107,7 +125,7 @@ export class SentryClient {
             accept: "json",
             ...pick(opts),
         });
-        return parseTowerList(body, { status, path }).towers;
+        return parseTowerList(body, { status, path });
     }
     /**
      * One tower with its health — `GET /v1/viewer/towers/{device_id}` (§4.2.3).

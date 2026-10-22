@@ -219,10 +219,10 @@ export function DashboardView({
                  read out `kln_lab_000002` and the tooltip showed it. */
               aria-label={
                 newest
-                  ? `Newest unclaimed alert — open ${newestTowerName} alerts`
+                  ? `Newest unclaimed alert. Open ${newestTowerName} alerts`
                   : "No unclaimed alerts"
               }
-              title={newest ? `${newest.title} — ${newestTowerName}` : "No unclaimed alerts"}
+              title={newest ? `${newest.title} · ${newestTowerName}` : "No unclaimed alerts"}
               /* No swing when there is nothing to open. A disabled control
                  that animates under the pointer is offering something it will
                  not do. */

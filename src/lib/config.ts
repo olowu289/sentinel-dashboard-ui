@@ -123,7 +123,7 @@ function validate(raw: unknown): Checked {
   if (/\/v\d+\/?$/.test(parsed.pathname)) {
     return {
       problem: NOT_USABLE,
-      detail: `VITE_COORDINATION_URL must not include the API version — drop the "${parsed.pathname}" and leave just the origin.`,
+      detail: `VITE_COORDINATION_URL must not include the API version. Drop the "${parsed.pathname}" and leave just the origin.`,
     };
   }
   return { problem: null, detail: null };

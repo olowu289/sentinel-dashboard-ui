@@ -96,7 +96,7 @@ export function normalisePairingCode(input: string): string {
   for (const ch of text) {
     if (!ALPHABET.includes(ch)) {
       throw new PairingCodeError(
-        `"${ch}" is not part of a pairing code. The letters I, L, O and U are never used — check for a 1 or a 0.`,
+        `"${ch}" is not part of a pairing code. Check for a 1 or a 0.`,
       );
     }
   }

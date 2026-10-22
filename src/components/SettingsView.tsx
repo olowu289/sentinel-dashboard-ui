@@ -585,7 +585,7 @@ export function SettingsView({
                 asked to change invites a change nobody meant — which is what
                 the first version of this screen did. */}
             <span className="break-words text-[1.0625rem] leading-[24px] text-body-ink">
-              {shownLogin || "—"}
+              {shownLogin || "-"}
             </span>
             <span className="text-[0.75rem] leading-[16px] text-muted">
               This is the name you sign in with.
@@ -635,7 +635,7 @@ export function SettingsView({
               hint={
                 loginProblem ??
                 (hasEdgeSpace(newLogin)
-                  ? "This starts or ends with a space, and the space counts — you would have to type it that way every time."
+                  ? "This starts or ends with a space, and the space counts."
                   : "Matched exactly, including spaces and capitals.")
               }
             >
@@ -895,7 +895,7 @@ export function SettingsView({
     <div className="flex flex-col gap-[20px]">
       <SectionHead
         title="Appearance"
-        lead="Remembered on this device, for you. One login is shared across your organization, so this is not stored on the server — otherwise one person's choice would change everyone's screen."
+        lead="Remembered on this device, for you."
       />
       <div role="radiogroup" aria-label="Theme" className="flex flex-wrap gap-[16px]">
         {(["dark", "light"] as const).map((option) => {
@@ -987,8 +987,7 @@ export function SettingsView({
         })}
       </div>
       <p className="max-w-[560px] text-[0.75rem] leading-[16px] text-muted">
-        Camera tiles stay dark in both themes: a video picture is letterboxed,
-        and light bars either side of it make the picture harder to read.
+        Camera tiles stay dark in both themes.
       </p>
     </div>
   );
@@ -997,7 +996,7 @@ export function SettingsView({
     <div className="flex flex-col gap-[20px]">
       <SectionHead
         title="Cameras"
-        lead="Name each camera so it can be quoted on the radio. The name is used everywhere — the wall, playback, and downloaded footage."
+        lead="Name each camera so it can be quoted on the radio."
       />
       {towers.length === 0 ? (
         /* HONEST ABSENCE, not a spinner and not an invented row. An account
@@ -1005,8 +1004,7 @@ export function SettingsView({
            the first tower is claimed. */
         <Panel>
           <p className="text-[0.8125rem] leading-[20px] text-muted">
-            No towers on this account yet. Cameras appear here once a tower is
-            added and has reported them.
+            No towers yet. Cameras appear once a tower is added.
           </p>
         </Panel>
       ) : (

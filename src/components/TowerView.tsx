@@ -48,6 +48,7 @@ export function TowerView({
   onChooseProfile,
   onRenameTower,
   onSetHome,
+  onGoHome,
   homeMutation,
   settingsOpen,
   onToggleSettings,
@@ -105,6 +106,8 @@ export function TowerView({
   onRenameTower: (from: string, to: string) => void;
   /** Save a camera's current pan/tilt as its home. Owned by the shell. */
   onSetHome?: (feedId: string) => void;
+  /** Send a camera back to its home position. Same session as a move. */
+  onGoHome?: (feedId: string) => void;
   /** Keyed `home:<feedId>`. Deliberate — a saved home changes nothing on
    *  screen, so the success check is the only evidence it landed. */
   homeMutation?: Mutation;
@@ -383,6 +386,7 @@ export function TowerView({
              pad does rather than holding one of its own. */
           sessionFor={sessionFor}
           onSetHome={onSetHome}
+          onGoHome={onGoHome}
           homePhase={(feedId) => homeMutation?.phase(`home:${feedId}`) ?? { kind: "idle" }}
           onRetryHome={(feedId) => void homeMutation?.retry(`home:${feedId}`)}
           onDismissHome={(feedId) => homeMutation?.reset(`home:${feedId}`)}

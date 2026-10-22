@@ -130,8 +130,7 @@ function ActingAs({
   if (acting.candidates.length === 0) {
     return (
       <p className="text-[0.8125rem] leading-[18px] text-muted">
-        You are not in a site yet, so there is nothing to share from. An
-        administrator adds people to sites in Administration.
+        You are not in a site yet, so there is nothing to share.
       </p>
     );
   }

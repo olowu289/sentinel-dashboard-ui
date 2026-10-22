@@ -94,7 +94,7 @@ export function TowersPanel({
             and "your towers". */}
         {seeded && (
           <p className="shrink-0 rounded-[6px] bg-detect/20 px-[10px] py-[6px] font-display text-[0.6875rem] tracking-[0.11px] text-detect">
-            SEEDED FLEET — NOT YOUR TOWERS
+            SEEDED FLEET · NOT YOUR TOWERS
           </p>
         )}
 

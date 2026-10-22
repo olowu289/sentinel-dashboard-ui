@@ -36,7 +36,7 @@ import { DEFAULT_CAMERA_SETTINGS } from "@/lib/types";
 import { isSeededFleet } from "@/lib/config";
 import { listFleet, renameTower as renameTowerOnServer } from "@/lib/api/fleet";
 import type { CloudReading } from "@/lib/api/fleet";
-import { setHome } from "@/lib/api/ptz";
+import { setHome, stopOrHome } from "@/lib/api/ptz";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
 import { loadPrefs, savePrefs } from "@/lib/prefs";
@@ -808,6 +808,20 @@ export function SentinelApp() {
         const feed = feeds.find((f) => f.id === feedId);
         if (!feed) throw new Error("that camera is no longer on this site");
         await setHome(feed, sessionFor(feedId));
+      }),
+    [deliberate, feeds, sessionFor],
+  );
+
+  /* Send a camera back to its home position: the same command the pad's home
+     button sends, offered from settings because that is where a customer
+     reading "Home position" looks for it. Through the same keyed mutation as
+     the save beside it, so one camera's failure is reported on that camera. */
+  const goCameraHome = useCallback(
+    (feedId: string) =>
+      deliberate.run(`home:${feedId}`, async () => {
+        const feed = feeds.find((f) => f.id === feedId);
+        if (!feed) throw new Error("that camera is no longer on this site");
+        await stopOrHome(feed, sessionFor(feedId), true);
       }),
     [deliberate, feeds, sessionFor],
   );
@@ -1879,6 +1893,7 @@ export function SentinelApp() {
           cameraSettings={cameraSettings}
           onRenameTower={changeTowerName}
           onSetHome={setCameraHome}
+          onGoHome={goCameraHome}
           homeMutation={deliberate}
           renameMutation={renameMutation}
           settingsOpen={settingsOpen}

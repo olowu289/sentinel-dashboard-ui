@@ -357,8 +357,12 @@ describe("an operator can open tower settings", () => {
        works at that site, and none of them is fabricated. */
     for (const real of [
       "<Group title=\"Camera\">",
-      "Stream Quality",
-      "Home Position",
+      /* The labels these rows carry now. "Stream Quality" named our pipeline
+         and "Home Position" was title case for no reason; both were rewritten
+         by the copy pass, and this list is what keeps them OUT of the tuning
+         block rather than a record of their old names. */
+      "Picture quality",
+      "Home position",
       "<Group title=\"Storage\">",
       "<Group title=\"About Device\">",
     ]) {

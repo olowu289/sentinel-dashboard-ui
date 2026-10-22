@@ -125,7 +125,7 @@ export function IconRail({
     >
       <a
         href="#"
-        aria-label="Terra Sentinel — home"
+        aria-label="Terra Sentinel home"
         className="absolute left-1/2 top-[6px] flex size-[39px] -translate-x-1/2 items-center justify-center rounded-[12px] transition-colors hover:bg-overlay/5"
       >
         {/* Wordless mark: 22.286 × 19.5 inside a 39px hit target. */}
@@ -157,14 +157,14 @@ export function IconRail({
                 type="button"
                 aria-label={
                   item.unavailable
-                    ? `${item.label} — not available yet`
+                    ? `${item.label}, not available yet`
                     : item.label
                 }
                 aria-current={isActive ? "page" : undefined}
                 disabled={item.unavailable}
                 title={
                   item.unavailable
-                    ? `${item.label} — not available yet`
+                    ? `${item.label}, not available yet`
                     : item.label
                 }
                 onClick={() => onSelect?.(item.id)}

@@ -140,21 +140,14 @@ const FOR_A_CODE: Readonly<Record<string, string>> = {
   unauthorized: "You are signed out. Sign in again to carry on.",
   forbidden: "This is not yours to do.",
   // Claiming a tower, which has its own small vocabulary.
-  claim_conflict:
-    "Another account is already waiting for that code. If that was you on "
-    + "another screen, finish there; if not, the code is not yours to use.",
+  claim_conflict: "Another account is already waiting for that code.",
   hub_offline: "That cell is offline, so nothing could be sent to it.",
-  hub_timeout:
-    "That cell did not answer in time. Nothing was sent. Try again in a moment.",
+  hub_timeout: "That cell did not answer. Try again in a moment.",
   cell_unknown: "That cell is not one you can add to.",
   site_unknown: "That site is not one you can add to.",
   name_taken: "Somebody in this organization already has that name.",
-  no_org_slug:
-    "This organization has no login name yet, so people cannot be added to it. "
-    + "Contact support.",
-  too_many_attempts:
-    "For your security, this is paused after several unsuccessful attempts. "
-    + "Try again shortly.",
+  no_org_slug: "This organization has no login name yet. Contact support.",
+  too_many_attempts: "Too many attempts. Try again shortly.",
 
   /* ──────────────────────────────────────────────────────────────────────
       LIVE VIDEO, CAMERA CONTROL AND FOOTAGE
@@ -214,7 +207,7 @@ const FOR_A_CODE: Readonly<Record<string, string>> = {
   recording_unsupported: "This camera doesn't keep recorded footage.",
   remote_clip_unsupported: "Clips can't be taken from this camera.",
   empty_clip: "There's no footage in the time you chose.",
-  slice_too_long: "That's a longer clip than can be made at once. Choose less time.",
+  slice_too_long: "That clip is too long. Choose a shorter time.",
 
   // Capacity, which is nobody's mistake.
   hub_at_capacity:

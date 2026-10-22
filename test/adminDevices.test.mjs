@@ -85,7 +85,11 @@ describe("the add drawer", () => {
   test("it says the radio is not configured here", () => {
     /* ⚠ UNPROMPTED, and it has to be: without it somebody adds a tower, sees
        "waiting", and waits for a radio link nobody configured. */
-    assert.match(source, /does not configure a radio/i);
+    /* The sentence was shortened by the copy pass: it used to explain that
+       "everything else on the board is set up for you", which is us talking
+       about our own process. What has to survive is the one fact a person
+       needs, that radios are not configured here. */
+    assert.match(source, /Radios are set up before the equipment ships/i);
   });
 
   test("the queued answer is its own state, not an error", () => {
@@ -144,7 +148,7 @@ describe("destructive actions say what they will do", () => {
 
   test("moving a cell warns about the shares BEFORE, and names them after", () => {
     /* A feed that simply stops is the thing this product does not do. */
-    assert.match(cells, /Every active share involving this cell/i);
+    assert.match(cells, /Shares from this cell.{0,12}s cameras end when it moves/i);
     assert.match(cells, /shares? ended because the cameras left the site/i);
   });
 
@@ -187,7 +191,11 @@ describe("a login is shown once and a name everywhere else", () => {
   test("the login is spelled out exactly once, when somebody is added", () => {
     assert.match(code, /justAdded/);
     assert.match(admin, /can sign in now/);
-    assert.match(admin, /the login never changes/i);
+    /* Shortened: the clause about the login never changing was a third
+       sentence. What must stay is that this IS their login and where the
+       password is changed. */
+    assert.match(admin, /That is their login/i);
+    assert.match(admin, /change the password in Settings/i);
   });
 
   test("the add form asks for a NAME and says what the login will be", () => {
@@ -249,7 +257,7 @@ describe("a login is shown once and a name everywhere else", () => {
   });
 
   test("the rename panel says the login changes", () => {
-    assert.match(admin, /Their LOGIN changes with the name/);
+    assert.match(admin, /Their login changes with the name/);
   });
 });
 

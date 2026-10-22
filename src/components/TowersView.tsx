@@ -115,6 +115,18 @@ interface Cell {
   glyph?: string;
 }
 
+/**
+ * The mark an empty cell draws.
+ *
+ * ⚠ AN EN-DASH, AND THE WRITING RULES ARE WHY. No user-facing string in this
+ * app contains an em-dash; this one is not punctuation in a sentence but a
+ * placeholder glyph in a 96px column, and the column needs something to hold
+ * its baseline. The narrower mark is the one that is unambiguously a symbol
+ * rather than prose, and it sits beside `signed`'s real minus for the same
+ * reason: on a board of figures, which dash you draw is a statement.
+ */
+const EMPTY = "–";
+
 /* The three reasons a reading is not here. Each is a different fact and sends
    an operator somewhere different, so they are never collapsed into one. */
 const NOT_PASSED_ON = "Not reported yet";
@@ -142,24 +154,22 @@ const WHY = {
      block at all, which is a tower with no pack wired or the reader switched
      off. A tower that HAS one and cannot reach it is a different state and says
      so in its own words rather than borrowing this one. */
-  power:
-    "this tower reports no battery. A tower with a pack fitted and the battery reader enabled reports charge, voltage and pack temperature.",
-  alerts:
-    "alerts don't reach this dashboard yet. A tower's own tamper and camera alerts stay on the tower for now.",
+  power: "No battery is fitted to this tower.",
+  alerts: "Alerts from this tower do not reach the dashboard yet.",
 } as const;
 
 const pending = (reason: string, why: string): Cell => ({
-  value: "—",
+  value: EMPTY,
   empty: true,
   pending: true,
-  hint: `${reason} — ${why}`,
+  hint: `${reason}. ${why}`,
 });
 
 /* Not pending — a reading exists — but not current either. */
 const OFFLINE: Cell = {
-  value: "—",
+  value: EMPTY,
   empty: true,
-  hint: "Tower offline — the last reading it sent is not shown as if it were current.",
+  hint: "This tower is offline, so its last reading is not shown as current.",
 };
 
 /* A real minus, not a hyphen. It is a signed quantity in a column of them. */
@@ -179,7 +189,7 @@ function camerasCell(feeds: CameraFeed[]): Cell {
   const total = feeds.length;
   /* A tower reporting no cameras is not a healthy one with nothing to show —
      `towerStatusFor` calls it degraded for the same reason. */
-  if (total === 0) return { value: "0", tone: "text-warn", hint: "This tower reports no cameras." };
+  if (total === 0) return { value: "0", tone: "text-warn", hint: "No cameras on this tower." };
   const up = feeds.filter((f) => UP.has(f.state)).length;
   const down = feeds.filter((f) => f.state === "offline").length;
   const unconfirmed = total - up - down;
@@ -213,10 +223,10 @@ function uplinkCell(online: boolean, reading: UplinkReading): Cell {
             : reading.grade === "fair"
               ? "text-warn"
               : "text-terra",
-        hint: `${GRADE_WORD[reading.grade]} — ${reading.dbm} dBm, as the tower measured it.`,
+        hint: `${GRADE_WORD[reading.grade]} signal.`,
       };
     case "wired":
-      return { value: "Wired", hint: "Wired uplink — there is no radio signal to grade." };
+      return { value: "Wired", hint: "Wired, so there is no signal to grade." };
     case "unassociated":
       return {
         value: "No link",
@@ -225,9 +235,9 @@ function uplinkCell(online: boolean, reading: UplinkReading): Cell {
       };
     default:
       return {
-        value: "—",
+        value: EMPTY,
         empty: true,
-        hint: "No signal reading — the tower did not measure its uplink.",
+        hint: "No signal reading.",
       };
   }
 }
@@ -266,11 +276,10 @@ function sectorCell(online: boolean, reading: SectorReading): Cell {
       };
     default:
       return {
-        value: "—",
+        value: EMPTY,
         empty: true,
         hint:
-          "No radio link reported — a wired mast, or one on WireGuard rather than "
-          + "the hub's radios.",
+          "No radio link on this tower.",
       };
   }
 }
@@ -286,7 +295,7 @@ function connectedCell(tower: Tower, now: number): Cell {
      no such field. "Down" beside ONLINE would be two cells contradicting each
      other. */
   if (tower.online) {
-    return { value: "—", empty: true, hint: "This tower did not report when its link came up." };
+    return { value: EMPTY, empty: true, hint: "This tower did not report when its link came up." };
   }
   return { value: "Down", tone: "text-critical", hint: "The tower is not connected." };
 }
@@ -316,7 +325,7 @@ function coverCell(tower: Tower): Cell {
   const cover = tower.health?.cover;
   if (!cover) return pending(NOT_PASSED_ON, WHY.cover);
   return cover.exposed
-    ? { value: "Exposed", tone: "text-critical", hint: "The cover sensor sees light — the cover is off." }
+    ? { value: "Exposed", tone: "text-critical", hint: "The cover sensor sees light, so the cover is off." }
     : { value: "Intact", tone: "text-terra", hint: "The cover is in place." };
 }
 
@@ -327,7 +336,7 @@ function temperatureCell(tower: Tower): Cell {
        is a different absence from the reading never being passed on. */
     if (thermal.socC === null) {
       return {
-        value: "—",
+        value: EMPTY,
         empty: true,
         hint: "The tower reported its temperature block with no reading in it.",
       };
@@ -444,7 +453,7 @@ function powerCell(tower: Tower): Cell {
     }
     /* Reached the pack and got no charge level out of it. Rare, and still not a
        reason to show a number. */
-    return { value: "—", empty: true, hint: batteryHint(battery) };
+    return { value: EMPTY, empty: true, hint: batteryHint(battery) };
   }
 
   if (tower.batteryPct === undefined) return pending(NO_SENSOR, WHY.power);
@@ -846,7 +855,7 @@ function TowerRow({
       <div role="rowheader" className="sticky left-0 z-[1] flex h-full min-w-0 items-center rounded-l-[10px] bg-inherit pl-[16px] pr-[10px]">
         <button
           type="button"
-          aria-label={`Open ${tower.id}, ${tower.site} — ${status.label}`}
+          aria-label={`Open ${tower.id}, ${tower.site}. ${status.label}`}
           className="flex min-w-0 flex-col items-start gap-[4px] text-left"
         >
           <span className="flex min-w-0 max-w-full items-center gap-[8px]">
@@ -1022,7 +1031,7 @@ export function TowersView({
             {seeded && (
               <div className="sticky left-0 w-fit pb-[6px] pt-[16px]">
                 <p className="rounded-[6px] bg-detect/20 px-[10px] py-[6px] font-display text-[0.6875rem] tracking-[0.11px] text-detect">
-                  SEEDED FLEET — NOT YOUR TOWERS
+                  SEEDED FLEET · NOT YOUR TOWERS
                 </p>
               </div>
             )}

@@ -313,7 +313,7 @@ export function AddDeviceDrawer({
                       {cells.map((c) => (
                         <option key={c.hub_id} value={c.hub_id} disabled={c.full}>
                           {c.name}
-                          {c.site_name ? ` — ${c.site_name}` : ""}
+                          {c.site_name ? ` · ${c.site_name}` : ""}
                           {c.full ? " (full)" : ""}
                         </option>
                       ))}
@@ -356,9 +356,7 @@ export function AddDeviceDrawer({
                 {/* ⚠ SAID UNPROMPTED. Without it somebody adds a tower, sees
                     "waiting", and waits for a radio link nobody configured. */}
                 <p className="rounded-[8px] border border-stroke bg-ink/40 px-[12px] py-[10px] text-[0.75rem] leading-[16px] text-muted">
-                  This does not configure a radio. Radios are set up before the
-                  equipment ships; everything else on the board is set up for
-                  you.
+                  Radios are set up before the equipment ships.
                 </p>
 
                 <div className="flex items-center gap-[10px]">
@@ -416,8 +414,7 @@ export function AddDeviceDrawer({
                   {phase.message}
                 </p>
                 <p className="text-[0.75rem] leading-[16px] text-muted/80">
-                  There is nothing to redo. The code has not been used, and its
-                  fifteen minutes start when the cell receives it.
+                  There is nothing to redo. This code has not been used.
                 </p>
                 <div className="flex items-center gap-[10px]">
                   <PrimaryButton onClick={onClose}>Done</PrimaryButton>

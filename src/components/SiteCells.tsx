@@ -155,9 +155,7 @@ function HubAbout({ cell }: { cell: ManagedCell }) {
   if (!known) {
     return (
       <p className="text-[0.75rem] leading-[16px] text-muted">
-        This cell has not reported what it is yet. A hub sends its model,
-        serial and release when it connects, so this fills in after its next
-        reconnect.
+        This cell has not reported what it is yet.
       </p>
     );
   }
@@ -526,8 +524,7 @@ function CellRow({
             </p>
             {/* ⚠ WARNED BEFORE, NAMED AFTER. */}
             <p className="text-[0.75rem] leading-[16px] text-sub/90">
-              Every active share involving this cell&rsquo;s cameras ends when it
-              moves. Both sides are told.
+              Shares from this cell&rsquo;s cameras end when it moves. Both sides are told.
             </p>
             <div className="flex flex-wrap gap-[8px]">
               {sites

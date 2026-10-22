@@ -99,8 +99,7 @@ export function StateSimulator({
       {realFleet && (
         <div className="mb-[12px] flex flex-col gap-[6px] border-b border-overlay/8 pb-[10px]">
           <p className="text-[0.75rem] leading-[16px] text-body-ink/45 lg:text-[0.6875rem]">
-            Feed states are real on this fleet — they come from the tower, not
-            from here.
+            Feed states are real on this fleet. They come from the tower.
           </p>
           <p className="text-[0.75rem] leading-[16px] text-body-ink/30 lg:text-[0.6875rem]">
             Induce them at the tower: cut its power, stop its video, or let a

@@ -418,8 +418,7 @@ function SitesPane() {
               : `${unassigned.length} hubs are not in a site`}
           </h3>
           <p className="text-[0.8125rem] leading-[20px] text-sub/90">
-            Only administrators can see an unassigned hub. Put it in a site so
-            the people who work there can.
+            Put it in a site so the people who work there can see it.
           </p>
           <ul className="flex flex-col gap-[8px]">
             {unassigned.map((hubId) => (
@@ -579,8 +578,7 @@ function PeoplePane() {
             </span>
             <CopyableLogin login={justAdded.login} />
             <span className="text-[0.8125rem] text-muted">
-              That is their login, with the password you just set. They can
-              change the password in Settings; the login never changes.
+              That is their login. They can change the password in Settings.
             </span>
           </span>
           <QuietButton onClick={() => setJustAdded(null)}>Got it</QuietButton>
@@ -1027,8 +1025,7 @@ function SitesPanel({
       }
     >
       <p className="text-[0.8125rem] leading-[18px] text-muted">
-        They see the cameras at the sites you choose, and nothing else. Changes
-        take effect the next time they load a screen.
+        They see the cameras at the sites you choose, and nothing else.
       </p>
       <MultiSelect
         label="Sites"
@@ -1075,8 +1072,7 @@ function PasswordPanel({
       }
     >
       <p className="text-[0.8125rem] leading-[18px] text-muted">
-        They are signed out everywhere and will need this new password. Tell it
-        to them yourself; it is never shown again.
+        They are signed out everywhere. Tell them the new password now, it is not shown again.
       </p>
       <Field label="New password" hint="At least 12 characters.">
         <input
@@ -1132,8 +1128,7 @@ function RenamePanel({
       }
     >
       <p className="text-[0.8125rem] leading-[18px] text-muted">
-        Their LOGIN changes with the name, so tell them the new one. The audit
-        log keeps both, so a year-old entry still reads as the same person.
+        Their login changes with the name, so tell them the new one.
       </p>
       <Field
         label="Name"

@@ -466,8 +466,7 @@ export function OfferTerms({ share }: { share: Share }) {
              one -- so this is a server that sent something impossible rather
              than an empty state to design for. Say so plainly. */
           <span className="text-muted">
-            This offer names no cameras, which it should not be able to. Decline
-            it and ask them to send it again.
+            This offer names no cameras. Decline it and ask them to send it again.
           </span>
         ) : (
           <ul className="flex flex-col gap-[2px]">

@@ -40,7 +40,7 @@ const DEFAULT_DAYS = 30;
 const PHOTO_RULES = [
   "Face fills the frame and looks at the camera",
   "Even light, with no shadow across the face",
-  "Nothing covering the face — no sunglasses or mask",
+  "Nothing covering the face, so no sunglasses or mask",
   "Taken recently, with nobody else in shot",
 ] as const;
 
@@ -189,8 +189,7 @@ export function PeopleView({
           {people.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-[24px] text-center">
               <p className="max-w-[360px] text-[0.875rem] leading-[20px] text-muted">
-                Nobody is on the list yet. Add a person and the fleet raises an
-                alert when a camera sees a possible match.
+                Nobody on the list yet. Add a person to be alerted when a camera sees them.
               </p>
             </div>
           ) : (
@@ -482,7 +481,7 @@ function PersonDetail({
               label="EXPIRES"
               value={
                 expired
-                  ? `${formatEventTime(person.expiresAt)} — no longer matching`
+                  ? `${formatEventTime(person.expiresAt)} · no longer matching`
                   : formatEventTime(person.expiresAt)
               }
               tone={expired ? "text-warn" : undefined}
@@ -884,9 +883,7 @@ export function Enrol({
             HOW THIS PHOTO IS USED
           </h2>
           <p className="text-[0.75rem] leading-[16px] text-sub">
-            The cameras compare this photo against every face they detect.
-            Matching stops when the entry expires. The photo is kept with the
-            entry until you delete it, and your name stays on it.
+            Cameras compare this photo against the faces they see. It is kept until you delete it.
           </p>
         </section>
       </div>

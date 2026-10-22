@@ -272,9 +272,7 @@ function Handoff({ onCode }: { onCode: () => void }) {
           Phone registration isn&rsquo;t available yet
         </p>
         <p className="text-[0.8125rem] leading-[20px] text-sub">
-          There is nothing behind this code to scan yet, so this screen cannot
-          add a tower. Register it with the pairing code from the tower&rsquo;s
-          console instead — it takes the same two details.
+          This screen cannot add a tower yet. Use the pairing code instead.
         </p>
       </div>
 
@@ -404,7 +402,7 @@ function EnterCode({
     >
       <Heading
         title="REGISTER THIS TOWER"
-        body="The pairing code is on the tower's console. The tower reports everything else itself."
+        body="The pairing code is on the tower's console."
       />
 
       <div className="flex w-full flex-col gap-[20px]">
@@ -457,8 +455,7 @@ function EnterCode({
             className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink uppercase outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
           />
           <span className="text-[0.75rem] leading-[16px] text-muted">
-            What to call THIS MAST, not the site it stands on. It is set now,
-            travels with the tower, and is what your team will use on the radio.
+            What to call this tower, not the site it stands on.
           </span>
         </label>
 
@@ -525,7 +522,7 @@ function Waiting({
         title={dead ? "REGISTRATION EXPIRED" : "WAITING FOR THE TOWER"}
         body={
           dead
-            ? "The tower did not connect in time. The code is still valid — register it again."
+            ? "The tower did not connect in time. The code is still valid, so register it again."
             : "The tower will connect on its own. You can leave this page; the registration is saved."
         }
       />
@@ -539,7 +536,7 @@ function Waiting({
           </dd>
           <dt className="sr-only">Status</dt>
           <dd className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">
-            {dead ? "Not registered" : "Registered — waiting to connect"}
+            {dead ? "Not registered" : "Registered, waiting to connect"}
           </dd>
         </div>
         {!dead && (

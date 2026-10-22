@@ -194,7 +194,10 @@ describe("the cell's About block", () => {
 
   test("a hub that has not reported says so in a sentence, not five blanks", () => {
     assert.match(cells, /has not reported what it is yet/);
-    assert.match(cells, /fills in after its next\s*\n?\s*reconnect/);
+    /* The explanation of WHEN it fills in was a second sentence about how
+       a hub reports itself. The row still says the one thing that matters:
+       it has not reported yet. */
+    assert.match(cells, /has not reported what it is yet/);
   });
 
   test("and nothing in that block prints a hub id", () => {

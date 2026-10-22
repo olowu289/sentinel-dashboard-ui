@@ -182,7 +182,16 @@ export function TopBar({
         {/* Camera settings, where the frame puts them: in the tower's bar
             rather than on a tile. That placement is the argument for the scope
             — these are the tower's cameras, and the bar is the one control
-            surface that belongs to the tower rather than to one picture. */}
+            surface that belongs to the tower rather than to one picture.
+
+            ⚠ ABSENT WHEN IT CANNOT OPEN, rather than drawn and inert. The
+            gear was always rendered, and `onOpenSettings` was undefined for
+            every account without `camera_tuning` — which was every account —
+            so an operator pressed a gear and nothing happened at all. That is
+            the "drawn and does nothing" failure this bar's own siblings are
+            written to avoid, and it is indistinguishable from a broken app. */}
+        {onOpenSettings ? (
+        <>
         <span aria-hidden className="hidden h-[14px] w-px bg-stroke lg:block" />
         <button
           type="button"
@@ -197,6 +206,8 @@ export function TopBar({
         >
           <MaskIcon src="/icons/nav-settings.svg" size={20} className="gear-turn" />
         </button>
+        </>
+        ) : null}
 
         {/* Only appears once the panel is collapsed — it is the sole way back,
             so it lives in the bar that is always on screen rather than in the

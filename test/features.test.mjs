@@ -371,6 +371,18 @@ describe("an operator can open tower settings", () => {
     }
   });
 
+  test("and a gear that cannot open is not drawn", async () => {
+    /* ⚠ THE OTHER HALF OF THE SAME BUG. The button was rendered whatever
+       `onOpenSettings` was, so an operator pressed a gear and nothing
+       happened -- which is indistinguishable from a broken app. */
+    const { readFile } = await import("node:fs/promises");
+    const bar = await readFile(join(ROOT, "src/components/TopBar.tsx"), "utf8");
+    const at = bar.indexOf("{onOpenSettings ? (");
+    assert.ok(at > 0, "the gear is drawn unconditionally again");
+    const gear = bar.indexOf('title="Tower settings"');
+    assert.ok(gear > at, "the gear is outside the condition");
+  });
+
   test("the tower's own name is not behind it either", () => {
     const open = panel.indexOf("{canTune ? (");
     const close = panel.indexOf(") : null}", open);

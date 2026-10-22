@@ -17,6 +17,43 @@ import { withDemoCabinetReadings } from "./demoCabinet";
 export interface FleetSnapshot {
   towers: Tower[];
   feeds: CameraFeed[];
+  /**
+   * Whether the box that answered is reaching Kallon Cloud.
+   *
+   * ⚠ ONE FACT ABOUT THE SERVER, not about a tower — which is why it is here
+   * and not on `Tower`. Every tower on one hub shows the same answer, so
+   * copying it into each of them would be one fact stored n times and n
+   * chances for two settings screens on one site to disagree.
+   *
+   * Carried only by `listFleet`: the single-tower routes answer about a tower.
+   * Absent is "the server could not say", which the row renders in words and
+   * never as "disconnected".
+   */
+  cloud?: CloudReading;
+}
+
+/**
+ * The site's link to Kallon Cloud, as the Network group prints it.
+ *
+ * ⚠ THIS REPLACED "Backup Connection", WHICH WAS A FIXTURE. That row read
+ * "Satellite" on every tower in every fleet, from `demoCabinet.ts`, and
+ * nothing anywhere measured it. What a customer actually wants in that space
+ * is simpler and real: is my site reachable from outside, over what, and how
+ * far away is it.
+ *
+ * ⚠ "KALLON CLOUD", NEVER "DC". The data centre is our word for our own
+ * machine. The row names the service.
+ */
+export interface CloudReading {
+  connected?: boolean;
+  /** Declared at install, not sniffed: Ethernet · Fibre · Mobile · Satellite · Wi-Fi. */
+  iface?: string;
+  /** When the current cloud link came up. Absent while disconnected. */
+  since?: string;
+  /** Heartbeat round trip, ms. Absent while disconnected. */
+  latencyMs?: number;
+  /** The answer came FROM the cloud, so there is no round trip to report. */
+  isCloud?: boolean;
 }
 
 /**
@@ -89,13 +126,17 @@ function isInvalidLabel(err: unknown): boolean {
  * move. The error is still rethrown: the caller failed and has to stop loading.
  */
 export async function listFleet(signal?: AbortSignal): Promise<FleetSnapshot> {
-  let raw;
+  let reply;
   try {
-    raw = await getClient().listTowers(signal ? { signal } : {});
+    /* `listFleet`, NOT `listTowers`: the array form drops the envelope, and
+       the envelope is where the `cloud` block lives. See the SDK's note on the
+       two -- one fact about the server cannot ride inside a tower. */
+    reply = await getClient().listFleet(signal ? { signal } : {});
   } catch (err) {
     endSessionIfUnauthorized(err);
     throw err;
   }
+  const raw = reply.towers;
 
   const now = Date.now();
   const towers: Tower[] = [];
@@ -110,7 +151,29 @@ export async function listFleet(signal?: AbortSignal): Promise<FleetSnapshot> {
     towers.push(withDemoCabinetReadings(mapped.tower));
     feeds.push(...mapped.feeds);
   }
-  return { towers, feeds };
+  /* Spread conditionally, so "the server said nothing" stays distinguishable
+     from "the server said not connected". The row says different words for
+     each. */
+  const cloud = reply.cloud;
+  return {
+    towers,
+    feeds,
+    ...(cloud
+      ? {
+          cloud: {
+            ...(typeof cloud.connected === "boolean"
+              ? { connected: cloud.connected }
+              : {}),
+            ...(cloud.iface ? { iface: cloud.iface } : {}),
+            ...(cloud.since ? { since: cloud.since } : {}),
+            ...(typeof cloud.latency_ms === "number"
+              ? { latencyMs: cloud.latency_ms }
+              : {}),
+            ...(cloud.is_cloud === true ? { isCloud: true } : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 /**

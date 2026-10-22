@@ -237,6 +237,15 @@ function toHealth(raw: TowerDetail["health"] | undefined): TowerHealthReading | 
         : {}),
       ...(typeof raw.radio.quality === "number" ? { quality: raw.radio.quality } : {}),
       ...(raw.radio.sector ? { sector: raw.radio.sector } : {}),
+      /* HOW STRONG THE LINK ACTUALLY IS, read off the Ubiquiti radio over
+         read-only SNMP, and WHICH END READ IT. Conditional like the rest, and
+         this one is the sharpest case on the whole block: the Radio link row
+         grades this number into Good/Fair/Weak, so a substituted 0 would grade
+         as a perfect link on a site that measured nothing at all. */
+      ...(typeof raw.radio.signal_dbm === "number"
+        ? { signalDbm: raw.radio.signal_dbm }
+        : {}),
+      ...(raw.radio.signal_from ? { signalFrom: raw.radio.signal_from } : {}),
     };
   }
   /* THE HUB'S OWN SECTORS. `associations` says whether the tower list means
@@ -257,8 +266,40 @@ function toHealth(raw: TowerDetail["health"] | undefined): TowerHealthReading | 
         ...(typeof s.signal_dbm === "number" ? { signalDbm: s.signal_dbm } : {}),
         ...(observed && Array.isArray(s.towers) ? { towers: s.towers } : {}),
         ...(observed && Array.isArray(s.stations) ? { stations: s.stations } : {}),
+        /* PER-MAST SIGNALS, where the station reader used SNMP. Absent on the
+           older password path, which scrapes MACs off an HTTP page and has no
+           signal to give -- so an absent list is "not measured" and a mast in
+           `towers` with no entry here is associated and unmeasured. */
+        ...(Array.isArray(s.tower_signals) && s.tower_signals.length > 0
+          ? {
+              towerSignals: s.tower_signals.map((t) => ({
+                deviceId: t.device_id,
+                signalDbm: t.signal_dbm,
+              })),
+            }
+          : {}),
       };
     });
+  }
+  /* WHERE THE FOOTAGE GOES, AND WHAT SURVIVES THERE. Read-only on every
+     screen: the window is set by Kallon, and the drop-down that used to offer
+     7/30/90 days wrote to local state and nothing else.
+
+     `effectiveDays` and `boundBy` cross beside `retainDays` because the three
+     are one fact. A screen printing the asked-for window alone would tell a
+     customer they have thirty days while the sweep deletes at twelve. */
+  if (raw.recording) {
+    out.recording = {
+      ...(raw.recording.mode ? { mode: raw.recording.mode } : {}),
+      ...(raw.recording.stream ? { stream: raw.recording.stream } : {}),
+      ...(typeof raw.recording.retain_days === "number"
+        ? { retainDays: raw.recording.retain_days }
+        : {}),
+      ...(typeof raw.recording.effective_days === "number"
+        ? { effectiveDays: raw.recording.effective_days }
+        : {}),
+      ...(raw.recording.bound_by ? { boundBy: raw.recording.bound_by } : {}),
+    };
   }
   return out;
 }
@@ -433,6 +474,9 @@ export function toTower(raw: TowerInfo | TowerDetail, now?: number): {
     ...(raw.agent_version ? { firmware: raw.agent_version } : {}),
     ...(raw.ota_channel ? { firmwareChannel: raw.ota_channel } : {}),
     ...(raw.model ? { model: raw.model } : {}),
+    /* TOWER OR HUB, from the box's own word. The one field the settings
+       screen's Network group branches on -- see `Tower.kind`. */
+    ...(raw.kind === "hub" ? ({ kind: "hub" } as const) : {}),
     ...(raw.serial ? { serial: raw.serial } : {}),
     /* The JETSON's own, read off the board at every start rather than written
        in config. Kept beside the unit serial and never merged with it: a

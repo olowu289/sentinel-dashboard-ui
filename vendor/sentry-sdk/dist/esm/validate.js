@@ -647,7 +647,161 @@ export function parseTowerHealth(c, path, raw) {
             return feed;
         });
     }
+    /* ── THE THREE BLOCKS THAT USED TO BE TYPED AND NOT PARSED ───────────
+       `radio`, `sectors` and `recording` were declared on {@link TowerHealth}
+       and never copied out of the body, so every one of them was DROPPED here
+       on the way to the caller. A consumer compiled happily against
+       `health.radio.signal_dbm` and read `undefined` for ever, which is the
+       worst shape of all: the contract said the field existed, the server sent
+       it, and the SDK quietly removed it.
+  
+       Parsed by name like everything above, and each absence preserved as an
+       absence: a tower with no radio block has no radio link to describe, and a
+       `{associated: false}` substituted here would claim a radio joined to
+       nothing. */
+    const radio = o["radio"] === undefined || o["radio"] === null
+        ? undefined
+        : c.obj(`${path}.radio`, o["radio"]);
+    if (radio) {
+        const r = {
+            associated: c.bool(`${path}.radio.associated`, radio["associated"]),
+        };
+        if (typeof radio["node_id"] === "number")
+            r.node_id = radio["node_id"];
+        if (radio["state"] !== undefined && radio["state"] !== null) {
+            r.state = c.enum(`${path}.radio.state`, radio["state"], ["up", "degraded", "down"], "down");
+        }
+        if (typeof radio["last_seen_sec"] === "number")
+            r.last_seen_sec = radio["last_seen_sec"];
+        if (typeof radio["quality"] === "number")
+            r.quality = radio["quality"];
+        const sector = c.optStr(`${path}.radio.sector`, radio["sector"]);
+        if (sector !== undefined)
+            r.sector = sector;
+        /* The measurement, and WHICH END MADE IT. Taken only when it really is a
+           number: a null or a string here would reach a row that grades it, and
+           "Good" printed over a non-reading is the fake-green this whole contract
+           refuses. */
+        if (typeof radio["signal_dbm"] === "number")
+            r.signal_dbm = radio["signal_dbm"];
+        if (radio["signal_from"] !== undefined && radio["signal_from"] !== null) {
+            r.signal_from = c.enum(`${path}.radio.signal_from`, radio["signal_from"], ["tower", "hub"], "hub");
+        }
+        out.radio = r;
+    }
+    if (o["sectors"] !== undefined && o["sectors"] !== null) {
+        out.sectors = c.arr(`${path}.sectors`, o["sectors"]).map((s, i) => {
+            const so = c.obj(`${path}.sectors[${i}]`, s);
+            if (!so)
+                return { id: "", state: "unknown", associations: "unknown" };
+            const sec = {
+                id: c.str(`${path}.sectors[${i}].id`, so["id"]),
+                /* `unknown` IS NEVER RENDERED AS UP, so an unrecognized word falls to
+                   it rather than passing through. */
+                state: c.enum(`${path}.sectors[${i}].state`, so["state"], ["up", "down", "unknown"], "unknown"),
+                associations: c.enum(`${path}.sectors[${i}].associations`, so["associations"], ["observed", "unknown"], "unknown"),
+            };
+            if (typeof so["azimuth"] === "number")
+                sec.azimuth = so["azimuth"];
+            const ssid = c.optStr(`${path}.sectors[${i}].ssid`, so["ssid"]);
+            if (ssid !== undefined)
+                sec.ssid = ssid;
+            const mgmt = c.optStr(`${path}.sectors[${i}].mgmt`, so["mgmt"]);
+            if (mgmt !== undefined)
+                sec.mgmt = mgmt;
+            const mac = c.optStr(`${path}.sectors[${i}].mac`, so["mac"]);
+            if (mac !== undefined)
+                sec.mac = mac;
+            if (typeof so["freq_mhz"] === "number")
+                sec.freq_mhz = so["freq_mhz"];
+            if (typeof so["width_mhz"] === "number")
+                sec.width_mhz = so["width_mhz"];
+            if (typeof so["signal_dbm"] === "number")
+                sec.signal_dbm = so["signal_dbm"];
+            /* ⚠ ONLY UNDER `observed`, AND NEVER DEFAULTED TO `[]`. `towers: []`
+               beside `associations: "unknown"` reads as "this sector has no masts",
+               which is the one wrong answer available here. */
+            if (Array.isArray(so["stations"])) {
+                sec.stations = c
+                    .arr(`${path}.sectors[${i}].stations`, so["stations"])
+                    .filter((m) => typeof m === "string");
+            }
+            if (Array.isArray(so["towers"])) {
+                sec.towers = c
+                    .arr(`${path}.sectors[${i}].towers`, so["towers"])
+                    .filter((t) => typeof t === "string");
+            }
+            if (Array.isArray(so["tower_signals"])) {
+                const signals = c
+                    .arr(`${path}.sectors[${i}].tower_signals`, so["tower_signals"])
+                    .map((t) => {
+                    const to = c.obj(`${path}.sectors[${i}].tower_signals`, t);
+                    if (!to)
+                        return undefined;
+                    if (typeof to["device_id"] !== "string")
+                        return undefined;
+                    if (typeof to["signal_dbm"] !== "number")
+                        return undefined;
+                    return { device_id: to["device_id"], signal_dbm: to["signal_dbm"] };
+                })
+                    .filter((t) => t !== undefined);
+                if (signals.length > 0)
+                    sec.tower_signals = signals;
+            }
+            return sec;
+        });
+    }
+    const recording = o["recording"] === undefined || o["recording"] === null
+        ? undefined
+        : c.obj(`${path}.recording`, o["recording"]);
+    if (recording) {
+        const rec = {};
+        if (recording["mode"] !== undefined && recording["mode"] !== null) {
+            rec.mode = c.enum(`${path}.recording.mode`, recording["mode"], ["tower", "hub"], "hub");
+        }
+        if (recording["stream"] !== undefined && recording["stream"] !== null) {
+            rec.stream = c.enum(`${path}.recording.stream`, recording["stream"], ["main", "sub"], "sub");
+        }
+        if (typeof recording["retain_days"] === "number")
+            rec.retain_days = recording["retain_days"];
+        if (typeof recording["effective_days"] === "number") {
+            rec.effective_days = recording["effective_days"];
+        }
+        if (recording["bound_by"] !== undefined && recording["bound_by"] !== null) {
+            rec.bound_by = c.enum(`${path}.recording.bound_by`, recording["bound_by"], ["age", "disk"], "age");
+        }
+        out.recording = rec;
+    }
     return out;
+}
+/**
+ * Validate the server's `cloud` block (see {@link CloudHealth}).
+ *
+ * Absent and `{}` both come back as `undefined`: "this box cannot say" is the
+ * state a screen must render in words, and an empty object dressed as a
+ * reading would be rendered as "disconnected" by any caller reading
+ * `cloud.connected === true`.
+ */
+function parseCloudHealth(c, path, raw) {
+    const o = c.obj(path, raw);
+    if (!o)
+        return undefined;
+    const out = {};
+    if (o["connected"] !== undefined && o["connected"] !== null) {
+        out.connected = c.bool(`${path}.connected`, o["connected"]);
+    }
+    if (o["iface"] !== undefined && o["iface"] !== null) {
+        out.iface = c.enum(`${path}.iface`, o["iface"], ["Ethernet", "Fibre", "Mobile", "Satellite", "Wi-Fi"], "Ethernet");
+    }
+    const since = c.optStr(`${path}.since`, o["since"]);
+    if (since !== undefined)
+        out.since = since;
+    if (typeof o["latency_ms"] === "number")
+        out.latency_ms = o["latency_ms"];
+    if (o["is_cloud"] !== undefined && o["is_cloud"] !== null) {
+        out.is_cloud = c.bool(`${path}.is_cloud`, o["is_cloud"]);
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
 }
 /**
  * One entry of the projected inventory (§A.3), shared by the list and detail
@@ -717,6 +871,11 @@ function towerInfo(c, path, raw) {
         if (got !== undefined)
             value[key] = got;
     }
+    /* TOWER OR HUB. Only the one word is believed: a screen branches on this to
+       decide which Network rows to draw, so an unrecognized value must read as a
+       tower rather than reach that branch. */
+    if (o["kind"] === "hub")
+        value.kind = "hub";
     if (o["last_seen"] !== undefined) {
         value.last_seen = o["last_seen"] === null ? null : c.str(`${p}last_seen`, o["last_seen"]);
     }
@@ -751,6 +910,14 @@ export function parseTowerList(raw, ctx = {}) {
     const value = {
         towers: c.arr("towers", o["towers"]).map((t, i) => towerInfo(c, `towers[${i}]`, t)),
     };
+    /* ONE FACT ABOUT THE SERVER, beside the towers rather than inside each of
+       them — see {@link CloudHealth}. Optional: a hub whose uplink agent has
+       never run sends no block, and that is "cannot say", not "disconnected". */
+    if (o["cloud"] !== undefined && o["cloud"] !== null) {
+        const cloud = parseCloudHealth(c, "cloud", o["cloud"]);
+        if (cloud)
+            value.cloud = cloud;
+    }
     return c.done(value, "tower list", ctx);
 }
 /**

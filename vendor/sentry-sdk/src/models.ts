@@ -1006,6 +1006,22 @@ export interface TowerInfo {
   model?: string;
   serial?: string;
   board_serial?: string;
+  /**
+   * What KIND of box this is: `"hub"` for a hub's own mast, ABSENT for a
+   * tower.
+   *
+   * ⚠ A SETTINGS SCREEN CANNOT GUESS THIS. The hub's own mast is projected as
+   * a tower and belongs on a fleet board as one, but its settings are a
+   * different screen: a tower reports the radio link to its hub, and a hub
+   * reports its uplink to the cloud and the sector radios masts associate
+   * with. Inferring it from `health.sectors` is wrong for every single-radio
+   * hub, which reports none.
+   *
+   * Absent means tower, which is what every release before this field already
+   * implies. Treat an unrecognized value as a tower rather than branching on
+   * it.
+   */
+  kind?: "hub";
   capabilities?: string[];
   last_seen?: Timestamp | null;
   health?: TowerHealth;
@@ -1032,6 +1048,14 @@ export interface TowerListResponse {
    * empty list and a `200` — never a `403`.
    */
   towers: TowerInfo[];
+  /**
+   * Whether the box that answered is reaching Kallon Cloud.
+   *
+   * One fact about the server, shared by every tower in `towers` — see {@link
+   * CloudHealth}. Absent means it could not say, which a screen renders in
+   * words rather than as "disconnected".
+   */
+  cloud?: CloudHealth;
 }
 
 /**
@@ -1227,6 +1251,101 @@ export interface RadioHealth {
    * both claim. Absent is rendered as unknown, never guessed into a letter.
    */
   sector?: string;
+  /**
+   * How strong the radio link to this mast actually is, dBm.
+   *
+   * ⚠ MEASURED, AND ABSENT WHEN IT IS NOT. Read from a Ubiquiti radio over
+   * read-only SNMP — either the mast's own radio (`signal_from: "tower"`) or
+   * the hub's sector radio reporting the station (`"hub"`). A site with no
+   * SNMP community configured, a radio that would not answer, or a reading
+   * outside plausible RF all leave this ABSENT, which a screen renders as
+   * "Not measured". It is never a zero and never a guess.
+   */
+  signal_dbm?: number;
+  /**
+   * Which end measured {@link RadioHealth.signal_dbm}.
+   *
+   * `"tower"` is the mast's own radio reporting what it hears from the hub,
+   * which is the number an installer aiming a dish cares about. `"hub"` is the
+   * hub's sector radio reporting how well it hears the mast. The two differ by
+   * a few dB in practice, so the screen says which one it has.
+   */
+  signal_from?: "tower" | "hub";
+}
+
+/**
+ * How well one sector radio hears one named mast
+ * ({@link SectorHealth.tower_signals}).
+ *
+ * By `device_id`, not by MAC: the MACs in {@link SectorHealth.stations} are
+ * every station including the ones the hub cannot name, and this list is the
+ * ones it can.
+ */
+export interface SectorTowerSignal {
+  device_id: string;
+  signal_dbm: number;
+}
+
+/**
+ * §3.1 `health.recording` — where this device's footage is written, and what
+ * survives there.
+ *
+ * ⚠ READ-ONLY ON EVERY SCREEN, FOR NOW. Recording mode and the retention
+ * window are set by Kallon, not by a customer: a drop-down that wrote to local
+ * state and nothing else was worse than a plain sentence.
+ */
+export interface RecordingHealth {
+  /**
+   * `"hub"` — footage is archived on the hub's disk, which is every tower
+   * without its own SSD. `"tower"` — this mast records locally.
+   */
+  mode?: "tower" | "hub";
+  /** Which stream is written: the 2K `main` or the 704×576 `sub`. */
+  stream?: "main" | "sub";
+  /** The window we ask the retention sweep to keep. Hub only. */
+  retain_days?: number;
+  /**
+   * What the sweep is ACTUALLY keeping. Lower than {@link
+   * RecordingHealth.retain_days} when the disk filled first — see {@link
+   * RecordingHealth.bound_by}, and never print the asked-for window alone.
+   */
+  effective_days?: number;
+  /** `"age"` — the window is deciding. `"disk"` — the disk is. */
+  bound_by?: "age" | "disk";
+}
+
+/**
+ * The server's own link to Kallon Cloud ({@link TowerListResponse.cloud}).
+ *
+ * ⚠ ONE FACT ABOUT THE BOX THAT ANSWERED, not about a tower. Every tower on
+ * one hub shows the same answer, which is why it rides at the top of the fleet
+ * reply rather than inside each tower's health.
+ *
+ * ⚠ "KALLON CLOUD", NEVER "DC". The data centre is our word for our own
+ * machine; a customer is being told whether their site can be seen from
+ * outside, and that service has a name.
+ *
+ * An ABSENT block is "this box cannot say" — a hub whose uplink agent has
+ * never run — which is a different sentence from `connected: false`.
+ */
+export interface CloudHealth {
+  /** Is the uplink to the cloud up right now. */
+  connected?: boolean;
+  /**
+   * How this site reaches the cloud, in a word. Declared at install, not
+   * sniffed: a hub behind a 4G router is on Ethernet as far as Linux knows.
+   */
+  iface?: "Ethernet" | "Fibre" | "Mobile" | "Satellite" | "Wi-Fi";
+  /** When the current cloud link came up. Absent while disconnected. */
+  since?: Timestamp;
+  /** Heartbeat round trip, milliseconds. Absent while disconnected. */
+  latency_ms?: number;
+  /**
+   * This answer came FROM the cloud, so there is nothing to measure: a viewer
+   * reading through the data centre is reaching it by construction, and no
+   * latency is invented for a round trip nobody made.
+   */
+  is_cloud?: boolean;
 }
 
 /**
@@ -1275,6 +1394,16 @@ export interface SectorHealth {
   stations?: string[];
   /** The device ids of the masts those MACs belong to. */
   towers?: string[];
+  /**
+   * How well this radio hears each mast it can name, dBm.
+   *
+   * Present only where the station reader used read-only SNMP: the older
+   * password path scrapes MACs off an HTTP status page and has no signal to
+   * give, so an absent list is "not measured" and never "no signal". A mast in
+   * {@link SectorHealth.towers} with no entry here is associated and
+   * unmeasured.
+   */
+  tower_signals?: SectorTowerSignal[];
 }
 
 export interface TowerHealth {
@@ -1290,6 +1419,14 @@ export interface TowerHealth {
   radio?: RadioHealth;
   /** The hub's own sector radios. Hub mast only. */
   sectors?: SectorHealth[];
+  /**
+   * Where this device's footage goes, and how long it lasts there.
+   *
+   * Absent from a device that has not reported it, which is every tower and
+   * hub on a release older than this field. A settings screen says so in words
+   * rather than printing a window nothing keeps.
+   */
+  recording?: RecordingHealth;
 }
 
 /** §3.4 `tower.state.reason` — why an unsolicited health push was sent. */

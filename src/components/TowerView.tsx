@@ -16,6 +16,7 @@ import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { ViewerSession } from "@kallon/sentry-sdk";
 import type { Mutation } from "@/lib/useMutation";
 import type { Alert, CameraFeed, CameraSettings, Tower } from "@/lib/types";
+import type { CloudReading } from "@/lib/api/fleet";
 
 /**
  * One tower: its camera wall and its alerts feed.
@@ -28,6 +29,7 @@ import type { Alert, CameraFeed, CameraSettings, Tower } from "@/lib/types";
  */
 export function TowerView({
   tower,
+  cloud,
   feeds,
   alerts,
   playback,
@@ -63,6 +65,12 @@ export function TowerView({
   onToggleLiveViewWarning,
 }: {
   tower: Tower;
+  /**
+   * The site's link to Kallon Cloud, held by the shell because it is one fact
+   * about the server rather than about this tower. Passed straight through to
+   * the settings panel's Network group.
+   */
+  cloud?: CloudReading;
   /** This tower's cameras, already filtered by the shell. */
   feeds: CameraFeed[];
   /** This tower's alerts, already filtered by the shell. */
@@ -364,6 +372,7 @@ export function TowerView({
       {settingsOpen && canSettings ? (
         <CameraSettingsPanel
           tower={tower}
+          cloud={cloud}
           canTune={canTune}
           feeds={feeds}
           settings={cameraSettings(tower.id)}

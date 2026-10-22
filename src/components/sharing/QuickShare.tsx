@@ -126,7 +126,7 @@ export function QuickShare({
 
   if (sent) {
     return (
-      <p className="text-[0.8125rem] leading-[18px] text-notify-share" role="status">
+      <p className="text-[0.8125rem] leading-[18px] text-body-ink" role="status">
         Offered{sharedAs ? ` as ${sharedAs}` : ""}. They have to accept before
         anything changes.
       </p>
@@ -188,7 +188,9 @@ export function QuickShare({
           type="button"
           onClick={() => void send()}
           disabled={busy || !otherSiteId || durationSec <= 0}
-          className="rounded-[6px] bg-notify-share px-[12px] py-[6px] font-display text-[0.75rem] tracking-[0.12px] text-notify-share-ink transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-notify-share"
+          /* The app's primary: white fill, dark ink. See `Accept` in
+             ShareNotifications -- one button style for the whole family. */
+          className="rounded-[6px] bg-action px-[12px] py-[6px] font-display text-[0.75rem] tracking-[0.12px] text-action-ink transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
         >
           {busy ? "Sending..." : "Offer"}
         </button>

@@ -290,13 +290,20 @@ describe("the fleet feed", () => {
 });
 
 describe("the new notification kinds are declared properly", () => {
-  test("each kind has all four token classes", async () => {
+  test("each kind is ONE strip colour", async () => {
+    /* ⚠ IT USED TO BE FOUR TOKENS -- accent, wash, line, solid -- and that is
+       what made a card a coloured panel with a coloured heading and a coloured
+       button. The card is the app's card now and the kind is a 2px strip
+       along its top. `sharing.test.mjs` holds the whole rule; this checks the
+       two kinds this screen raises. */
     const source = await readFile(join(SRC, "lib", "notifications.tsx"), "utf8");
     for (const kind of ["fleet", "revoked"]) {
-      const block = source.slice(source.indexOf(`  ${kind}: {`));
-      for (const slot of ["accent", "wash", "line", "solid"]) {
-        assert.match(block.slice(0, 400), new RegExp(`${slot}:`),
-          `${kind} has no ${slot}`);
+      const at = source.indexOf(`  ${kind}: {`);
+      assert.ok(at > 0, `${kind} is not declared`);
+      const line = source.slice(at, source.indexOf("\n", at));
+      assert.match(line, /strip: "bg-notify-/, `${kind} has no strip`);
+      for (const gone of ["accent", "wash", "line:", "solid"]) {
+        assert.doesNotMatch(line, new RegExp(gone), `${kind} still carries ${gone}`);
       }
     }
   });
@@ -324,10 +331,16 @@ describe("the new notification kinds are declared properly", () => {
        detections. A card that borrowed either would put "live" or "somebody is
        in the yard" on a statement about a mast being renamed. */
     const source = await readFile(join(SRC, "lib", "notifications.tsx"), "utf8");
-    const block = source.slice(source.indexOf("  fleet: {"));
-    assert.doesNotMatch(block, /terra/);
-    assert.doesNotMatch(block, /alert-banner/);
-    assert.doesNotMatch(block, /critical/);
+    /* Their own lines only. The table below them now declares an `alert` kind
+       whose strip IS the alarm red, which is correct for an alert and would
+       otherwise be read as these two borrowing it. */
+    for (const kind of ["fleet", "revoked"]) {
+      const at = source.indexOf(`  ${kind}: {`);
+      const line = source.slice(at, source.indexOf("\n", at));
+      assert.doesNotMatch(line, /terra/, kind);
+      assert.doesNotMatch(line, /alert-banner/, kind);
+      assert.doesNotMatch(line, /critical/, kind);
+    }
   });
 });
 

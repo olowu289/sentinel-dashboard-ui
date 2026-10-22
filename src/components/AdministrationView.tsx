@@ -41,6 +41,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AuditEntry, Person, Share, Site } from "@kallon/sentry-sdk";
 import { said } from "@/lib/said";
 import { AUDIT_GROUPS, sentenceFor } from "@/lib/auditSentence";
+import { siteDayEnd, siteDayStart } from "@/lib/time";
 import { isAdminRole, isShareLive } from "@kallon/sentry-sdk";
 import {
   adminAddPerson,
@@ -1274,16 +1275,23 @@ function AuditPane() {
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
 
-  /* ⚠ THE FILTER OBJECT IS MEMOISED ON ITS CONTENTS. `useAudit` re-fetches
-     when the object changes, and a fresh object every render is a request per
-     keystroke somewhere else on the page. */
+  /* ⚠ THE DATES ARE SITE DAYS, TURNED INTO INSTANTS HERE.
+     The rows are stamped in UTC and shown in the site's own clock, so a range
+     typed as "21 Oct to 21 Oct" has to mean midnight to midnight AT THE SITE.
+     It used to send `2026-10-21T00:00:00Z` literally, which in Lagos starts an
+     hour into the day and ends an hour into the next one: rows the page itself
+     was displaying as the 21st fell outside the filter for the 21st.
+     `siteDayEnd` is the first moment of the next day, so a millisecond comes
+     off it to keep the range inclusive at both ends. */
   const filter = useMemo(
     () => ({
       limit: 200,
       groups,
       ...(person ? { accountId: person } : {}),
-      ...(since ? { since: `${since}T00:00:00Z` } : {}),
-      ...(until ? { until: `${until}T23:59:59Z` } : {}),
+      ...(since ? { since: new Date(siteDayStart(since) * 1000).toISOString() } : {}),
+      ...(until
+        ? { until: new Date(siteDayEnd(until) * 1000 - 1).toISOString() }
+        : {}),
     }),
     [groups.join(","), person, since, until],
   );
@@ -1420,6 +1428,7 @@ function AuditPane() {
           {rows.map(({ entry, text }) => (
             <li
               key={entry.seq}
+              data-testid="audit-row"
               className="flex flex-wrap items-baseline gap-x-[12px] gap-y-[2px] rounded-[10px] border border-line bg-card/40 px-[14px] py-[10px]"
             >
               <span className="text-[0.8125rem] leading-[20px] text-body-ink">

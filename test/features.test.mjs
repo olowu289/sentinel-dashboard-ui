@@ -290,3 +290,91 @@ describe("theme", () => {
     assert.doesNotThrow(() => mod.theme.applyTheme("light"));
   });
 });
+
+/* ================================================================== *
+ * TOWER SETTINGS, AND WHO MAY OPEN THEM
+ * ================================================================== */
+
+describe("an operator can open tower settings", () => {
+  /**
+   * ══════════════════════════════════════════════════════════════════
+   *  WHAT WAS WRONG
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * The gear on a tower was gated on `camera_tuning` -- a feature that is OFF
+   * for everybody by default, because detection zones and sensitivity are
+   * local state with nothing behind them. The effect was not "a demo control
+   * is hidden": it was that nobody at a site could open tower settings at all,
+   * so the tower's NAME, its stream quality and its home position -- all real,
+   * all theirs -- were unreachable by the person standing at the mast.
+   *
+   * The panel opens on `settings`, which is in the real set. `camera_tuning`
+   * now gates the one group it is about.
+   *
+   * Read as SOURCE: what is asserted is which gate wraps which rows, and a
+   * render test can only show what is there.
+   */
+  let tower;
+  let panel;
+  before(async () => {
+    const { readFile } = await import("node:fs/promises");
+    tower = await readFile(join(ROOT, "src/components/TowerView.tsx"), "utf8");
+    panel = await readFile(
+      join(ROOT, "src/components/CameraSettingsPanel.tsx"), "utf8");
+  });
+
+  test("the five real features include settings and not tuning", () => {
+    /* The operator's set, as a server that says nothing sends it. */
+    const set = mod.f.featureSet(null);
+    assert.equal(mod.f.can(set, "settings"), true);
+    assert.equal(mod.f.can(set, "camera_tuning"), false);
+  });
+
+  test("so the gear opens on `settings`", () => {
+    assert.match(tower, /const canSettings = can\(features, "settings"\)/);
+    assert.match(tower, /onOpenSettings=\{canSettings \? onToggleSettings : undefined\}/);
+    assert.match(tower, /settingsOpen=\{canSettings && settingsOpen\}/);
+    assert.doesNotMatch(tower, /onOpenSettings=\{canTune/);
+  });
+
+  test("and the panel is told, separately, whether tuning is allowed", () => {
+    assert.match(tower, /canTune=\{canTune\}/);
+    assert.match(panel, /canTune = false,/, "the default must be restrictive");
+  });
+
+  test("DETECTION is the only group behind camera_tuning", () => {
+    const open = panel.indexOf("{canTune ? (");
+    assert.ok(open > 0, "the tuning gate is gone");
+    const close = panel.indexOf(") : null}", open);
+    assert.ok(close > open, "the tuning gate never closes");
+    const gated = panel.slice(open, close);
+    assert.match(gated, /<Group title="Detection">/);
+    assert.match(gated, /Activity Zones/);
+    assert.match(gated, /Sensitivity/);
+
+    /* ⚠ AND THE REAL ROWS ARE OUTSIDE IT. This is the assertion that would
+       have caught the original bug: every one of these belongs to whoever
+       works at that site, and none of them is fabricated. */
+    for (const real of [
+      "<Group title=\"Camera\">",
+      "Stream Quality",
+      "Home Position",
+      "<Group title=\"Storage\">",
+      "<Group title=\"About Device\">",
+    ]) {
+      const at = panel.indexOf(real);
+      assert.ok(at > 0, `${real} is gone`);
+      assert.ok(
+        at < open || at > close,
+        `${real} is behind camera_tuning, which is off for an operator`,
+      );
+    }
+  });
+
+  test("the tower's own name is not behind it either", () => {
+    const open = panel.indexOf("{canTune ? (");
+    const close = panel.indexOf(") : null}", open);
+    const at = panel.indexOf("<TowerName");
+    assert.ok(at > 0 && (at < open || at > close));
+  });
+});

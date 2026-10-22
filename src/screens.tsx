@@ -32,7 +32,7 @@ import { AdministrationView } from "@/components/AdministrationView";
 import { SharesView } from "@/components/SharesView";
 import { IconRail } from "@/components/IconRail";
 import { AddDeviceDrawer } from "@/components/AddDeviceDrawer";
-import { KINDS } from "@/lib/notifications";
+import { CARD_SKIN, CARD_TITLE, KINDS } from "@/lib/notifications";
 import { NotificationProvider, useNotifications } from "@/lib/notifications";
 import { NotificationStack } from "@/components/NotificationStack";
 import { ShareFeedProvider } from "@/lib/useShareFeed";
@@ -373,12 +373,33 @@ function install(mode: Mode) {
     if (url.includes("/v1/admin/people"))
       return body({ people: empty ? [] : PEOPLE });
     if (url.includes("/v1/admin/audit")) {
-      /* THE GROUP FILTER IS THE SERVER'S, so the stub has to honour it or the
-         screenshot would show rows the real page never receives. */
-      const asked = new URL(url, "http://x").searchParams.get("groups");
+      /* ⚠ EVERY FILTER IS THE SERVER'S, so the stub honours all four or the
+         harness proves nothing about the page that sends them. Same rules as
+         `_audit` on the DC: the groups name the actions, the person is the
+         row's account, and the dates are compared as ISO strings.
+
+         The page's filters were DEAD on the real site -- `useLoader` never
+         watched the filter, so the first request was the only request -- and a
+         stub that answered everything the same way could not have shown it. */
+      /* ⚠ RECORDED, BECAUSE A STUBBED FETCH MAKES NO NETWORK REQUEST.
+         The browser check for the filters has to prove the page ASKED for
+         them, and `page.on("request")` sees nothing here: `install()` replaces
+         `window.fetch` with a function that returns a Response. So the harness
+         keeps the list, and the test reads it. Harness only: `screens.tsx` is
+         not in the shipped bundle. */
+      const log = (window as unknown as { __auditAsked?: string[] });
+      log.__auditAsked = [...(log.__auditAsked ?? []), url];
+      const q = new URL(url, "http://x").searchParams;
+      const asked = q.get("groups");
       const groups = asked ? asked.split(",") : [];
-      const keep = (e: { action: string }) =>
-        groups.length === 0 || groups.includes(groupOf(e as never) ?? "");
+      const who = q.get("account_id") ?? "";
+      const since = q.get("since") ?? "";
+      const until = q.get("until") ?? "";
+      const keep = (e: { action: string; account_id: string | null; ts: string }) =>
+        (groups.length === 0 || groups.includes(groupOf(e as never) ?? ""))
+        && (!who || e.account_id === who)
+        && (!since || e.ts >= since)
+        && (!until || e.ts <= until);
       return body({
         entries: empty ? [] : AUDIT.filter(keep),
         limit: 200,
@@ -971,16 +992,16 @@ function HarnessCard({
 }) {
   const k = KINDS[kind];
   return (
-    <div
-      className={
-        "flex flex-col gap-[6px] rounded-[12px] border px-[14px] py-[12px] " +
-        k.wash + " " + k.line
-      }
-    >
-      <span className={"font-display text-[0.8125rem] " + k.accent}>
-        {title}
-      </span>
-      <span className="text-[0.75rem] leading-[16px] text-muted">{body}</span>
+    /* The real tokens: the app's card, and the kind as a strip along the top.
+       `overflow-hidden` so the strip takes the card's own corners. */
+    <div className={`overflow-hidden rounded-[12px] border ${CARD_SKIN}`}>
+      <div className={`h-[2px] w-full ${k.strip}`} aria-hidden />
+      <div className="flex flex-col gap-[6px] px-[14px] py-[12px]">
+        <span className={`font-display text-[0.8125rem] ${CARD_TITLE}`}>
+          {title}
+        </span>
+        <span className="text-[0.75rem] leading-[16px] text-muted">{body}</span>
+      </div>
     </div>
   );
 }

@@ -67,7 +67,7 @@ function Quote({ text }: { text: string }) {
     /* What a person typed, rendered as what a person typed: their words, not
        a field value. The rule matters most on a request, where this is the
        only thing the reader has to decide on. */
-    <p className="whitespace-pre-wrap border-l-2 border-notify-share/40 pl-[8px] text-[0.8125rem] leading-[18px] text-body-ink">
+    <p className="whitespace-pre-wrap border-l-2 border-stroke pl-[8px] text-[0.8125rem] leading-[18px] text-body-ink">
       {text}
     </p>
   );
@@ -91,7 +91,10 @@ function Accept({
       type="button"
       onClick={onClick}
       disabled={busy}
-      className="rounded-[6px] bg-notify-share px-[12px] py-[6px] font-display text-[0.75rem] tracking-[0.12px] text-notify-share-ink transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-notify-share"
+      /* ⚠ THE APP'S PRIMARY, NOT THE KIND'S COLOUR. White fill, dark ink,
+         exactly as every other primary in the product: a blue filled button
+         inside a card was the loudest of the four blue things on it. */
+      className="rounded-[6px] bg-action px-[12px] py-[6px] font-display text-[0.75rem] tracking-[0.12px] text-action-ink transition-opacity hover:opacity-90 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
     >
       {busy ? "..." : label}
     </button>
@@ -255,7 +258,7 @@ export function PendingCard({
         )}
       </p>
       {share.by_admin ? (
-        <p className="mt-[4px] font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+        <p className="mt-[4px] font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
           By the administrator
         </p>
       ) : null}
@@ -284,7 +287,7 @@ export function PendingCard({
             transition={ENTER}
             className="overflow-hidden"
           >
-            <div className="mt-[10px] border-t border-notify-share-line pt-[10px]">
+            <div className="mt-[10px] border-t border-row-line pt-[10px]">
               {isRequest ? (
                 <>
                   <ShareDecision
@@ -438,7 +441,7 @@ export function AdminNoticeCard({
 }) {
   return (
     <div>
-      <p className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+      <p className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
         By the administrator
       </p>
       <p className="mt-[4px] text-[0.8125rem] leading-[18px] text-body-ink">
@@ -691,7 +694,7 @@ export function SharedFeedBadge({
   const body = (
     <>
       <span className="size-[5px] rounded-full bg-notify-share" aria-hidden />
-      <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+      <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-body-ink">
         {share.owner_site_name}
       </span>
       <span className="text-[0.6875rem] tabular-nums text-muted">
@@ -700,7 +703,10 @@ export function SharedFeedBadge({
     </>
   );
   const skin =
-    "chip-blur flex items-center gap-[6px] rounded-[4px] border border-notify-share-line bg-notify-share-wash/80 px-[8px] py-[3px]";
+    /* ⚠ THE DOT IS THE COLOUR, AND IT IS THE ONLY ONE. This badge is the
+       tile's version of the card's strip: one blue dot says "borrowed", and
+       the chip itself is the ordinary dark chip every other tile wears. */
+    "chip-blur flex items-center gap-[6px] rounded-[4px] border border-line bg-black/55 px-[8px] py-[3px]";
 
   if (!onWatch) {
     return (
@@ -722,7 +728,7 @@ export function SharedFeedBadge({
       animate={{ opacity: 1 }}
       transition={FADE}
       aria-label={`Watch ${share.owner_site_name}${left ? `, ${left} left` : ""}`}
-      className={`${skin} transition-colors hover:bg-notify-share-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action`}
+      className={`${skin} transition-colors hover:bg-black/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action`}
     >
       {body}
     </motion.button>

@@ -38,6 +38,8 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ENTER, EXIT } from "@/lib/motion";
 import {
+  CARD_SKIN,
+  CARD_TITLE,
   KINDS,
   MAX_VISIBLE,
   sinceLabel,
@@ -78,17 +80,19 @@ function Card({
           onDismiss();
         }
       }}
-      className={`chip-blur pointer-events-auto w-full overflow-hidden rounded-[10px] border ${style.line} ${style.wash} shadow-[0_8px_30px_rgba(0,0,0,0.45)] sm:w-[340px]`}
+      className={`chip-blur pointer-events-auto w-full overflow-hidden rounded-[10px] border ${CARD_SKIN} shadow-[0_8px_30px_rgba(0,0,0,0.45)] sm:w-[340px]`}
     >
-      {/* The accent is a hairline along the top rather than a block of colour:
-          these sit on live video, and a solid panel of hue at this size reads
-          as an alarm whatever colour it is. */}
-      <div className={`h-[2px] w-full ${style.solid}`} aria-hidden />
+      {/* ⚠ THE ONLY COLOURED PIXEL ON THE CARD. The card itself is the app's
+          card; the kind is a 2px strip. It used to be a tinted panel with a
+          tinted border, a coloured heading and a coloured button, which made
+          the one small surface that sits on live video the loudest thing in a
+          black and white product. */}
+      <div className={`h-[2px] w-full ${style.strip}`} aria-hidden />
       <div className="flex items-start gap-[10px] p-[12px]">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-[8px]">
             <p
-              className={`font-display text-[0.6875rem] uppercase tracking-[0.11px] ${style.accent}`}
+              className={`font-display text-[0.6875rem] uppercase tracking-[0.11px] ${CARD_TITLE}`}
             >
               {n.title}
             </p>
@@ -151,7 +155,9 @@ function History({ onClose }: { onClose: () => void }) {
                 className="flex items-baseline gap-[8px] border-b border-row-line/60 px-[12px] py-[8px] last:border-0"
               >
                 <span
-                  className={`size-[6px] shrink-0 rounded-full ${KINDS[h.kind].solid}`}
+                  /* The history's rows have no strip to carry the kind, so the
+                     dot does -- the same one colour, at 6px. */
+                  className={`size-[6px] shrink-0 rounded-full ${KINDS[h.kind].strip}`}
                   aria-hidden
                 />
                 <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-body-ink">

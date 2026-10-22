@@ -138,6 +138,13 @@ export function TowerView({
      the state simulator (a review tool). */
   const { features } = useSession();
   const showAlertsPanel = can(features, "alerts");
+  /* ⚠ THE GEAR OPENS ON `settings`, NOT ON `camera_tuning`.
+     It used to open on `camera_tuning`, which is off by default because
+     detection tuning is local state -- so an operator at the site could not
+     reach the tower's NAME, its stream quality or its home position either,
+     none of which is fabricated. `camera_tuning` now gates the one group it
+     is about, inside the panel. */
+  const canSettings = can(features, "settings");
   const canTune = can(features, "camera_tuning");
   const canSimulate = can(features, "simulator");
 
@@ -264,8 +271,8 @@ export function TowerView({
              state. Undefined when the account cannot tune, for the same
              reason as the simulator button above: a control that is drawn
              and does nothing is worse than one that is absent. */
-          onOpenSettings={canTune ? onToggleSettings : undefined}
-          settingsOpen={canTune && settingsOpen}
+          onOpenSettings={canSettings ? onToggleSettings : undefined}
+          settingsOpen={canSettings && settingsOpen}
         />
 
         {/* Shown only where the alerts feed itself is not: collapsed on
@@ -354,9 +361,10 @@ export function TowerView({
           wall in view while they change what the camera reports, and the rail
           is the one thing on this screen they are not reading at that moment —
           it is a list of what already happened. */}
-      {settingsOpen ? (
+      {settingsOpen && canSettings ? (
         <CameraSettingsPanel
           tower={tower}
+          canTune={canTune}
           feeds={feeds}
           settings={cameraSettings(tower.id)}
           cameraProfiles={cameraProfiles}

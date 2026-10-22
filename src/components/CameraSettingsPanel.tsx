@@ -249,6 +249,7 @@ export function CameraSettingsPanel({
   onRetrySettings,
   onDismissSettings,
   onClose,
+  canTune = false,
   className = "",
 }: {
   tower: Tower;
@@ -291,6 +292,23 @@ export function CameraSettingsPanel({
    * spinner that resolves into "NO SESSION".
    */
   sessionFor?: (feedId: string) => ViewerSession | null;
+  /**
+   * May this account change what the cameras LOOK FOR -- zones, sensitivity,
+   * motion.
+   *
+   * ⚠ THE PANEL IS NO LONGER BEHIND THIS, AND THAT IS THE FIX. The whole
+   * panel used to be gated on `camera_tuning`, a feature that is off by
+   * default because detection tuning is local state with nothing behind it.
+   * The result: an operator could not open TOWER SETTINGS AT ALL -- not the
+   * tower's name, not stream quality, not the home position, none of which is
+   * fabricated and all of which belongs to whoever works at that site.
+   *
+   * So the panel opens on `settings`, and this one group stays behind
+   * `camera_tuning`. Default false: a caller that has not thought about it
+   * gets the restrictive answer, which is the same rule `DEFAULT_FEATURES`
+   * follows.
+   */
+  canTune?: boolean;
   /** Commit a new id for this tower. */
   onRename: (next: string) => void;
   /** What the rename is doing. Keyed by tower id, owned by the shell. */
@@ -596,6 +614,11 @@ export function CameraSettingsPanel({
             onDismiss={onDismissSettings}
           />
 
+          {/* ⚠ THE ONE GROUP BEHIND `camera_tuning`. Motion, zones and
+              sensitivity are local state with no server behind them; showing
+              them to a customer is the fabrication `registry/features.py`
+              exists to refuse. Everything else on this panel is real. */}
+          {canTune ? (
           <Group title="Detection">
             <Row
               label="Motion"
@@ -635,6 +658,7 @@ export function CameraSettingsPanel({
               />
             </Row>
           </Group>
+          ) : null}
 
           <Group title="Camera">
             <Row

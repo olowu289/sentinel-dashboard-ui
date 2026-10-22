@@ -57,28 +57,40 @@ import {
 } from "react";
 
 /**
- * The kinds of card this product shows. ONE COLOUR EACH, and the token names
- * are the kinds rather than the hues, so a restyle is a value change.
+ * The kinds of card this product shows, and the ONE place each kind's colour
+ * appears.
  *
- * ⚠ `terra` AND THE ALARM RED ARE BOTH UNAVAILABLE. Green means live and
- * nothing else; the alarm red is held for the detections and faults that are
- * coming. See the token block in index.css.
+ * ══════════════════════════════════════════════════════════════════════
+ *  THE CARDS WERE THE COLOURED PART OF A BLACK AND WHITE PRODUCT
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A share request over the video wall arrived as a blue-bordered card on a
+ * blue-tinted panel, with a blue heading and a blue filled button:
+ *
+ *     SOUTH PIT IS ASKING                         (blue, uppercase)
+ *     South Pit would like to see your cameras.
+ *     [ Choose and accept ]  Decline              (blue fill)
+ *
+ * Every other surface in this product is black, white and a hairline. Four
+ * blue elements on one small card made the ordinary question -- somebody wants
+ * to see a camera -- look like an event, and the product look like two
+ * products.
+ *
+ * So the card is now the same card as everywhere else and the type colour is a
+ * 2px STRIP ALONG THE TOP. That is enough to tell a share from a fleet change
+ * at a glance over live video, and it is the only coloured pixel on the card.
+ * The buttons are the app's buttons: white fill with dark ink for the primary,
+ * a hairline for the quiet one.
+ *
+ * ⚠ ONE TOKEN PER KIND AND NOTHING ELSE. A kind that needs a second colour is
+ * a kind that is about to put a tint back on the card. `terra` (green) is
+ * unavailable: green means LIVE in this product and nothing else.
  */
 export const KINDS = {
   /** Somebody at another site is asking for, or offering, access. */
-  share: {
-    accent: "text-notify-share",
-    wash: "bg-notify-share-wash",
-    line: "border-notify-share-line",
-    solid: "bg-notify-share text-notify-share-ink",
-  },
+  share: { strip: "bg-notify-share" },
   /** A statement with nothing to answer. It reports; it does not ask. */
-  system: {
-    accent: "text-notify-system",
-    wash: "bg-notify-system-wash",
-    line: "border-notify-system-line",
-    solid: "bg-action text-action-ink",
-  },
+  system: { strip: "bg-notify-system" },
   /**
    * THE FLEET CHANGED: a cell or a tower added, moved or replaced.
    *
@@ -86,12 +98,7 @@ export const KINDS = {
    * they may do that without asking anybody, and this is how the office finds
    * out the same minute rather than next month.
    */
-  fleet: {
-    accent: "text-notify-fleet",
-    wash: "bg-notify-fleet-wash",
-    line: "border-notify-fleet-line",
-    solid: "bg-notify-fleet text-notify-fleet-ink",
-  },
+  fleet: { strip: "bg-notify-fleet" },
   /**
    * SOMETHING WAS TAKEN AWAY: a tower removed, a person disabled.
    *
@@ -100,13 +107,30 @@ export const KINDS = {
    * "somebody has lost access", which is the sentence an admin re-reads to
    * check they meant it.
    */
-  revoked: {
-    accent: "text-notify-revoked",
-    wash: "bg-notify-revoked-wash",
-    line: "border-notify-revoked-line",
-    solid: "bg-notify-revoked text-notify-revoked-ink",
-  },
+  revoked: { strip: "bg-notify-revoked" },
+  /**
+   * A DETECTION OR A FAULT, in the product's alarm red.
+   *
+   * ⚠ NOTHING RAISES ONE YET, and the row is here rather than invented later
+   * on purpose: alerts reach an operator as the banner above the wall and as a
+   * row in the feed, and the day one of them becomes a card as well, the
+   * colour it uses is already decided and is already the only coloured pixel
+   * on it. Red is the fault colour, so a card wearing it is a fault and
+   * nothing else -- which is exactly why `revoked` is amber and not red.
+   */
+  alert: { strip: "bg-critical" },
 } as const;
+
+/**
+ * The card's own skin, shared by every kind: the app's card, not a tinted one.
+ *
+ * Exported because the floating stack, the deck over the video and the
+ * harness all draw the same frame, and three copies of a border colour is how
+ * one of them stays blue after a restyle.
+ */
+export const CARD_SKIN = "border-card-line bg-card";
+/** The heading on a card. Ordinary ink, never the type's colour. */
+export const CARD_TITLE = "text-body-ink";
 
 export type NotificationKind = keyof typeof KINDS;
 

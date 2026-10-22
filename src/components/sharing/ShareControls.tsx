@@ -94,14 +94,18 @@ export function Allow({
         disabled={disabled}
         onClick={() => onChange(!on)}
         className={`mt-[2px] h-[18px] w-[30px] shrink-0 rounded-full border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${
-          on ? "border-notify-share bg-notify-share/30" : "border-stroke bg-ink"
+          /* ⚠ THE APP'S ON-STATE, NOT THE SHARE COLOUR. These controls sit
+             inside a share card, and a blue switch in a card whose only
+             colour is a 2px strip is the colour coming back in by the side
+             door. White is "on" everywhere else in this product. */
+          on ? "border-action bg-action/25" : "border-stroke bg-ink"
         }`}
       >
         <motion.span
           layout
           transition={ENTER}
           className={`block size-[12px] rounded-full ${
-            on ? "ml-[15px] bg-notify-share" : "ml-[2px] bg-muted"
+            on ? "ml-[15px] bg-action" : "ml-[2px] bg-muted"
           }`}
         />
       </button>
@@ -324,11 +328,11 @@ export function TowerPicker({
               <span
                 aria-hidden
                 className={`flex size-[14px] shrink-0 items-center justify-center rounded-[3px] border ${
-                  on ? "border-notify-share bg-notify-share" : "border-stroke"
+                  on ? "border-action bg-action" : "border-stroke"
                 }`}
               >
                 {on ? (
-                  <span className="size-[6px] rounded-[1px] bg-notify-share-ink" />
+                  <span className="size-[6px] rounded-[1px] bg-action-ink" />
                 ) : null}
               </span>
               <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-body-ink">
@@ -362,7 +366,7 @@ export function TowerPicker({
                           onClick={() => toggleCamera(t.deviceId, c, t.cameras)}
                           className={`rounded-[4px] border px-[6px] py-[2px] text-[0.6875rem] transition-colors ${
                             picked
-                              ? "border-notify-share/60 text-notify-share"
+                              ? "border-action/60 text-body-ink"
                               : "border-stroke text-muted"
                           }`}
                         >

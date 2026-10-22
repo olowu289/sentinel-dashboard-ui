@@ -82,9 +82,32 @@ function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** `what` names what is being loaded, for the sentence shown if it fails. */
+/**
+ * `what` names what is being loaded, for the sentence shown if it fails.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  `key` IS WHAT MAKES A FILTERED LOADER RELOAD, AND IT WAS MISSING
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * The effect below depends on `enabled`, `tick` and `what` -- deliberately not
+ * on `load`, which is a fresh closure on every render and would re-fetch
+ * forever. The cost of that was invisible for the loaders that take no
+ * argument and total for the two that do:
+ *
+ *   * the AUDIT LOG. Pressing a group chip, choosing a person or setting a
+ *     date built a new filter, which built a new `load`, which nothing
+ *     watched. The rows never changed. Every filter on that page was dead on
+ *     the real site, which is how it was reported.
+ *   * ONE CELL. Opening cell A and then cell B kept A's towers on screen: the
+ *     hub id changed, `enabled` stayed true, and the effect never re-ran.
+ *
+ * So a loader whose request depends on something passes that something as
+ * `key`, a string, and the effect watches it. A loader with no argument passes
+ * nothing and behaves exactly as before. The dependency is a VALUE, not a
+ * function, which is the one shape that cannot loop.
+ */
 function useLoader<T>(load: () => Promise<T>, what: string,
-                      enabled = true): Loaded<T> {
+                      enabled = true, key = ""): Loaded<T> {
   const [value, setValue] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -114,9 +137,10 @@ function useLoader<T>(load: () => Promise<T>, what: string,
     return () => {
       live = false;
     };
-    // `load` is a fresh closure each render by design; `tick` is the reload.
+    // `load` is a fresh closure each render by design; `key` is what its
+    // request depends on, and `tick` is the reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, tick, what]);
+  }, [enabled, tick, what, key]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { value, loading, error, reload };
@@ -176,7 +200,10 @@ export function useCells(enabled = true): Loaded<CellListResponse> {
  */
 export function useCell(hubId: string | null): Loaded<CellDetailResponse> {
   const load = useCallback(() => getCell(hubId ?? ""), [hubId]);
-  return useLoader(load, "this cell", Boolean(hubId));
+  /* ⚠ THE HUB ID IS THE KEY. Without it, opening a second cell while a first
+     one was open showed the first one's towers: `enabled` was already true,
+     so nothing re-ran. */
+  return useLoader(load, "this cell", Boolean(hubId), hubId ?? "");
 }
 
 export function useAdminShares(enabled = true): Loaded<ShareListResponse> {
@@ -200,20 +227,25 @@ export function useAudit(
   },
   enabled = true,
 ): Loaded<AuditResponse> {
+  /* ⚠ THE FILTER IS THE KEY, AS A STRING.
+     Every field that changes what is fetched is in it, in a fixed order, so
+     two renders that ask for the same thing produce the same key and a change
+     to any one of them produces a different one. Memoising `load` on the same
+     contents is not enough on its own -- `useLoader` cannot watch a function
+     -- and that is precisely why the group chips, the person and the dates did
+     nothing on the real site. */
+  const key = [
+    filter.action ?? "",
+    String(filter.limit ?? 100),
+    (filter.groups ?? []).join("+"),
+    filter.accountId ?? "",
+    filter.since ?? "",
+    filter.until ?? "",
+  ].join("|");
   const load = useCallback(
     () => adminAudit({ ...filter, limit: filter.limit ?? 100 }),
-    // the filter is a fresh object each render; its CONTENTS are the identity,
-    // and every field that changes what is fetched has to be in this list --
-    // the groups, the person and the dates were added with the readable view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      filter.action,
-      filter.limit,
-      (filter.groups ?? []).join(","),
-      filter.accountId,
-      filter.since,
-      filter.until,
-    ],
+    [key],
   );
-  return useLoader(load, "the activity log", enabled);
+  return useLoader(load, "the activity log", enabled, key);
 }

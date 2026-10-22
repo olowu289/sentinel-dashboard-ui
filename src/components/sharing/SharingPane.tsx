@@ -237,7 +237,7 @@ function ShareRow({
               the owning site has no buttons and no obvious reason why. This
               is the reason, said once, where the row is drawn. */}
           {share.by_admin ? (
-            <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-notify-share">
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted">
               By the administrator
             </span>
           ) : null}
@@ -246,7 +246,7 @@ function ShareRow({
       </div>
       {subtitle}
       {share.message ? (
-        <p className="mt-[8px] whitespace-pre-wrap border-l-2 border-notify-share/40 pl-[8px] text-[0.8125rem] leading-[18px] text-body-ink">
+        <p className="mt-[8px] whitespace-pre-wrap border-l-2 border-stroke pl-[8px] text-[0.8125rem] leading-[18px] text-body-ink">
           {share.message}
         </p>
       ) : null}
@@ -384,7 +384,7 @@ function NewRequest({ acting }: { acting: ReturnType<typeof useActingSite> }) {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={FADE}
-                className="text-[0.8125rem] text-notify-share"
+                className="text-[0.8125rem] text-body-ink"
                 role="status"
               >
                 Sent. It is in Outgoing until they answer.
@@ -521,7 +521,7 @@ function OfferFeed({
           </p>
         ) : null}
         {sent ? (
-          <p className="text-[0.8125rem] text-notify-share" role="status">
+          <p className="text-[0.8125rem] text-body-ink" role="status">
             Offered. It is in Outgoing until they accept.
           </p>
         ) : null}
@@ -740,7 +740,7 @@ function AdminShare() {
             </p>
           ) : null}
           {sent ? (
-            <p className="text-[0.8125rem] text-notify-share" role="status">
+            <p className="text-[0.8125rem] text-body-ink" role="status">
               Shared. {sent} can accept or decline it, and the site it came from
               has been told.
             </p>
@@ -1139,7 +1139,7 @@ export function SharingPane({
               {s.label}
               {count > 0 ? (
                 <span
-                  className={`ml-[6px] tabular-nums ${on ? "" : "text-notify-share"}`}
+                  className={`ml-[6px] tabular-nums ${on ? "" : "text-body-ink"}`}
                 >
                   {count}
                 </span>

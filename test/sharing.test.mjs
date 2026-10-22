@@ -422,22 +422,99 @@ describe("the labels on a card", () => {
 });
 
 describe("the notification kinds", () => {
-  test("every kind has a colour, and none of them is terra", () => {
-    /* Green means LIVE in this product and nothing else; a card borrowing it
-       would put "live" on a wall of tiles that are not. The alarm red is held
-       for the detections and faults still to come. */
+  /* ══════════════════════════════════════════════════════════════════════
+   *  ONE COLOURED PIXEL PER CARD, AND IT IS THE STRIP
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * A share request arrived over the video wall as a blue-bordered card on a
+   * blue-tinted panel with a blue heading and a blue filled button -- four
+   * coloured elements on the one small surface in a product that is otherwise
+   * black, white and a hairline. The card is the app's card now; the kind is a
+   * 2px strip along the top.
+   */
+  test("a kind is ONE strip colour and nothing else", () => {
     for (const [kind, style] of Object.entries(n.KINDS)) {
-      assert.ok(style.accent && style.wash && style.line && style.solid, kind);
-      const all = Object.values(style).join(" ");
-      assert.doesNotMatch(all, /terra/, `${kind} must not spend the live colour`);
-      assert.doesNotMatch(all, /alert-banner|critical/, `${kind} must not look like an alarm`);
+      assert.deepEqual(
+        Object.keys(style),
+        ["strip"],
+        `${kind} carries more than a strip: ${Object.keys(style).join(", ")}`,
+      );
+      assert.match(style.strip, /^bg-/, kind);
+      assert.doesNotMatch(style.strip, /terra/, `${kind} must not spend the live colour`);
     }
+  });
+
+  test("sharing is blue, alerts are red, and the others keep their own", () => {
+    assert.equal(n.KINDS.share.strip, "bg-notify-share");
+    assert.equal(n.KINDS.alert.strip, "bg-critical");
+    assert.equal(n.KINDS.fleet.strip, "bg-notify-fleet");
+    assert.equal(n.KINDS.revoked.strip, "bg-notify-revoked");
+    /* ⚠ RED IS THE FAULT COLOUR AND ONLY THE FAULT COLOUR. `revoked` is a
+       person losing access, which is not a fault, so it is amber. */
+    assert.notEqual(n.KINDS.revoked.strip, n.KINDS.alert.strip);
+  });
+
+  test("the card's own skin is the app's card, not a tinted one", () => {
+    assert.match(n.CARD_SKIN, /bg-card/);
+    assert.match(n.CARD_SKIN, /border-card-line/);
+    assert.doesNotMatch(n.CARD_SKIN, /notify-/);
+    assert.doesNotMatch(n.CARD_TITLE, /notify-/);
   });
 
   test("three cards are visible at once, and the rest wait", () => {
     /* These sit over live video. A stack that grows without limit is a modal
        with extra steps. */
     assert.equal(n.MAX_VISIBLE, 3);
+  });
+});
+
+describe("no card in the family wears its colour anywhere but the strip", () => {
+  /* Read as SOURCE, because what is asserted is that something is ABSENT.
+     These five files are the whole family: the frame, the share bodies, the
+     quick-share popover, the controls inside an expanded card, and the page
+     that draws the same rows. */
+  const FAMILY = [
+    "src/components/NotificationStack.tsx",
+    "src/components/sharing/ShareNotifications.tsx",
+    "src/components/sharing/QuickShare.tsx",
+    "src/components/sharing/ShareControls.tsx",
+    "src/components/sharing/SharingPane.tsx",
+  ];
+
+  test("no tinted background, border, heading or button survives", async () => {
+    const offenders = [];
+    for (const rel of FAMILY) {
+      const src = await readFile(join(ROOT, rel), "utf8");
+      /* Comments blanked: a note ABOUT the old blue must not count as blue. */
+      const code = src
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1 ");
+      for (const m of code.matchAll(/(?:bg|border|text|outline)-notify-[a-z-]+/g)) {
+        /* The one exception, and it is the badge's version of the strip: a
+           5px dot that says a feed is borrowed. */
+        const dot = code.slice(Math.max(0, m.index - 40), m.index + 40);
+        if (/rounded-full bg-notify-share/.test(dot)) continue;
+        offenders.push(`${rel}: ${m[0]}`);
+      }
+    }
+    assert.deepEqual(offenders, [], offenders.join(" | "));
+  });
+
+  test("the primary button is the app's primary", async () => {
+    for (const rel of [
+      "src/components/sharing/ShareNotifications.tsx",
+      "src/components/sharing/QuickShare.tsx",
+    ]) {
+      const src = await readFile(join(ROOT, rel), "utf8");
+      assert.match(src, /bg-action px-\[12px\] py-\[6px\][^"]*text-action-ink/, rel);
+    }
+  });
+
+  test("and the frame draws the strip from the kind", async () => {
+    const src = await readFile(join(ROOT, "src/components/NotificationStack.tsx"), "utf8");
+    assert.match(src, /h-\[2px\] w-full \$\{style\.strip\}/);
+    assert.match(src, /\$\{CARD_SKIN\}/);
+    assert.match(src, /\$\{CARD_TITLE\}/);
   });
 });
 

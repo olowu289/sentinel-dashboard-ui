@@ -154,12 +154,22 @@ describe("what the About section reads", () => {
     assert.doesNotMatch(map, /serial: raw\.serial \?\? ""/);
   });
 
-  test("the panel shows five rows, the two serials among them", () => {
+  test("the panel shows the unit's facts, from the tower", () => {
     assert.match(panel, /label="Model Name" value=\{tower\.model \?\? ""\}/);
     assert.match(panel, /label="Serial Number" value=\{tower\.serial \?\? ""\}/);
-    assert.match(panel, /label="Board Serial" value=\{tower\.boardSerial \?\? ""\}/);
     assert.match(panel, /label="Cameras"/);
     assert.match(panel, /label="Firmware"/);
+  });
+
+  test("⭐ Board Serial is never rendered, on any device", () => {
+    /* ⚠ THE MAPPER STILL CARRIES IT and the test above still checks that it
+       does -- `boardSerial` is a real field and dropping it on the way in
+       would be losing data. What changed is that nothing LABELS it: a second
+       long number under a row already called Serial Number, answering a
+       question no operator has. Checked as a rendered label rather than as the
+       word, so the comment explaining the removal does not satisfy it. */
+    assert.doesNotMatch(panel, /label="Board Serial"/);
+    assert.doesNotMatch(panel, /\{tower\.boardSerial/);
   });
 
   test("a row with no value says \"Not reported\"", () => {
@@ -180,16 +190,26 @@ describe("the cell's About block", () => {
 
   test("a hub shows the same facts a tower does", () => {
     assert.match(cells, /function HubAbout/);
-    for (const label of ["Model", "Serial number", "Board serial", "Firmware"]) {
+    for (const label of ["Model", "Serial number", "Firmware"]) {
       assert.match(cells, new RegExp(`"${label}"`), label);
     }
   });
 
-  test("its radios are shown only when it declares any", () => {
-    /* A single radio hub declares none, and "0" would read as a hub with no
-       radios rather than one with one. */
-    assert.match(cells, /cell\.sectors \?/);
-    assert.match(cells, /"Radio sectors"/);
+  test("⭐ and not the board serial, here either", () => {
+    assert.doesNotMatch(cells, /"Board serial"/);
+    /* It must also stop deciding whether the block appears at all: a cell that
+       had reported only a board serial would otherwise open a panel of rows
+       with nothing in them. */
+    assert.doesNotMatch(cells, /cell\.board_serial \|\|/);
+  });
+
+  test("⭐ radios are a count, and never zero", () => {
+    /* It read "Radio sectors" and was hidden entirely on a single-radio hub,
+       which declares none -- so the one hub whose radio count a reader might
+       doubt was the one that said nothing. Every hub has at least one. */
+    assert.match(cells, /"Radios"/);
+    assert.doesNotMatch(cells, /"Radio sectors"/);
+    assert.match(cells, /Math\.max\(listed, 1\)/);
   });
 
   test("a hub that has not reported says so in a sentence, not five blanks", () => {

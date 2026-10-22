@@ -1142,6 +1142,8 @@ const SETTINGS_HUB: Tower = {
   kind: "hub",
   asOf: Date.now() - 12_000,
   healthAsOf: Date.now() - 12_000,
+  /* The hub's link to Kallon Cloud, in the tower's own `connected_at` field.
+     A real hub fills it from its uplink agent's published state. */
   connectedAt: Date.now() - 9 * 24 * 3600 * 1000,
   model: "HUB-3S",
   serial: "KLN-H-2610-0001",
@@ -1153,6 +1155,9 @@ const SETTINGS_HUB: Tower = {
   storageUsedGb: 1218,
   storageTotalGb: 2118,
   health: {
+    /* How this hub reaches the cloud, in the tower's own field. A real hub
+       fills this from HUB_INTERNET. */
+    uplink: { type: "Fibre" },
     disk: { freePct: 42.5 },
     /* ⚠ THE ROW THAT WAS A PROMISE ABOUT EVIDENCE. Asked for thirty days, and
        the disk fills at about twelve, so both numbers are here and the screen
@@ -1230,13 +1235,20 @@ const SETTINGS_CLOUD: CloudReading = {
 
 function SettingsScreen({ which }: { which: string }) {
   const hub = which === "settings-hub";
+  /* ⚠ THE HUB MAST'S CAMERA ADVERTISES NO PROFILES, and that is the fixture
+     being honest rather than convenient. A hub's own mast reports no stream
+     list on the wire, which is why Picture quality on that page was blank
+     while the tower's beside it read "Standard" off a profile set. The row
+     names the one quality a camera without a list has; copying the tower's
+     profiles in here would have hidden the thing the screen is for. */
   const feeds = hub
-    ? (SETTINGS_FEEDS.slice(0, 1).map((f) => ({
-        ...f,
+    ? ([{
+        ...SETTINGS_FEEDS[0],
         id: "kln_hub_kaduna:1",
         towerId: "kln_hub_kaduna",
         name: "HUB MAST",
-      })) as CameraFeed[])
+        profiles: undefined,
+      }] as unknown as CameraFeed[])
     : SETTINGS_FEEDS;
   return (
     <div className="flex h-full w-full justify-end bg-ink">

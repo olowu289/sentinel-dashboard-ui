@@ -147,11 +147,24 @@ function Confirm({
  * reported" lines say less than no block at all, and the sentence that
  * replaces it says WHY.
  */
+/**
+ * How many radios a hub has, from the list it declares.
+ *
+ * `sectors` crosses as the screen's own string ("A, B, C"), so the count is
+ * read off that rather than asked for separately. A hub that declares nothing
+ * has one radio: every hub has at least one, and a single-radio hub is exactly
+ * the one that declares no sectors because it has none to tell apart.
+ */
+function countRadios(sectors?: string): number {
+  const listed = (sectors ?? "").split(",").filter((s) => s.trim()).length;
+  return Math.max(listed, 1);
+}
+
 function HubAbout({ cell }: { cell: ManagedCell }) {
   const firmware = classifyFirmware(cell.firmware, null);
-  const known = Boolean(
-    cell.model || cell.serial || cell.board_serial || cell.firmware,
-  );
+  /* ⚠ BOARD SERIAL IS NOT IN THIS TEST ANY MORE. It is no longer shown, so a
+     cell that had reported only that one would open a block of empty rows. */
+  const known = Boolean(cell.model || cell.serial || cell.firmware);
   if (!known) {
     return (
       <p className="text-[0.75rem] leading-[16px] text-muted">
@@ -161,15 +174,21 @@ function HubAbout({ cell }: { cell: ManagedCell }) {
   }
   const rows: readonly (readonly [string, string])[] = [
     ["Model", cell.model ?? ""],
-    /* THE UNIT's serial, from its label -- it survives a re-flash and a move.
-       THE BOARD's is read off the Jetson at every start, so a swapped board
-       changes that line and leaves this one alone. */
+    /* THE UNIT's serial, from its label: it survives a re-flash and a move,
+       because neither changes which unit this is.
+
+       ⚠ AND ONLY THAT ONE. The BOARD's serial used to sit under it, so a
+       swapped Jetson would be visible rather than remembered. That is a real
+       thing to want and it is a support tool's job; on a customer's screen it
+       is a second long number under a row already called Serial number, and
+       nobody reading this block has the question it answers. `board_serial`
+       still crosses the wire and is still parsed. Nothing labels it here. */
     ["Serial number", cell.serial ?? ""],
-    ["Board serial", cell.board_serial ?? ""],
     ["Firmware", firmware.label === "Unknown" ? "" : firmware.label],
-    /* Only when there are any: a single radio hub declares none, and "0" would
-       read as a hub with no radios rather than one with one. */
-    ...(cell.sectors ? ([["Radio sectors", cell.sectors]] as const) : []),
+    /* HOW MANY RADIOS, never the letters and never "0". `sectors` arrives as
+       the screen's own list ("A, B, C"); a hub that declares none has ONE
+       radio rather than no radios, which is what hiding the row implied. */
+    ["Radios", `${countRadios(cell.sectors)}`],
   ];
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-[12px] gap-y-[2px] rounded-[8px] border border-line/70 bg-card/30 px-[12px] py-[8px]">

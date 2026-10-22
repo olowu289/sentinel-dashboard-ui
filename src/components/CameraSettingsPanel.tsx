@@ -12,7 +12,14 @@ import { MaskIcon } from "./Icon";
 import { batteryCharging } from "@/lib/battery";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
-import { formatEventTime, formatUptime } from "@/lib/time";
+import { formatConnectedSince } from "@/lib/time";
+import {
+  connectedSinceAt,
+  internetRow,
+  pictureQualitySummary,
+  profileLabel,
+  radioCount,
+} from "@/lib/settingsRows";
 import { storageTone } from "@/lib/storage";
 import { classifyFirmware } from "@/lib/firmware";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
@@ -33,7 +40,6 @@ import {
   type ActivityZone,
   type CameraFeed,
   type CameraSettings,
-  type StreamProfile,
   type Tower,
 } from "@/lib/types";
 
@@ -138,48 +144,6 @@ const NIGHT: { value: CameraSettings["nightVision"]; label: string; note?: strin
    shows none. Nothing here is a constant, because nothing here is this app's
    to decide.
    ───────────────────────────────────────────────────────────────────── */
-
-/**
- * What a picture quality is called on screen.
- *
- * ⚠ NEVER "sub" OR "main", WHICH IS WHAT THE WIRE CALLS THEM. Those are our
- * words for two MediaMTX paths and they mean nothing to the person watching.
- * The light one is **Standard**; the heavy one is named by what it actually
- * is, so a customer comparing two sites compares two resolutions.
- *
- * `tierFor` is deliberately the whole label and not a prefix. "2K · 2560×1440"
- * put the fact beside the familiar word, which was right while the row's job
- * was to prove it was no longer lying about 4K. The row's job now is to be
- * chosen from, and a menu of two with four numbers in it is harder to read
- * than a menu of two.
- */
-function tierFor(width: number, height: number): string {
-  const w = Math.max(width, height);
-  if (w >= 3840) return "4K";
-  if (w >= 2560) return "2K";
-  if (w >= 1920) return "1080p";
-  return "HD";
-}
-
-/**
- * The name for one profile, given the set the camera offers.
- *
- * The SMALLEST is Standard, whatever its numbers; everything above it is named
- * by resolution. Decided from the set rather than from the profile's id, so a
- * camera that one day offers three gets three honest names and not two names
- * and a guess.
- */
-function profileLabel(p: StreamProfile, all: readonly StreamProfile[]): string {
-  const sized = all.filter((x) => x.resolution);
-  if (sized.length > 1 && p.resolution) {
-    const pixels = (x: StreamProfile) =>
-      (x.resolution?.width ?? 0) * (x.resolution?.height ?? 0);
-    const smallest = sized.reduce((a, b) => (pixels(a) <= pixels(b) ? a : b));
-    if (p.id === smallest.id) return "Standard";
-  }
-  if (!p.resolution) return "Standard";
-  return tierFor(p.resolution.width, p.resolution.height);
-}
 
 /* ⚠ `RECORDING`, `RETENTION` AND `POWER` ARE GONE, AND THEY WERE THE THREE
    DROP-DOWNS THAT WROTE TO NOTHING.
@@ -329,26 +293,7 @@ export function CameraSettingsPanel({
   const canShare = caps?.features.sites === true;
   const [editingZones, setEditingZones] = useState(false);
 
-  /* What the collapsed row says. One camera speaks for itself; two agreeing
-     speak as one; two disagreeing say so rather than picking a winner to
-     print. Empty for a camera advertising nothing, and the row then says
-     "Not reported" like every other absent reading here. */
-  const streamSummary = (() => {
-    const labels = feeds.map((f) => {
-      const list = f.profiles ?? [];
-      if (list.length === 0) return null;
-      const current =
-        list.find((p) => p.id === cameraProfiles?.[f.id]) ??
-        list.find((p) => p.default) ??
-        list[0];
-      return profileLabel(current, list);
-    });
-    const known = labels.filter((l): l is string => l !== null);
-    if (known.length === 0) return "";
-    return known.every((l) => l === known[0])
-      ? known[0]
-      : `${known.length} cameras`;
-  })();
+  const streamSummary = pictureQualitySummary(feeds, cameraProfiles);
 
   /* ── TOWER OR HUB ────────────────────────────────────────────────────
      From the box's own word, not from a guess. `health.sectors` was the
@@ -358,43 +303,14 @@ export function CameraSettingsPanel({
      is every release before `kind` crossed. */
   const isHub = tower.kind === "hub";
 
-  /* THE HUB'S WAY OUT, in one sentence of three facts the agent measured.
-     Each part is dropped rather than defaulted, so a hub that reports the
-     interface and nothing else says the interface and stops. */
-  /* THE HUB'S WAY OUT, as a word and a state.
-     ⚠ NO LATENCY ON SCREEN. It read "Fibre · connected · 42 ms"; the
-     milliseconds are a diagnostic, not something a customer decides anything
-     with, and three facts in one value is two too many. */
-  const internetRow = (() => {
-    if (!cloud) return { value: "", tone: undefined as string | undefined };
-    if (cloud.isCloud) return { value: "Connected", tone: undefined };
-    const where = cloud.iface ?? "";
-    if (cloud.connected !== true) {
-      return {
-        value: where ? `${where} · not connected` : "Not connected",
-        tone: "text-critical",
-      };
-    }
-    return { value: where ? `${where} · connected` : "Connected", tone: undefined };
-  })();
+  const internet = internetRow(tower, cloud);
 
-  /* When the CLOUD link came up, for the hub's Connected since row. Parsed
-     here so the row stays the one that ticks. */
-  const cloudSince = (() => {
-    if (!cloud?.since || cloud.connected !== true) return undefined;
-    const at = Date.parse(cloud.since);
-    return Number.isNaN(at) ? undefined : at;
-  })();
+  const connectedSince = connectedSinceAt(tower, cloud);
 
-
-  /* A COUNT, NOT A POSITION. This panel cannot say where home currently
-     points without asking the tower, and inventing a description would be
-     worse than saying nothing - so it reports the one thing it does know: how
-     many of this site's cameras can hold a home at all. */
-  const movable = feeds.filter((f) => f.ptz).length;
   /* A COUNT, NOT A POSITION. This panel cannot say where home currently
      points without asking the tower. The row is hidden when the count is
      zero, so "No movable camera" is gone with it. */
+  const movable = feeds.filter((f) => f.ptz).length;
   const homeSummary = movable === 1 ? "1 camera" : `${movable} cameras`;
 
   /* ⚠ A POSITIVE TEST, NOT `!== "hub"`. A device that has reported no
@@ -643,14 +559,22 @@ export function CameraSettingsPanel({
                 {/* No id on this line. The name above it is what the fleet
                     card, the band header and the breadcrumb all show, so the
                     id was a third value competing for a 417px row beside a
-                    switch — and it was the one nobody came here to read. */}
-                <span className="truncate">
-                  {tower.location ?? "Location not reported"}
-                </span>
-                <span
-                  aria-hidden
-                  className="size-[2px] shrink-0 rounded-full bg-muted"
-                />
+                    switch — and it was the one nobody came here to read.
+
+                    ⚠ AND NO "Location not reported". Nothing in this product
+                    sets a location, so the line was a permanent report of a
+                    gap in our own data, printed above the battery on every
+                    site. With no location the battery stands alone and the
+                    separator goes with it. */}
+                {tower.location ? (
+                  <>
+                    <span className="truncate">{tower.location}</span>
+                    <span
+                      aria-hidden
+                      className="size-[2px] shrink-0 rounded-full bg-muted"
+                    />
+                  </>
+                ) : null}
                 <span className="flex shrink-0 items-center gap-[4px]">
                   {/* Filled to the charge, not tinted by it. A flat tint draws
                       a *full* battery in amber, and a full battery is a claim —
@@ -914,19 +838,17 @@ export function CameraSettingsPanel({
               <>
                 <RowReading
                   label="Internet"
-                  value={internetRow.value}
-                  tone={internetRow.tone}
+                  value={internet.value}
+                  tone={internet.tone}
                 />
                 <SectorRows sectors={tower.health?.sectors} />
-                {/* The CLOUD link's, not a mast's: a hub has no hub of its
-                    own, so the useful "since" is the one for the row above. */}
-                <ConnectedSince at={cloudSince} />
+                <ConnectedSince at={connectedSince} />
               </>
             ) : (
               <>
                 <RadioLinkRow radio={tower.health?.radio} />
                 <UplinkRow reading={ownUplink} />
-                <ConnectedSince at={tower.connectedAt} />
+                <ConnectedSince at={connectedSince} />
               </>
             )}
             <CloudRow cloud={cloud} last />
@@ -944,7 +866,7 @@ export function CameraSettingsPanel({
           <Group title="Storage">
             {recordsLocally ? (
               <RowReading
-                label="Memory"
+                label={isHub ? "Disk" : "Memory"}
                 value={
                   tower.storageUsedGb !== undefined &&
                   tower.storageTotalGb !== undefined
@@ -1029,24 +951,28 @@ export function CameraSettingsPanel({
             {/* THE UNIT's serial, from its label. It survives a re-flash and a
                 move: neither changes which unit this is. */}
             <RowReading label="Serial Number" value={tower.serial ?? ""} />
-            {/* THE BOARD's own, read off the Jetson at every start. Beside the
-                unit serial rather than merged with it, because a swapped board
-                changes this line and leaves the one above alone -- which is
-                how a repair becomes visible instead of remembered. */}
-            <RowReading label="Board Serial" value={tower.boardSerial ?? ""} />
+            {/* ⚠ NO BOARD SERIAL. It was here so that a swapped Jetson would
+                be visible rather than remembered, which is a real thing to
+                want and is a thing for a support tool to want. On a customer's
+                settings page it is a second long number under a row already
+                called Serial Number, and the question it answers is one no
+                operator has. `tower.boardSerial` still crosses the wire and is
+                still mapped; nothing on this screen prints it. */}
             <RowReading label="Cameras" value={`${feeds.length}`} />
-            {/* A HUB'S RADIO SECTORS, where it has any. A count here and the
-                per-sector detail in the Network group above: this row answers
-                "what is this box", that one answers "is it working". Absent on
-                a tower, which has no sectors -- it is ON one. */}
+            {/* A HUB'S RADIOS, counted. A count here and the per-radio detail
+                in the Network group above: this row answers "what is this
+                box", that one answers "is it working". Absent on a tower,
+                which has no radios of its own -- it is ON one.
+
+                ⚠ "Radios", AND ALWAYS A NUMBER. It read "Radio sectors" with
+                the value "One radio, no sectors", which is a sentence in the
+                value column explaining our own word in the label. A hub that
+                declares no sectors has one radio, so it says 1; a three-sector
+                hub says 3. The reader counts radios either way. */}
             {isHub ? (
               <RowReading
-                label="Radio sectors"
-                value={
-                  (tower.health?.sectors?.length ?? 0) > 0
-                    ? `${tower.health?.sectors?.length}`
-                    : "One radio, no sectors"
-                }
+                label="Radios"
+                value={`${radioCount(tower)}`}
                 detail={
                   (tower.health?.sectors?.length ?? 0) > 0
                     ? tower.health?.sectors
@@ -1650,18 +1576,20 @@ function CloudRow({ cloud, last = false }: { cloud?: CloudReading; last?: boolea
 /**
  * When the current link came up, and how long it has held.
  *
- * ⚠ WALL CLOCK FIRST, DURATION SECOND — and that ordering is the app's time
- * rule rather than a layout preference. `formatRelative` ("3 days ago") is
- * reserved for two transient banners whose whole job is *this just happened*,
- * and neither of those re-ticks. Operators hand incidents over by radio across
- * shifts; a row that only said "3 days ago" would give the next shift nothing
- * to quote. So the value is the instant, in site time, and the uptime rides
- * beside it.
+ * ⚠ THE INSTANT, AND ONLY THE INSTANT. It read
+ * `Oct 19, 08:18 AM WAT · up 3d 4h`: four facts, three of them answering a
+ * question nobody asked at a row called Connected since. The uptime was the
+ * worst of them -- it is the only value on this panel that changes while you
+ * look at it, and a number ticking on a monitoring screen reads as something
+ * happening. `formatConnectedSince` gives `Today 1:18 PM`, and the note at
+ * that function says why dropping the zone label here is not the thing the
+ * app's time rule forbids.
  *
  * Its own component so the tick stays here. `useNow` is deliberately not called
  * in `TowerView` — a re-render pushed through the tile tree twice a minute is
  * how this app makes a takeover snap instead of animate, which is written up at
- * the hook. Only this row re-renders.
+ * the hook. Only this row re-renders. It still ticks because the day word
+ * turns over at midnight; nothing else in the value moves.
  */
 function ConnectedSince({ at, what }: { at?: number; what?: string }) {
   /* 30s, the hook's default. The finest thing this can show is a minute, so a
@@ -1692,7 +1620,7 @@ function ConnectedSince({ at, what }: { at?: number; what?: string }) {
   return (
     <RowReading
       label="Connected since"
-      value={`${formatEventTime(at, now)} · up ${formatUptime(now - at)}`}
+      value={formatConnectedSince(at, now)}
       detail={what}
     />
   );

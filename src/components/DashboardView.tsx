@@ -159,9 +159,8 @@ export function DashboardView({
      alert belongs to a tower, and this is the shortest route to the one that
      matters most. */
   const newest = alerts.find((a) => a.status === "triggered");
-  /* Its tower's NAME. `towerName` falls back to the id when the fleet does not
-     have that tower, which is the one case where there is nothing better to
-     say -- so the fallback here is a word rather than a serial. */
+  /* Its tower's NAME, with a word for the one case where there is nothing
+     better to say: a tower the fleet does not have. Never its serial. */
   const newestTowerName = newest
     ? (towers.find((t) => t.id === newest.towerId)?.site ?? "a tower")
     : "";

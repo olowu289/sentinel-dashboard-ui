@@ -26,7 +26,7 @@
  *   npm test
  */
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -438,5 +438,81 @@ describe("the notification kinds", () => {
     /* These sit over live video. A stack that grows without limit is a modal
        with extra steps. */
     assert.equal(n.MAX_VISIBLE, 3);
+  });
+});
+
+describe("the Shares screen asks for names, never identifiers", () => {
+  /* ══════════════════════════════════════════════════════════════════════
+   *  THE FORM USED TO ASK FOR A DEVICE ID, BY HAND
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * Three fields on this screen collected machinery: the site to share with,
+   * typed as an id with "site id" for a placeholder; the towers, typed as
+   * device ids separated by spaces, placeholder `kln_northgate_000001`; and
+   * the length, as a number of hours. And the rows above them printed
+   * `kln_lab_000002` whenever a share covered exactly one tower.
+   *
+   * Nobody outside this office knows a device id. The screen now uses the same
+   * three pickers as the Sharing pane -- sites by name, towers by label,
+   * duration from the same list -- so there is one sharing language and no
+   * identifier in it.
+   *
+   * Read as SOURCE rather than rendered, because what is being asserted is
+   * that a particular input does not exist. A render test can only check what
+   * is there. */
+  let src;
+  let hook;
+  let feed;
+  before(async () => {
+    src = await readFile(join(ROOT, "src/components/SharesView.tsx"), "utf8");
+    hook = await readFile(join(ROOT, "src/lib/useSiteTowers.ts"), "utf8");
+    feed = await readFile(join(ROOT, "src/lib/useShareFeed.tsx"), "utf8");
+  });
+
+  test("no field asks somebody to type an id", () => {
+    /* The props are pulled out and asserted one by one: a failure then says
+       which placeholder is wrong rather than printing the file. */
+    const asked = [
+      ...src.matchAll(/(?:placeholder|hint)="([^"]*)"/g),
+    ].map((m) => m[1]);
+    for (const text of asked) {
+      assert.doesNotMatch(text, /ids?/, `a field asks for an id: ${text}`);
+      assert.doesNotMatch(text, /kln_/, `a field shows a serial: ${text}`);
+    }
+  });
+
+  test("the pickers are the shared ones, not a second set", () => {
+    for (const picker of ["SitePicker", "TowerPicker", "DurationPicker"]) {
+      assert.match(src, new RegExp(`<${picker}`), `${picker} is not used`);
+    }
+    assert.match(src, /from "@\/components\/sharing\/ShareControls"/);
+  });
+
+  test("a request offers the sites worth asking, an offer offers them all", () => {
+    /* `othersToAsk` drops the sites with no cameras: asking an empty site
+       cannot be answered, and offering one yours is an ordinary kindness. */
+    assert.match(src, /acting\.othersToAsk : acting\.others/);
+  });
+
+  test("a row says HOW MUCH was shared, not which serial", () => {
+    assert.match(src, /scopeSummary\(share\.scope\)/);
+    assert.doesNotMatch(src, /towers\[0\]/);
+  });
+
+  test("the share feed has no error mapper of its own", () => {
+    /* It had five rules and `e.message || "Something went wrong."` at the
+       end, which is the line that puts a validator's output on a card. The
+       three sentences it keeps are the ones that are better here than
+       anywhere else, and they yield to a code the mapper has words for. */
+    assert.match(feed, /return said\(err,/);
+    assert.doesNotMatch(feed, /e\?\.message \|\| "/);
+    assert.match(feed, /from "@\/lib\/said"/);
+  });
+
+  test("and a tower nothing can name is a word, not its serial", () => {
+    /* The picker's own last resort. An offline mast is still lendable, and it
+       used to be offered by device id. */
+    assert.match(hook, /labels\.get\(id\) \?\? "An unnamed tower"/);
+    assert.doesNotMatch(hook, /labels\.get\(id\) \?\? id/);
   });
 });

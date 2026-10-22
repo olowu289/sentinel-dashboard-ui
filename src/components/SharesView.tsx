@@ -28,7 +28,7 @@ import { motion } from "motion/react";
 import { IconRail } from "@/components/IconRail";
 import { said } from "@/lib/said";
 import { useCallback, useMemo, useState } from "react";
-import type { Share, SiteListResponse } from "@kallon/sentry-sdk";
+import type { Share, ShareScopeEntry } from "@kallon/sentry-sdk";
 import { isShareLive } from "@kallon/sentry-sdk";
 import {
   acceptShare,
@@ -37,6 +37,15 @@ import {
   revokeShare,
 } from "@/lib/api/sites";
 import { useShares, useSites } from "@/lib/useSites";
+import { useActingSite } from "@/lib/useActingSite";
+import { useSiteTowers } from "@/lib/useSiteTowers";
+import { scopeSummary } from "@/lib/shareRules";
+import { spellSeconds } from "@/lib/auditSentence";
+import {
+  DurationPicker,
+  SitePicker,
+  TowerPicker,
+} from "@/components/sharing/ShareControls";
 import { ENTER, FADE } from "@/lib/motion";
 import {
   Allowances,
@@ -94,7 +103,6 @@ export function ShareRow({
 }) {
   const now = Date.now();
   const left = remaining(share, now);
-  const towers = share.scope.map((e) => e.device_id);
   const other = share.incoming ? share.viewer_site_name : share.owner_site_name;
   const verb = share.incoming
     ? share.direction === "request"
@@ -110,11 +118,13 @@ export function ShareRow({
         <span className="text-[0.875rem] leading-[20px] text-body-ink">
           <span className="font-display">{other || "another site"}</span>{" "}
           <span className="text-muted">{verb}</span>{" "}
-          <span className="font-mono text-[0.75rem]">
-            {towers.length === 1
-              ? towers[0]
-              : `${towers.length} towers`}
-          </span>
+          {/* ⚠ COUNTED, NEVER NAMED BY SERIAL. This said `kln_lab_000002` for
+              a one-tower share, which is the shape of the share wire -- the
+              scope carries device ids and no labels -- leaking straight onto
+              the screen. `scopeSummary` is what the rest of the sharing UI
+              says, and it answers the question somebody has here: how much was
+              lent, not which serial. */}
+          <span className="text-[0.8125rem]">{scopeSummary(share.scope)}</span>
         </span>
         <span className="flex flex-wrap items-center gap-x-[10px] gap-y-[2px]">
           <StatusPill status={share.status} />
@@ -166,42 +176,72 @@ export function ShareRow({
  *
  * One component for both directions, because they differ only in which site
  * owns the cameras: two forms would be two places to get the defaults wrong.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  IT USED TO ASK FOR IDENTIFIERS, BY HAND
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Three fields collected machinery: a site to share with, typed as a `site id`
+ * with "site id" for a placeholder; the towers, typed as device ids separated
+ * by spaces, placeholder `kln_northgate_000001`; and the hours, as a number.
+ * Nobody outside this office knows a device id, and the one place the product
+ * shows one is nowhere -- so the form asked for a fact it also promises never
+ * to show.
+ *
+ * All three are now the pickers the Sharing pane uses: sites by NAME from the
+ * directory, towers by LABEL from the fleet, duration from the same list of
+ * choices with the same custom option. Identical words in both places, and no
+ * identifier anywhere.
  */
 function ShareForm({
   direction,
-  sites,
   onDone,
   onCancel,
 }: {
   direction: "request" | "offer";
-  sites: SiteListResponse;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const mine = sites.sites;
-  const [mySiteId, setMySiteId] = useState(mine[0]?.site_id ?? "");
+  const acting = useActingSite();
+  const mine = acting.candidates;
+  const [mySiteId, setMySiteId] = useState("");
   const [otherSiteId, setOtherSiteId] = useState("");
-  const [towers, setTowers] = useState("");
+  const [scope, setScope] = useState<readonly ShareScopeEntry[]>([]);
   /* Required on a REQUEST, where it is the only thing the other site has
      to go on; optional on an offer, which carries its own meaning. */
   const [reason, setReason] = useState("");
   const [ptz, setPtz] = useState(false);
   const [playback, setPlayback] = useState(false);
-  const [hours, setHours] = useState("2");
+  const [durationSec, setDurationSec] = useState(2 * 3600);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /* A SITE USER HAS ONE SITE AND IS NOT ASKED WHICH. `useActingSite` settles
+     it for them and leaves it unset for an administrator, who has every site
+     and no default worth guessing. */
+  const fromSite = mySiteId || acting.site?.site_id || "";
+  const lendable = useSiteTowers(direction === "offer" ? fromSite || null : null);
 
   const submit = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const scope = towers
-        .split(/[\s,]+/)
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .map((device_id) => ({ device_id }));
+      if (!fromSite) {
+        setError(
+          direction === "request"
+            ? "Choose which of your sites is asking."
+            : "Choose which of your sites is sharing.",
+        );
+        setBusy(false);
+        return;
+      }
+      if (!otherSiteId) {
+        setError("Choose the other site.");
+        setBusy(false);
+        return;
+      }
       if (direction === "offer" && !scope.length) {
-        setError("Name at least one tower to share.");
+        setError("Choose at least one camera to share.");
         setBusy(false);
         return;
       }
@@ -210,19 +250,15 @@ function ShareForm({
         setBusy(false);
         return;
       }
-      const h = Number(hours);
-      const durationSec =
-        Number.isFinite(h) && h > 0 ? Math.round(h * 3600) : 7200;
       if (direction === "request") {
         /* ⚠ A REQUEST NAMES NO CAMERAS, and this form used to send the
            towers somebody typed into it along with `ptz` and `playback`. The
            site asking cannot see what the other site has -- that is the whole
            reason it is asking -- and what it is granted is the answering
-           site's decision. The field above still collects them, because this
-           screen is also the OFFER form; they are simply not sent here. */
+           site's decision. So the picker is not even shown on a request. */
         await createShare({
           direction: "request",
-          mySiteId,
+          mySiteId: fromSite,
           otherSiteId,
           message: reason.trim(),
           durationSec,
@@ -230,19 +266,19 @@ function ShareForm({
       } else {
         await createShare({
           direction: "offer",
-          mySiteId,
+          mySiteId: fromSite,
           otherSiteId,
           scope,
           ...(reason.trim() ? { message: reason.trim() } : {}),
           live: true,
           ptz,
           playback,
-          // A WINDOW IS REQUIRED WHEN PLAYBACK IS, and it is the last `h` hours
-          // of footage rather than an open end: the server refuses playback
-          // with no window, and an unbounded one is not something to offer by
-          // accident.
+          // A WINDOW IS REQUIRED WHEN PLAYBACK IS, and it is the footage from
+          // as far back as the share is long rather than an open end: the
+          // server refuses playback with no window, and an unbounded one is
+          // not something to offer by accident.
           playbackFrom: playback
-            ? new Date(Date.now() - h * 3600_000).toISOString()
+            ? new Date(Date.now() - durationSec * 1000).toISOString()
             : undefined,
           playbackTo: playback ? new Date().toISOString() : undefined,
           durationSec,
@@ -257,7 +293,17 @@ function ShareForm({
       );
       setBusy(false);
     }
-  }, [direction, mySiteId, otherSiteId, towers, reason, ptz, playback, hours, onDone]);
+  }, [
+    direction,
+    fromSite,
+    otherSiteId,
+    scope,
+    reason,
+    ptz,
+    playback,
+    durationSec,
+    onDone,
+  ]);
 
   return (
     <motion.form
@@ -275,43 +321,45 @@ function ShareForm({
       </h3>
       <div className="grid gap-[16px] sm:grid-cols-2">
         <Field label={direction === "request" ? "Asking as" : "Sharing from"}>
-          <select
-            value={mySiteId}
-            onChange={(e) => setMySiteId(e.target.value)}
-            className={inputClass}
-          >
-            {mine.map((s) => (
-              <option key={s.site_id} value={s.site_id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          <SitePicker
+            sites={mine}
+            value={fromSite}
+            onChange={setMySiteId}
+            label={direction === "request" ? "Asking as" : "Sharing from"}
+          />
         </Field>
         <Field
           label={direction === "request" ? "Site to ask" : "Site to share with"}
-          hint="The name the administrator gave it."
+          hint="Sites you can reach, by name."
         >
-          <input
+          {/* ⚠ THE LIST, NOT A TYPED ID. The directory is what one site knows
+              about another: its name, and whether it has cameras worth asking
+              for. A request went to a site chosen from the ones worth asking;
+              an offer can go to any of them, because giving a camera to an
+              empty site is a sensible thing to do. */}
+          <SitePicker
+            sites={direction === "request" ? acting.othersToAsk : acting.others}
             value={otherSiteId}
-            onChange={(e) => setOtherSiteId(e.target.value)}
-            placeholder="site id"
-            className={inputClass}
+            onChange={setOtherSiteId}
+            label={direction === "request" ? "Site to ask" : "Site to share with"}
           />
         </Field>
       </div>
-      {/* ⚠ TOWERS ONLY ON AN OFFER. The site asking cannot see what the
+      {/* ⚠ CAMERAS ONLY ON AN OFFER. The site asking cannot see what the
           other site has, so there is nothing for it to name here: it says what
           it needs and the site answering chooses the cameras. */}
       {direction === "offer" ? (
-        <Field
-          label="Towers"
-          hint="One or more device ids, separated by spaces or commas."
-        >
-          <input
-            value={towers}
-            onChange={(e) => setTowers(e.target.value)}
-            placeholder="kln_northgate_000001"
-            className={inputClass}
+        <Field label="Cameras" hint="A tower with no camera picked means all of them.">
+          <TowerPicker
+            towers={lendable.towers}
+            loading={lendable.loading}
+            value={scope}
+            onChange={setScope}
+            emptyNote={
+              fromSite
+                ? "This site has no towers to lend yet."
+                : "Choose which of your sites is sharing first."
+            }
           />
         </Field>
       ) : (
@@ -327,36 +375,37 @@ function ShareForm({
           />
         </Field>
       )}
-      <div className="flex flex-wrap items-end gap-[20px]">
-        <Field label="Hours">
-          <input
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            inputMode="numeric"
-            className={inputClass + " max-w-[96px]"}
-          />
-        </Field>
-        {/* THE DEFAULTS ARE THE FASTEST SAFE ONES. Live is always on because it
-            is the point; control and footage are decisions. */}
-        <label className="flex items-center gap-[8px] pb-[8px] text-[0.8125rem] text-sub">
-          <input
-            type="checkbox"
-            checked={ptz}
-            onChange={(e) => setPtz(e.target.checked)}
-            className="size-[16px] accent-white"
-          />
-          Let them move the camera
-        </label>
-        <label className="flex items-center gap-[8px] pb-[8px] text-[0.8125rem] text-sub">
-          <input
-            type="checkbox"
-            checked={playback}
-            onChange={(e) => setPlayback(e.target.checked)}
-            className="size-[16px] accent-white"
-          />
-          Include the last {hours || "2"} hours of footage
-        </label>
-      </div>
+      <Field label="How long">
+        <DurationPicker value={durationSec} onChange={setDurationSec} />
+      </Field>
+      {/* ⚠ NOT ON A REQUEST, WHERE NEITHER IS SENT. What a request is granted
+          is the answering site's decision, so two checkboxes that look like
+          part of the ask and are dropped on the way out are two promises this
+          form cannot keep. */}
+      {direction === "offer" ? (
+        <div className="flex flex-wrap items-end gap-[20px]">
+          {/* THE DEFAULTS ARE THE FASTEST SAFE ONES. Live is always on because
+              it is the point; control and footage are decisions. */}
+          <label className="flex items-center gap-[8px] pb-[8px] text-[0.8125rem] text-sub">
+            <input
+              type="checkbox"
+              checked={ptz}
+              onChange={(e) => setPtz(e.target.checked)}
+              className="size-[16px] accent-white"
+            />
+            Let them move the camera
+          </label>
+          <label className="flex items-center gap-[8px] pb-[8px] text-[0.8125rem] text-sub">
+            <input
+              type="checkbox"
+              checked={playback}
+              onChange={(e) => setPlayback(e.target.checked)}
+              className="size-[16px] accent-white"
+            />
+            Include the last {spellSeconds(durationSec) || "2 hours"} of footage
+          </label>
+        </div>
+      ) : null}
       {error ? (
         <p role="alert" className="text-[0.8125rem] leading-[20px] text-critical">
           {error}
@@ -438,7 +487,6 @@ export function SharesView({
       {form && sites.value ? (
         <ShareForm
           direction={form}
-          sites={sites.value}
           onDone={() => {
             setForm(null);
             shares.reload();

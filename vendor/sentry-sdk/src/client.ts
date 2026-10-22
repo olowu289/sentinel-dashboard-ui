@@ -56,6 +56,7 @@ import type {
   PeopleListResponse,
   Person,
   RemoveCellResponse,
+  RemovePersonResponse,
   RemoveSiteResponse,
   RemoveTowerResponse,
   Share,
@@ -1674,6 +1675,17 @@ export class SentryClient {
       until?: string;
       limit?: number;
       offset?: number;
+      /**
+       * The groups to show, e.g. `["people", "sharing"]`.
+       *
+       * ⚠ A SERVER FILTER, AND IT HAS TO BE. The ledger records every PTZ
+       * nudge and every grant renewal, and it goes on doing so -- but a page
+       * that asked for 200 rows and hid the technical ones would show four
+       * sentences and a lot of nothing, because on a busy fleet those 200 rows
+       * are almost all `ptz.command`. Asking for the groups asks for 200 OF
+       * THOSE.
+       */
+      groups?: readonly string[];
     } = {},
     opts: RequestOptions = {},
   ): Promise<AuditResponse> {
@@ -1693,6 +1705,9 @@ export class SentryClient {
     add("until", filter.until);
     add("limit", filter.limit);
     add("offset", filter.offset);
+    add("groups", filter.groups && filter.groups.length
+      ? filter.groups.join(",")
+      : undefined);
     const query = parts.join("&");
     const path = query ? `/v1/admin/audit?${query}` : "/v1/admin/audit";
     const { status, body } = await this.http.send({
@@ -2031,6 +2046,37 @@ export class SentryClient {
    *
    * Admin only.
    */
+  /**
+   * Remove a person from the organization — `DELETE /v1/admin/people/{id}`.
+   *
+   * They are gone from the People screen, signed out at once, out of every
+   * site, and cannot sign in. The account ROW is kept, exactly as an archived
+   * site's row is: every audit entry and every closed share still refers to it,
+   * and the removal row carries their NAME so a year-old entry does not become
+   * an id nobody can resolve.
+   *
+   * @throws {ApiError} `409 cannot_remove_self` — ask another administrator.
+   * @throws {ApiError} `409 cannot_remove_organization` — that login is the
+   *   customer's own credential, not a person on a list.
+   */
+  async adminRemovePerson(
+    accountId: string,
+    opts: RequestOptions = {},
+  ): Promise<RemovePersonResponse> {
+    const path = `/v1/admin/people/${encodeURIComponent(accountId)}`;
+    const { body } = await this.http.send({
+      method: "DELETE",
+      path,
+      accept: "json",
+      ...pick(opts),
+    });
+    const r = (body ?? {}) as { removed?: unknown; name?: unknown };
+    return {
+      removed: typeof r.removed === "string" ? r.removed : accountId,
+      name: typeof r.name === "string" ? r.name : "",
+    };
+  }
+
   async adminRemoveSite(
     siteId: string,
     opts: RequestOptions = {},

@@ -154,3 +154,87 @@ test("something that is not a people list is still refused", () => {
   /* Tolerance is for fields that may be absent, not for fields that are the
      wrong type. The first is a compatible change; the second is a bug. */
 });
+
+/* ══════════════════════════════════════════════════════════════════════
+    REMOVING A PERSON, AND AN AUDIT PAGE THAT CAN BE READ
+   ══════════════════════════════════════════════════════════════════════ */
+
+test("adminRemovePerson deletes by id and returns the name", async () => {
+  const { client, calls } = clientFor([
+    { status: 200, body: { removed: "acct_x", name: "guest2" } },
+  ]);
+  const out = await client.adminRemovePerson("acct_x");
+  assert.equal(calls[0].init.method, "DELETE");
+  assert.match(calls[0].url, /\/v1\/admin\/people\/acct_x$/);
+  assert.equal(out.name, "guest2");
+  /* The NAME comes back because the confirmation afterwards is about a person
+     who is no longer in any list to look up. */
+});
+
+test("the audit view asks for groups, not for everything", async () => {
+  const { client, calls } = clientFor([
+    { status: 200, body: { entries: [], limit: 100, offset: 0 } },
+  ]);
+  await client.adminAudit({ groups: ["people", "sharing"], limit: 100 });
+  assert.match(calls[0].url, /groups=people%2Csharing/);
+  /* ⚠ A SERVER FILTER. On a busy fleet 200 unfiltered rows are almost all
+     ptz.command, so a page that filtered in the browser would show four
+     sentences and a lot of nothing. */
+});
+
+test("no groups means no groups parameter at all", async () => {
+  const { client, calls } = clientFor([
+    { status: 200, body: { entries: [], limit: 100, offset: 0 } },
+  ]);
+  await client.adminAudit({ groups: [] });
+  assert.doesNotMatch(calls[0].url, /groups=/);
+});
+
+test("the audit reply carries the names the page prints", async () => {
+  const { client } = clientFor([
+    {
+      status: 200,
+      body: {
+        entries: [
+          {
+            seq: 9,
+            ts: "2026-10-21T17:25:45Z",
+            action: "person.create",
+            account_id: "acct_admin",
+            device_id: null,
+            detail: { created: "acct_g2", person_name: "guest2" },
+            who: "Terra Industries",
+          },
+        ],
+        limit: 100,
+        offset: 0,
+        names: { acct_admin: "Terra Industries", acct_g2: "guest2" },
+        groups: ["people", "places", "sharing", "sign_ins"],
+      },
+    },
+  ]);
+  const out = await client.adminAudit({ groups: ["people"] });
+  assert.equal(out.entries[0].who, "Terra Industries");
+  assert.equal(out.names.acct_g2, "guest2");
+  assert.deepEqual([...out.groups].sort(), ["people", "places", "sharing", "sign_ins"]);
+});
+
+test("a server with no names map still parses", async () => {
+  /* The browser's fallback is "somebody", never the id. */
+  const { client } = clientFor([
+    {
+      status: 200,
+      body: {
+        entries: [
+          { seq: 1, ts: "2026-10-21T00:00:00Z", action: "login.success",
+            account_id: "acct_1", device_id: null, detail: null },
+        ],
+        limit: 100,
+        offset: 0,
+      },
+    },
+  ]);
+  const out = await client.adminAudit();
+  assert.equal(out.names, undefined);
+  assert.equal(out.entries[0].who, undefined);
+});

@@ -20,6 +20,7 @@ import {
   UnknownFallback,
   lastSeenLabel,
 } from "./TileFallback";
+import { AccessEnded, useEndedShareFor } from "@/components/AccessEnded";
 import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { MutationPhase } from "@/lib/useMutation";
 import type { ViewerSession } from "@kallon/sentry-sdk";
@@ -97,6 +98,10 @@ export function CameraTile({
      under a live label is the most convincing lie this app could tell. */
   const stream = playback?.kind === "playing" ? playback.stream : null;
   const playbackFailure = playback?.kind === "failed" ? playback.error : null;
+  /* The share that lent this camera and has finished, if there was one. Read
+     unconditionally (hooks cannot be conditional) and used only by the
+     session-expired branch below. */
+  const endedShare = useEndedShareFor(towerId);
   const awaitingMedia = playback?.kind === "connecting";
   /* A drop being worked on: neither a fresh connect nor a failure. Named
      `dropped` because `reconnecting` above already means something else here —
@@ -389,7 +394,17 @@ export function CameraTile({
           ) : playbackFailure?.failure === "media_unreachable" ? (
             <NoMediaPathFallback onRetry={onRetry} />
           ) : playbackFailure?.failure === "session_expired" ? (
-            <SessionEndedFallback message={playbackFailure.message} onRetry={onRetry} />
+            /* ⚠ A SHARE THAT ENDED IS NOT "the live view ended". When the
+               camera was LENT to this site and the loan has finished, the
+               honest sentence is that access ended -- and there is something to
+               do about it, which `AccessEnded` offers. A session that expired
+               on a camera this site owns is the ordinary case and keeps the
+               ordinary words. */
+            endedShare ? (
+              <AccessEnded share={endedShare} onClose={onRetry ?? (() => {})} />
+            ) : (
+              <SessionEndedFallback message={playbackFailure.message} onRetry={onRetry} />
+            )
           ) : playbackFailure ? (
             /* Everything else the media seam can report — not permitted, tower
                offline, tower timeout, camera unavailable, negotiation failed —
@@ -452,9 +467,14 @@ export function CameraTile({
             <p className="truncate font-display text-[1.25rem] leading-[24px] tracking-[0.2px] text-body-ink">
               {feed.name}
             </p>
-            {towerId && (
+            {/* ⚠ THE TOWER'S NAME, NEVER ITS SERIAL. This line read
+                `kln_lab_000002 · Sentry camera`: a device id, in front of a
+                customer, under the camera they are watching. The name is what
+                somebody chose for the mast and what their colleagues say on the
+                radio; the serial belongs in a support conversation. */}
+            {(towerName || towerId) && (
               <p className="truncate text-[0.8125rem] leading-[16px] text-body-ink/60">
-                {towerId} · Sentry camera
+                {towerName ? `${towerName} · Sentry camera` : "Sentry camera"}
               </p>
             )}
           </div>

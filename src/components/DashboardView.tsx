@@ -121,8 +121,11 @@ export function DashboardView({
     return out;
   }, [order.join(">"), feeds]);
 
+  /* ⚠ NEVER THE ID AS A FALLBACK. A tower the fleet does not have is still a
+     tower, and "kln_lab_000002" on a band heading is a serial in front of a
+     customer. */
   const towerName = (towerId: string) =>
-    towers.find((t) => t.id === towerId)?.site ?? towerId;
+    towers.find((t) => t.id === towerId)?.site ?? "This tower";
 
   const moveBand = (from: number, to: number) => {
     if (from === to || to < 0 || to >= bands.length) return;
@@ -156,6 +159,12 @@ export function DashboardView({
      alert belongs to a tower, and this is the shortest route to the one that
      matters most. */
   const newest = alerts.find((a) => a.status === "triggered");
+  /* Its tower's NAME. `towerName` falls back to the id when the fleet does not
+     have that tower, which is the one case where there is nothing better to
+     say -- so the fallback here is a word rather than a serial. */
+  const newestTowerName = newest
+    ? (towers.find((t) => t.id === newest.towerId)?.site ?? "a tower")
+    : "";
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
@@ -207,12 +216,14 @@ export function DashboardView({
               type="button"
               disabled={!newest}
               onClick={() => newest && onOpenTower(newest.towerId, true)}
+              /* THE TOWER'S NAME, not its serial: a screen reader would have
+                 read out `kln_lab_000002` and the tooltip showed it. */
               aria-label={
                 newest
-                  ? `Newest unclaimed alert — open ${newest.towerId} alerts`
+                  ? `Newest unclaimed alert — open ${newestTowerName} alerts`
                   : "No unclaimed alerts"
               }
-              title={newest ? `${newest.title} — ${newest.towerId}` : "No unclaimed alerts"}
+              title={newest ? `${newest.title} — ${newestTowerName}` : "No unclaimed alerts"}
               /* No swing when there is nothing to open. A disabled control
                  that animates under the pointer is offering something it will
                  not do. */

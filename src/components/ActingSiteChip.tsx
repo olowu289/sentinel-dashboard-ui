@@ -10,7 +10,7 @@
  *
  *   one site      the name, flat. Nothing to choose, so nothing to click
  *   several       a button that opens the list, with the current one marked
- *   an ADMIN      "All sites", because an admin is in none of them by
+ *   an ADMIN      "Every site", because an admin is in none of them by
  *                 membership and sees all of them. Their acting site is
  *                 chosen per share, on the Sharing page, where the choice has
  *                 a consequence -- putting it in permanent chrome would make
@@ -38,7 +38,11 @@ export function ActingSiteChip({ className = "" }: { className?: string }) {
         className={`shrink-0 font-display text-[0.6875rem] uppercase tracking-[0.11px] text-muted ${className}`}
         title="An administrator sees every site. Which site you act for is chosen per share."
       >
-        All sites
+        {/* ⚠ "EVERY SITE", THE SAME TWO WORDS AS EVERYWHERE ELSE. This
+            said "All sites", which is also what the first migration called a
+            SITE, so one phrase meant a place on one screen and "all of them"
+            on another. */}
+        Every site
       </span>
     );
   }

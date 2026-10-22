@@ -164,22 +164,28 @@ describe("destructive actions say what they will do", () => {
 
 describe("a login is shown once and a name everywhere else", () => {
   let admin;
+  let code;
   before(async () => {
     admin = await read("components/AdministrationView.tsx");
+    code = stripComments(admin);
   });
 
   test("the people list draws the NAME, with the login quiet beside it", () => {
-    assert.match(admin, /\{p\.name \?\? p\.login\}/);
+    /* `personLabel` is the one place that decides: the person's name, and the
+       login only for an organization's own account, which has no name. */
+    assert.match(code, /function personLabel/);
+    assert.match(code, /return p\.name \?\? p\.login/);
+    assert.match(code, /<CopyableLogin login=\{person\.login\}/);
   });
 
   test("a renamed person reads `dele (was chi)`", () => {
     /* The ledger holds account ids, so an old entry still resolves to this
        person. This is how a READER connects the two. */
-    assert.match(admin, /\(was \{p\.was\}\)/);
+    assert.match(code, /\(was \{person\.was\}\)/);
   });
 
   test("the login is spelled out exactly once, when somebody is added", () => {
-    assert.match(admin, /justAdded/);
+    assert.match(code, /justAdded/);
     assert.match(admin, /can sign in now/);
     assert.match(admin, /the login never changes/i);
   });
@@ -191,27 +197,59 @@ describe("a login is shown once and a name everywhere else", () => {
     assert.match(admin, /No dots: the dot is what separates/);
   });
 
-  test("only a PERSON, and never yourself, gets a rename button", () => {
-    /* An organization's own login is not somebody's name, and the slug behind
-       it is in every person's login in the organization.
-
-       AND NEVER YOUR OWN ROW. `may_manage_person` refuses the caller's own id
-       -- which is what stops an administrator disabling the only
-       administrator -- so a button there is a 404 waiting for somebody to
-       press it. The screenshots caught the row offering Disable on itself. */
-    assert.match(admin, /\{p\.name && p\.account_id !== meId \? \(/);
-    assert.match(admin, /Fix a typo/);
+  test("THE STATUS IS SHOWN, which is the bug this round fixed", () => {
+    /* owner1 and guest1 are DISABLED on the production DC and this page
+       offered them both a "Disable" button and no badge, because it never read
+       `status`. The one fact that explains why somebody cannot sign in was the
+       one fact missing. */
+    assert.match(code, /person\.status !== "active"/);
+    assert.match(code, /<StatusPill status=\{disabled \? "disabled" : "active"\}/);
+    /* And a disabled row is visibly muted rather than looking ordinary. */
+    assert.match(code, /line-through/);
   });
 
-  test("your own row offers nothing it cannot do, and says why", () => {
-    assert.match(admin, /p\.account_id === meId \? \(/);
-    assert.match(admin, /This is you\. Change your password in Settings\./);
-    /* Disable and Enable are behind the same check. */
-    assert.match(admin, /\{p\.account_id === meId \? null : disabled \? \(/);
+  test("a disabled person is offered Enable, not Disable", () => {
+    assert.match(code, /disabled\s*\n?\s*\?\s*\{\s*\n?\s*label: "Enable"/);
+    assert.match(code, /label: "Disable"/);
   });
 
-  test("the rename box says the login changes", () => {
-    assert.match(admin, /This changes their login to/);
+  test("every action is in one menu, not a row of buttons", () => {
+    assert.match(code, /<OverflowMenu/);
+    assert.match(code, /label=\{`Actions for \$\{personLabel\(person\)\}`\}/);
+    for (const item of [
+      "Edit sites",
+      "Reset password",
+      "Fix a typo in the name",
+      "Remove",
+    ]) {
+      assert.match(code, new RegExp(`label: "${item}"`));
+    }
+  });
+
+  test("nothing it cannot do is offered, and each refusal says why", () => {
+    /* `may_manage_person` refuses the caller's own id -- which is what stops
+       an administrator removing the only administrator -- and the server
+       refuses the organization's own login outright. A menu item that cannot
+       work is a 404 waiting for somebody to press it, so both are disabled
+       with the reason as the title. */
+    assert.match(code, /disabled: isMe \|\| isOrganization/);
+    assert.match(admin, /Ask another administrator to remove you\./);
+    assert.match(admin, /Nobody renames themselves/);
+  });
+
+  test("removing somebody names them, and says what it does", () => {
+    assert.match(admin, /Remove \$\{personLabel\(confirm\.person\)\}\?/);
+    assert.match(admin, /taken out of every site/);
+    assert.match(admin, /audit log keeps their name/);
+  });
+
+  test("site membership is a searchable multi-select, not a row of chips", () => {
+    assert.match(code, /<MultiSelect/);
+    assert.match(code, /Which sites they can see/);
+  });
+
+  test("the rename panel says the login changes", () => {
+    assert.match(admin, /Their LOGIN changes with the name/);
   });
 });
 

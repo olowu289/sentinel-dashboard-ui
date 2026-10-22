@@ -61,12 +61,45 @@ const RAW =
  * `https://host/v1` produces `https://host/v1/v1/viewer/towers` and a 404 that
  * looks like a missing route rather than a config typo.
  */
-function validate(raw: unknown): ConfigProblem {
+/**
+ * What is wrong, in two halves.
+ *
+ * ⚠ ONLY ONE OF THEM IS A SENTENCE, AND THAT IS THE WHOLE POINT. This
+ * function used to return one string, and the string named the build variable:
+ *
+ *     VITE_COORDINATION_URL must be http or https, not "ftp:"
+ *
+ * `requireCoordinationUrl` throws it, the client builder calls that, so any
+ * loader on any screen catches it and `said` prints it -- it reads enough like
+ * a sentence to pass -- and a customer with a mistyped deployment reads the
+ * name of an environment variable. Nobody outside this office can act on that,
+ * and the person who CAN act on it is not looking at this screen.
+ *
+ * So `problem` is for whoever is looking at it and `detail` is for whoever
+ * deployed it, in the console, once, at import.
+ */
+interface Checked {
+  /** For a screen. Plain, and never names a variable or a value. */
+  readonly problem: ConfigProblem;
+  /** For the console. The variable, the value, and what to do about it. */
+  readonly detail: string | null;
+}
+
+const NOT_SET =
+  "This dashboard has not been told where its server is, so it cannot sign anybody in. Whoever installed it needs to point it at one.";
+const NOT_USABLE =
+  "This dashboard's server address is not usable, so it cannot sign anybody in. Whoever installed it needs to correct it.";
+
+function validate(raw: unknown): Checked {
   if (typeof raw !== "string" || raw.trim() === "") {
     // Only reachable off-browser (no window to inherit an origin from) with no
     // explicit URL — e.g. a non-DOM test context. In a browser the same-origin
     // default applies, so the served build is always configured.
-    return "No coordination origin: set VITE_COORDINATION_URL, or serve the dashboard from the hub's coordination (it inherits that origin).";
+    return {
+      problem: NOT_SET,
+      detail:
+        "No coordination origin: set VITE_COORDINATION_URL, or serve the dashboard from the hub's coordination (it inherits that origin).",
+    };
   }
   const value = raw.trim();
 
@@ -74,20 +107,37 @@ function validate(raw: unknown): ConfigProblem {
   try {
     parsed = new URL(value);
   } catch {
-    return `VITE_COORDINATION_URL is not a URL: ${JSON.stringify(value)}`;
+    return {
+      problem: NOT_USABLE,
+      detail: `VITE_COORDINATION_URL is not a URL: ${JSON.stringify(value)}`,
+    };
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return `VITE_COORDINATION_URL must be http or https, not ${JSON.stringify(parsed.protocol)}`;
+    return {
+      problem: NOT_USABLE,
+      detail: `VITE_COORDINATION_URL must be http or https, not ${JSON.stringify(parsed.protocol)}`,
+    };
   }
   /* Not a style rule. The SDK's documented paths carry `/v1` themselves, so a
      base that also carries it doubles the segment. */
   if (/\/v\d+\/?$/.test(parsed.pathname)) {
-    return `VITE_COORDINATION_URL must not include the API version — drop the "${parsed.pathname}" and leave just the origin.`;
+    return {
+      problem: NOT_USABLE,
+      detail: `VITE_COORDINATION_URL must not include the API version — drop the "${parsed.pathname}" and leave just the origin.`,
+    };
   }
-  return null;
+  return { problem: null, detail: null };
 }
 
-const PROBLEM = validate(RAW);
+const CHECKED = validate(RAW);
+const PROBLEM = CHECKED.problem;
+
+/* THE OPERATOR'S HALF, SAID ONCE, WHERE AN OPERATOR LOOKS. A misconfigured
+   build is a deployment mistake, and the console is where the person who made
+   it is already looking; the screen gets the sentence above instead. */
+if (CHECKED.detail) {
+  console.error(`Sentry dashboard configuration: ${CHECKED.detail}`);
+}
 
 /* Trailing slashes are trimmed here rather than at every call site: the SDK
    treats `https://host` and `https://host/` identically, but string-concatenated
@@ -143,7 +193,7 @@ export function isSeededFleet(): boolean {
 
 export function requireCoordinationUrl(): string {
   if (URL_VALUE === undefined) {
-    throw new NotConfiguredError(PROBLEM ?? "coordination is not configured");
+    throw new NotConfiguredError(PROBLEM ?? NOT_SET);
   }
   return URL_VALUE;
 }

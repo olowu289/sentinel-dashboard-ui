@@ -1,3 +1,4 @@
+import { saidQuiet } from "@/lib/said";
 import {
   isNormalPtzOutcome,
   isPtzYielded,
@@ -321,14 +322,22 @@ export function describeControl(control: PtzControl | null | undefined): string 
   /* A hold with no name is still a hold: refusing to say anything would leave
      a dead pad with no explanation, which is the one outcome worse than a
      vague one. */
-  return who ? `CONTROLLED BY ${who.toUpperCase()}` : "CONTROLLED BY ANOTHER SITE";
+  /* The site's name as the admin typed it. `.toUpperCase()` was shouting a
+     name back at the person who chose it; the chip's own CSS does the casing if
+     the design wants it. */
+  return who ? `${who} is moving this camera` : "Another site is moving this camera";
 }
 
 export function describeStepRefusal(res: PtzResult): string | null {
   const result = res.result as { done?: unknown; reason?: unknown } | undefined;
   if (!result || result.done !== false) return null;
   const reason = typeof result.reason === "string" ? result.reason : null;
-  return reason ?? "THE CAMERA DID NOT MOVE";
+  /* THE TOWER'S OWN REASON, THROUGH THE MAPPER. It is usually a sentence
+     ("at the tilt limit") and occasionally a code, and a tile must not print
+     the second kind. `saidQuiet` keeps a sentence and replaces a code. */
+  if (reason) return saidQuiet({ code: reason, message: reason },
+                               "The camera didn't move.");
+  return "The camera didn't move.";
 }
 
 /**
@@ -475,7 +484,20 @@ export async function readStatus(
  * but the guard stays: the reason it was rare is not a reason to report it.
  */
 export function describePtzFailure(err: unknown): string | null {
-  if (err instanceof PtzUnavailableError) return `PTZ UNAVAILABLE — ${err.reason}`;
+  /* ⚠ THROUGH THE ONE MAPPER, AND IT USED NOT TO BE. This function kept its
+     own list of codes and ended in
+
+         return `PTZ FAILED — ${code.toUpperCase()}`;
+
+     so a viewer whose share did not include steering pressed an arrow and was
+     shown "PTZ FAILED — PTZ_FORBIDDEN": a server enum, shouted, on a camera
+     tile. `lib/said.ts` holds the words for every code the live-video seam can
+     produce; this decides only what is NOT a failure at all. */
+  if (err instanceof PtzUnavailableError) {
+    // `reason` is the tower's own word for it and may be a code, so it goes
+    // through the mapper too rather than into the sentence.
+    return saidQuiet({ code: err.reason }, "This camera cannot be moved.");
+  }
   if (isNormalPtzOutcome(err)) return null;
   /* A YIELD IS NOT A FAILURE, and it must not be drawn as one. The camera's
      own site is driving it, which is the system working: the tile already says
@@ -484,24 +506,13 @@ export function describePtzFailure(err: unknown): string | null {
      problems. See {@link describeControl}. */
   if (isPtzYielded(err)) return null;
 
-  if (err && typeof err === "object" && "code" in err) {
-    const code = String((err as { code: unknown }).code);
-    /* Capability is not permission — this is the only way to learn the grant
-       does not cover steering, so it gets its own words rather than a generic
-       refusal. */
-    if (code === "grant_permission" || code === "not_authorized") return "PTZ NOT PERMITTED";
-    /* A refusal with a reason, not a fault. The tower is telling the operator
-       that this camera's home is surveyed rather than set by hand — repeating
-       its own words beats translating them into a failure. */
-    if (code === "HOME_NOT_SETTABLE" || code === "home_not_settable") {
-      return "HOME IS SET BY CALIBRATION ON THIS CAMERA";
-    }
-    if (code === "ptz_unavailable") return "PTZ UNAVAILABLE ON TOWER";
-    if (code === "tower_offline") return "TOWER OFFLINE";
-    if (code === "tower_timeout") return "TOWER DID NOT ANSWER";
-    if (code === "rate_limited") return "PTZ RATE LIMITED";
-    if (code === "camera_unknown") return "CAMERA NOT ON THIS TOWER";
-    return `PTZ FAILED — ${code.toUpperCase()}`;
-  }
-  return "PTZ FAILED";
+  /* THE SERVER SHOUTS ITS HOME CODE IN CAPITALS (`HOME_NOT_SETTABLE`) and
+     lower-cases the rest, so the code is folded before the table is asked.
+     One row in `said.ts` then covers both spellings. */
+  const raw = (err as { code?: unknown } | null)?.code;
+  const code = typeof raw === "string" ? raw.toLowerCase() : "";
+  return saidQuiet(
+    code ? { ...(err as object), code } : err,
+    "The camera didn't move. Try again.",
+  );
 }

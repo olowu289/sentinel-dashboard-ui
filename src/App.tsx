@@ -20,6 +20,11 @@ import { NotificationStack } from "@/components/NotificationStack";
 import { NotificationProvider } from "@/lib/notifications";
 import { ShareFeedProvider } from "@/lib/useShareFeed";
 import { FleetFollowsShares, WatchProvider } from "@/lib/watch";
+import {
+  AccessEnded,
+  CameraGone,
+  useEndedShareFor,
+} from "@/components/AccessEnded";
 import { FleetFeedProvider } from "@/lib/useFleetFeed";
 import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
@@ -69,7 +74,14 @@ import type {
  * and a code, not a sentence. `ErrorFallback` prints whatever it is given in
  * mono and never paraphrases it, which is the behaviour worth exercising.
  */
-const SIMULATED_STREAM_ERROR = "SIMULATED · RTSP handshake timeout · ERR_504";
+/* ⚠ A SENTENCE, EVEN IN THE SIMULATOR. This read
+   "SIMULATED · RTSP handshake timeout · ERR_504" on the reasoning that a
+   review tool should show a verbatim technical string -- but it renders in the
+   same place a real failure does, so it was both the example of what a tile
+   must never say and a way for one to say it. The word SIMULATED stays,
+   because a fabricated fault on a camera tile has to announce itself. */
+const SIMULATED_STREAM_ERROR =
+  "Simulated: this camera stopped answering. Nothing is really wrong.";
 
 /* How long a live session runs before the tower's battery is worth mentioning.
    Ten minutes is the design's number and it is a reasonable one: long enough
@@ -84,32 +96,27 @@ const BASELINE = new Map(FEEDS.map((f) => [f.id, f.latencyMs ?? 100]));
 /**
  * A tower that is not there any more.
  *
- * Reached when an operator drills into a tower that has since gone — revoked,
- * or removed between the fleet load and the click. It says "unavailable" and
- * never "does not exist", because coordination deliberately returns one
- * indistinguishable answer for "no such tower" and "not yours" so that the
- * endpoint cannot be used to enumerate a fleet. Claiming non-existence would
- * hand back the very fact the server withheld.
+ * Reached when an operator drills into a tower that has since gone: a share
+ * that ended, or a tower removed between the fleet load and the click.
+ *
+ * ⚠ IT USED TO SAY `kln_lab_000002 IS UNAVAILABLE` and then offer two
+ * possible causes for the person to choose between. See `AccessEnded`: the
+ * common case is a loan that finished, which is ordinary and has an obvious
+ * next step, so this asks the share feed which of the two it was and says the
+ * right one.
+ *
+ * It still never says "does not exist": coordination returns one
+ * indistinguishable answer for "no such tower" and "not yours" so the endpoint
+ * cannot enumerate a fleet, and claiming non-existence would hand back the
+ * very fact the server withheld. "No longer available" is true either way.
  */
 function TowerUnavailable({ id, onBack }: { id: string; onBack: () => void }) {
-  return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-[14px] bg-ink px-[24px] text-center">
-      <p className="font-display text-[0.875rem] tracking-[0.14px] text-body-ink">
-        {id} IS UNAVAILABLE
-      </p>
-      <p className="max-w-[360px] text-[0.8125rem] leading-[20px] text-muted">
-        This tower is not on your fleet any more. It may have been removed, or
-        access to it may have ended.
-      </p>
-      <button
-        type="button"
-        onClick={onBack}
-        className="h-[36px] rounded-[8px] bg-panel px-[16px] text-[0.8125rem] font-medium text-body-ink transition-colors hover:bg-card-line"
-      >
-        Back to all towers
-      </button>
-    </div>
-  );
+  /* WHICH OF THE THREE THINGS HAPPENED, asked rather than guessed. A share
+     that lent this camera and has finished is the common case by far, and it
+     is the one with something to do about it. */
+  const ended = useEndedShareFor(id);
+  if (ended) return <AccessEnded share={ended} onClose={onBack} />;
+  return <CameraGone reason="removed" onClose={onBack} />;
 }
 
 /**

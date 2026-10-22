@@ -51,6 +51,7 @@ import { ENTER, FADE } from "@/lib/motion";
 import {
   Failed,
   Loading,
+  OverflowMenu,
   PrimaryButton,
   QuietButton,
   inputClass,
@@ -391,32 +392,47 @@ function CellRow({
               {!cell.full && cell.filling ? (
                 <span className="text-detect">nearly full</span>
               ) : null}
-              <span className="font-mono text-[0.6875rem] text-muted/70">
-                {cell.hub_id}
-              </span>
+              {/* ⚠ NO HUB ID HERE ANY MORE. `hub-lab-01` under a cell's own
+                  name is an identifier in front of a customer, and the name
+                  above it is the thing they chose and use. The id is still
+                  what every call takes; it is simply not on screen. */}
             </span>
           </button>
         )}
         {renaming ? null : (
-          <div className="flex flex-wrap gap-[8px]">
+          /* ONE MENU, NOT FOUR BUTTONS. Four of them wrapped onto a second
+             line on a laptop and put Remove beside Add a tower, which is the
+             arrangement this area had on all three of its screens. */
+          <div className="flex shrink-0 items-center gap-[8px]">
             <QuietButton
               onClick={() => onAddTower(cell.hub_id)}
               disabled={cell.full}
             >
               Add a tower
             </QuietButton>
-            <QuietButton
-              onClick={() => {
-                setRenaming(true);
-                setRenameTo(cell.name);
-              }}
-            >
-              Rename
-            </QuietButton>
-            <QuietButton onClick={() => setMoving((m) => !m)}>Move</QuietButton>
-            <QuietButton danger onClick={() => setRemoving(true)}>
-              Remove
-            </QuietButton>
+            <OverflowMenu
+              label={`Actions for ${cell.name}`}
+              items={[
+                {
+                  label: "Rename",
+                  onSelect: () => {
+                    setRenaming(true);
+                    setRenameTo(cell.name);
+                  },
+                },
+                {
+                  label: "Move to another site",
+                  onSelect: () => setMoving(true),
+                  disabled: sites.length < 2,
+                  why: "There is nowhere else to move it to yet.",
+                },
+                {
+                  label: "Remove",
+                  onSelect: () => setRemoving(true),
+                  danger: true,
+                },
+              ]}
+            />
           </div>
         )}
       </div>

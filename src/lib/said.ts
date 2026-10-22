@@ -155,6 +155,73 @@ const FOR_A_CODE: Readonly<Record<string, string>> = {
   too_many_attempts:
     "For your security, this is paused after several unsuccessful attempts. "
     + "Try again shortly.",
+
+  /* ──────────────────────────────────────────────────────────────────────
+      LIVE VIDEO, CAMERA CONTROL AND FOOTAGE
+     ──────────────────────────────────────────────────────────────────────
+
+     ⚠ THE ROUND THAT MADE THIS TABLE MISSED THE VIDEO PATHS ENTIRELY, and
+     they are where a customer spends their day. A viewer whose share did not
+     include steering pressed an arrow and was told
+
+         PTZ FAILED — PTZ_FORBIDDEN
+
+     which is a server enum, in capitals, on a camera tile. The mapper existed;
+     the PTZ and footage helpers each kept their own list of codes and their own
+     shouting fallback, so none of it came through here.
+
+     EVERY code the live-video seam can produce now has a sentence, and the two
+     helpers (`api/ptz.ts`, `api/recordings.ts`) ask this table. */
+
+  // Permission, which is the one an ordinary viewer actually meets. A share is
+  // per camera and per capability, so "wasn't included in what was shared with
+  // you" is both true and the thing they can act on: ask for more.
+  ptz_forbidden:
+    "Moving this camera wasn't included in what was shared with you.",
+  grant_permission:
+    "Moving this camera wasn't included in what was shared with you.",
+  not_authorized:
+    "Moving this camera wasn't included in what was shared with you.",
+  grant_scope: "This camera wasn't included in what was shared with you.",
+  live_forbidden: "Live video wasn't included in what was shared with you.",
+  recordings_forbidden:
+    "Recorded footage wasn't included in what was shared with you.",
+
+  // Time, which reads as permission to a person and is not the same thing.
+  grant_expired: "Your access to this camera has ended.",
+  session_unknown: "Your live view ended. Open it again to carry on.",
+
+  // The camera and the tower, said as the person sees them.
+  ptz_unavailable: "This camera cannot be moved.",
+  control_not_configured: "Moving cameras isn't set up on this tower.",
+  control_failed: "The camera didn't move. Try again.",
+  ptz_failed: "The camera didn't move. Try again.",
+  home_not_settable:
+    "This camera's home position is set by calibration, not by hand.",
+  rate_limited: "That's a lot of moves at once. Try again in a moment.",
+  camera_unknown: "That camera isn't on this tower any more.",
+  tower_offline: "This camera is offline right now.",
+  tower_timeout: "The tower didn't answer. Try again.",
+  tower_unknown: "This camera is no longer available.",
+  stream_starting: "Starting the camera. Give it a moment.",
+
+  // Footage.
+  archive_disabled:
+    "This tower isn't recording, so there's no footage to show.",
+  archive_misconfigured: "Recording isn't set up on this tower yet.",
+  archive_unavailable: "Footage isn't available right now.",
+  snapshot_unavailable: "No picture is available from this camera right now.",
+  recording_unsupported: "This camera doesn't keep recorded footage.",
+  remote_clip_unsupported: "Clips can't be taken from this camera.",
+  empty_clip: "There's no footage in the time you chose.",
+  slice_too_long: "That's a longer clip than can be made at once. Choose less time.",
+
+  // Capacity, which is nobody's mistake.
+  hub_at_capacity:
+    "Too many cameras are being watched at this site. Try again shortly.",
+  dc_at_capacity: "Too many cameras are being watched. Try again shortly.",
+  hub_media_unavailable: "The video service isn't available right now.",
+  dc_media_unavailable: "The video service isn't available right now.",
 };
 
 /** What to add to a fallback so a support call has something to go on. */
@@ -196,6 +263,19 @@ function withReference(text: string, err: unknown): string {
  * goes to the console under a short reference and the reference is appended to
  * what the person reads. A screen never has to arrange that.
  */
+/**
+ * The same sentence, with no reference on it.
+ *
+ * For somewhere the words live for four seconds and then go: a PTZ chip on a
+ * camera tile, a toast. The detail still reaches the console -- what is dropped
+ * is the "(ref 4F2A)" the person has no time to read and no reason to quote
+ * about a camera that moved on the next press.
+ */
+export function saidQuiet(err: unknown, fallback: string): string {
+  const text = said(err, fallback);
+  return text.replace(/\s*\(ref [0-9A-Z]{4}\)$/, "");
+}
+
 export function said(err: unknown, fallback = "That did not go through."): string {
   const e = (err ?? {}) as Refusal;
   const status = typeof e.status === "number" ? e.status : undefined;
@@ -205,18 +285,31 @@ export function said(err: unknown, fallback = "That did not go through."): strin
      thing every time and a shorter sentence is a better one. */
   if (status === 401 || code === "unauthorized") return FOR_A_CODE.unauthorized;
   if (code === "network_error" || status === 0) return FOR_A_CODE.network_error;
-  if (status === 403 && typeof e.message !== "string") return FOR_A_CODE.forbidden;
 
   const message = typeof e.message === "string" ? e.message.trim() : "";
 
   /* A CODE WE HAVE WORDS FOR beats the server's sentence, because the words
      here were written for a person and the code is what the server actually
      decided. `response_invalid` is the one that matters most: its message is
-     written for us and names a path. */
+     written for us and names a path.
+
+     ⚠ AND IT IS ASKED BEFORE THE 403 RULE, WHICH IT WAS NOT.
+
+     "This is not yours to do" is a fair thing to say about a 403 nobody has
+     better words for. It was said about EVERY 403, because the status was read
+     first -- so a viewer who pressed an arrow on a camera that was lent
+     without steering was told the camera was not theirs, when the truth is
+     that moving it was not part of what they were lent and the next step is to
+     ask for it. Every `*_forbidden` row in the table was unreachable for the
+     same reason. Found by photographing the screen. */
   if (code && Object.prototype.hasOwnProperty.call(FOR_A_CODE, code)) {
     const known = FOR_A_CODE[code];
     return code === "response_invalid" ? withReference(known, err) : known;
   }
+
+  /* A refusal with no code we have words for, and nothing readable of its
+     own. The generic sentence, which is better than the server's. */
+  if (status === 403 && !message) return FOR_A_CODE.forbidden;
 
   if (status !== undefined && status >= 500) {
     return withReference(

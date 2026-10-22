@@ -188,6 +188,7 @@ export {
 } from "./sites.js";
 export type {
   AuditEntry,
+  AuditGroup,
   AuditResponse,
   Capabilities,
   Cell,
@@ -199,6 +200,7 @@ export type {
   MoveCellResponse,
   PendingDevice,
   RemoveCellResponse,
+  RemovePersonResponse,
   RemoveSiteResponse,
   RemoveTowerResponse,
   Organization,

@@ -281,3 +281,47 @@ describe("the codes that have their own words", () => {
     assert.match(said({ code: "hub_offline", status: 409 }), /offline/);
   });
 });
+
+describe("a 403 that has better words than \"not yours\"", () => {
+  /* ══════════════════════════════════════════════════════════════════════
+   *  THE ONE A SHARED VIEWER MEETS
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * `said` read the STATUS before the code, so every 403 became "This is not
+   * yours to do" and every `*_forbidden` row in the table was unreachable.
+   * On a camera lent without steering that is both wrong and discouraging:
+   * the camera IS theirs to watch, it is the moving that was not included,
+   * and the next step is to ask the site that lent it.
+   */
+  test("steering that was not shared says exactly that", () => {
+    assert.equal(
+      said({ code: "ptz_forbidden", status: 403 }),
+      "Moving this camera wasn't included in what was shared with you.",
+    );
+  });
+
+  test("so does footage, and so does the camera itself", () => {
+    assert.match(said({ code: "recordings_forbidden", status: 403 }), /footage wasn't included/i);
+    assert.match(said({ code: "live_forbidden", status: 403 }), /wasn't included/i);
+  });
+
+  test("a 403 with no words of its own still gets the general sentence", () => {
+    assert.equal(said({ status: 403 }), "This is not yours to do.");
+    assert.equal(said({ code: "forbidden", status: 403 }), "This is not yours to do.");
+  });
+
+  test("and a 403 that explains itself in English is allowed to", () => {
+    const real = "That is not one of your sites, so it cannot be shared from.";
+    assert.equal(said({ status: 403, message: real }), real);
+  });
+
+  test("none of them is a code, a status or an id", () => {
+    for (const code of ["ptz_forbidden", "live_forbidden", "recordings_forbidden",
+                        "grant_scope", "grant_expired", "session_unknown"]) {
+      const text = said({ code, status: 403 });
+      assert.doesNotMatch(text, /[A-Z][A-Z0-9]*_[A-Z0-9_]+/, text);
+      assert.doesNotMatch(text, /\b403\b/, text);
+      assert.ok(readsLikeASentence(text), text);
+    }
+  });
+});

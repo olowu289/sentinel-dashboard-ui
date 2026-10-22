@@ -140,45 +140,45 @@ const NIGHT: { value: CameraSettings["nightVision"]; label: string; note?: strin
    ───────────────────────────────────────────────────────────────────── */
 
 /**
- * A familiar name for a resolution, or nothing.
+ * What a picture quality is called on screen.
  *
- * Only ever an ADDITION to the true numbers, never a replacement: "2K" is a
- * convenience for people who think in tiers, and 2560×1440 is the fact. A tier
- * on its own is how "1080p" ended up printed over a 2K stream.
+ * ⚠ NEVER "sub" OR "main", WHICH IS WHAT THE WIRE CALLS THEM. Those are our
+ * words for two MediaMTX paths and they mean nothing to the person watching.
+ * The light one is **Standard**; the heavy one is named by what it actually
+ * is, so a customer comparing two sites compares two resolutions.
+ *
+ * `tierFor` is deliberately the whole label and not a prefix. "2K · 2560×1440"
+ * put the fact beside the familiar word, which was right while the row's job
+ * was to prove it was no longer lying about 4K. The row's job now is to be
+ * chosen from, and a menu of two with four numbers in it is harder to read
+ * than a menu of two.
  */
-function tierFor(width: number, height: number): string | null {
+function tierFor(width: number, height: number): string {
   const w = Math.max(width, height);
   if (w >= 3840) return "4K";
   if (w >= 2560) return "2K";
-  if (w >= 1920) return "Full HD";
-  if (w >= 1280) return "HD";
-  return "SD";
+  if (w >= 1920) return "1080p";
+  return "HD";
 }
 
 /**
- * What a profile is called on screen.
+ * The name for one profile, given the set the camera offers.
  *
- * With a resolution: `2K · 2560×1440` — the tier for recognition, the numbers
- * for truth. Without one: the profile's own id, unadorned. The tower declares
- * resolutions from config rather than probing them, so an unconfigured profile
- * genuinely has none, and the honest answer is to name the stream rather than
- * to print a number nobody measured.
+ * The SMALLEST is Standard, whatever its numbers; everything above it is named
+ * by resolution. Decided from the set rather than from the profile's id, so a
+ * camera that one day offers three gets three honest names and not two names
+ * and a guess.
  */
-function profileLabel(p: StreamProfile): string {
-  if (!p.resolution) return p.id;
-  const { width, height } = p.resolution;
-  const tier = tierFor(width, height);
-  return `${tier ? `${tier} · ` : ""}${width}×${height}`;
-}
-
-/** The second line, and only when there is something true to put on it. */
-function profileNote(p: StreamProfile, isDefault: boolean): string | undefined {
-  if (!p.resolution) {
-    return `Stream "${p.id}". The tower reports no resolution for it.`;
+function profileLabel(p: StreamProfile, all: readonly StreamProfile[]): string {
+  const sized = all.filter((x) => x.resolution);
+  if (sized.length > 1 && p.resolution) {
+    const pixels = (x: StreamProfile) =>
+      (x.resolution?.width ?? 0) * (x.resolution?.height ?? 0);
+    const smallest = sized.reduce((a, b) => (pixels(a) <= pixels(b) ? a : b));
+    if (p.id === smallest.id) return "Standard";
   }
-  return isDefault
-    ? "The camera's default. Lightest on the uplink and the battery."
-    : "More detail, and more of the uplink and the battery to carry it.";
+  if (!p.resolution) return "Standard";
+  return tierFor(p.resolution.width, p.resolution.height);
 }
 
 /* ⚠ `RECORDING`, `RETENTION` AND `POWER` ARE GONE, AND THEY WERE THE THREE
@@ -217,6 +217,7 @@ export function CameraSettingsPanel({
   cameraProfiles,
   onChooseProfile,
   onSetHome,
+  onGoHome,
   homePhase,
   onRetryHome,
   onDismissHome,
@@ -264,6 +265,14 @@ export function CameraSettingsPanel({
    * the session.
    */
   onSetHome?: (feedId: string) => void;
+  /**
+   * Send a camera back to its home position.
+   *
+   * The same command the pad's home button sends, and owned by the shell for
+   * the same reason `onSetHome` is: it goes over the live session, which this
+   * panel does not hold.
+   */
+  onGoHome?: (feedId: string) => void;
   /** What each camera's set-home is doing. Keyed by feed id. */
   homePhase?: (feedId: string) => MutationPhase;
   onRetryHome?: (feedId: string) => void;
@@ -322,9 +331,8 @@ export function CameraSettingsPanel({
 
   /* What the collapsed row says. One camera speaks for itself; two agreeing
      speak as one; two disagreeing say so rather than picking a winner to
-     print. "Not reported" is the honest answer for a tower advertising no
-     profiles at all, and it is the same words every other absent reading on
-     this panel uses. */
+     print. Empty for a camera advertising nothing, and the row then says
+     "Not reported" like every other absent reading here. */
   const streamSummary = (() => {
     const labels = feeds.map((f) => {
       const list = f.profiles ?? [];
@@ -333,7 +341,7 @@ export function CameraSettingsPanel({
         list.find((p) => p.id === cameraProfiles?.[f.id]) ??
         list.find((p) => p.default) ??
         list[0];
-      return profileLabel(current);
+      return profileLabel(current, list);
     });
     const known = labels.filter((l): l is string => l !== null);
     if (known.length === 0) return "";
@@ -353,121 +361,22 @@ export function CameraSettingsPanel({
   /* THE HUB'S WAY OUT, in one sentence of three facts the agent measured.
      Each part is dropped rather than defaulted, so a hub that reports the
      interface and nothing else says the interface and stops. */
+  /* THE HUB'S WAY OUT, as a word and a state.
+     ⚠ NO LATENCY ON SCREEN. It read "Fibre · connected · 42 ms"; the
+     milliseconds are a diagnostic, not something a customer decides anything
+     with, and three facts in one value is two too many. */
   const internetRow = (() => {
-    if (!cloud) {
-      /* The server did not say. Not "disconnected": a hub whose uplink agent
-         has never run has not told us the link is down, it has told us
-         nothing. */
-      return { value: "", tone: undefined as string | undefined, detail: undefined };
-    }
-    if (cloud.isCloud) {
-      /* Answered BY the cloud. There is no uplink to describe and no round
-         trip anybody made. */
-      return {
-        value: "This is Kallon Cloud",
-        tone: undefined,
-        detail: "You are reading this through the data centre itself.",
-      };
-    }
-    const where = cloud.iface ?? "Unknown connection";
+    if (!cloud) return { value: "", tone: undefined as string | undefined };
+    if (cloud.isCloud) return { value: "Connected", tone: undefined };
+    const where = cloud.iface ?? "";
     if (cloud.connected !== true) {
       return {
-        value: `${where} · not connected`,
+        value: where ? `${where} · not connected` : "Not connected",
         tone: "text-critical",
-        detail: undefined,
       };
     }
-    const latency =
-      cloud.latencyMs !== undefined ? ` · ${cloud.latencyMs} ms` : "";
-    return {
-      value: `${where} · connected${latency}`,
-      tone: undefined,
-      detail:
-        cloud.latencyMs === undefined
-          ? "No round trip has been measured yet."
-          : "Heartbeat round trip to Kallon Cloud.",
-    };
+    return { value: where ? `${where} · connected` : "Connected", tone: undefined };
   })();
-
-  /* ── WHERE THIS DEVICE'S FOOTAGE GOES ────────────────────────────────
-     `mode: "hub"` means the hub writes and keeps it, which is every mast
-     without its own SSD. Absent means the device has not said -- an older
-     release -- and then nothing is claimed either way: the disk row falls back
-     to whatever `health.disk` reported, which is what it always did. */
-  const recordsAtHub = tower.health?.recording?.mode === "hub";
-
-  /* THE RECORDING MODE, as a sentence rather than a chosen option. "Not
-     reported" for a device on a release older than `health.recording`, which
-     is honest and is what the old drop-down could never say. */
-  const recordingModeRow = (() => {
-    const rec = tower.health?.recording;
-    if (!rec?.mode) return "";
-    /* ⚠ NO "Continuous" AND NO "On Detection" HERE, AND THAT IS DELIBERATE.
-       Nothing on the wire reports a capture mode: `health.recording` carries
-       WHERE the footage is written and WHICH stream, and that is all anybody
-       measured. Printing "Continuous" beside two real facts would make a
-       fourth fixture out of the row that exists to remove three. */
-    const where = rec.mode === "hub" ? "At the hub" : "On this mast";
-    /* WHICH STREAM, because it is the difference between 2K evidence and a
-       704x576 record of the same event. */
-    const stream =
-      rec.stream === "main"
-        ? " · 2K main stream"
-        : rec.stream === "sub"
-          ? " · sub stream"
-          : "";
-    return `${where}${stream}`;
-  })();
-
-  /* HOW LONG FOOTAGE REALLY LASTS. Three shapes, and the difference between
-     them is the whole reason this is not one number:
-
-       bound_by "age"   the window is deciding, and it is being kept
-       bound_by "disk"  the disk filled first, so the real window is shorter
-       neither          the device has not reported a window at all
-
-     `effectiveDays` is what the sweep is actually keeping. It is the number a
-     customer needs before they plan an investigation around footage that may
-     already be gone. */
-  const retentionRow = (() => {
-    const rec = tower.health?.recording;
-    if (!rec) return { value: "", tone: undefined as string | undefined, detail: undefined };
-    const asked = rec.retainDays;
-    const real = rec.effectiveDays;
-    if (rec.boundBy === "disk") {
-      /* THE DISK IS DECIDING. Amber, because it is not a fault -- a full disk
-         doing exactly what it is meant to -- but it IS less footage than the
-         screen would otherwise promise, and somebody should know. */
-      return {
-        /* ⚠ SHORT ENOUGH TO SURVIVE A PHONE. "About 12 days — the disk is
-           full" truncated at 390px to "About 12 days — the disk i…", which
-           hides the half that matters: the number is lower than the setting
-           BECAUSE the disk filled. The whole sentence stays in the detail. */
-        value:
-          real !== undefined
-            ? `${Math.round(real)} days · disk full`
-            : "Until the disk fills",
-        tone: "text-warn",
-        detail:
-          asked !== undefined
-            ? `Set to ${asked} days, but the disk fills first, so older footage is already being removed.`
-            : "Retention by age is off on this device: footage is kept until the disk fills.",
-      };
-    }
-    if (asked === undefined) return { value: "", tone: undefined, detail: undefined };
-    return {
-      value: `${asked} days`,
-      tone: undefined,
-      detail:
-        real !== undefined && Math.round(real) < asked
-          ? `About ${Math.round(real)} days of footage on the disk right now.`
-          : undefined,
-    };
-  })();
-
-  /* THE TOWER'S OWN UPLINK MEASUREMENT, computed once so the guard and the
-     row cannot disagree about whether there is a number. */
-  const ownUplink = uplinkReading(tower.health?.uplink);
 
   /* When the CLOUD link came up, for the hub's Connected since row. Parsed
      here so the row stays the one that ticks. */
@@ -477,26 +386,70 @@ export function CameraSettingsPanel({
     return Number.isNaN(at) ? undefined : at;
   })();
 
-  /* CAN THE PIPELINE HONOUR A CHOICE AT ALL. It can where a camera advertises
-     more than one profile: `App.tsx`'s `chooseProfile` sends the picked id as
-     the session's `profile` and the feed reopens against that stream, which is
-     a real effect with a visible confirmation. Where a camera advertises one
-     profile or none there is nothing to honour, and `StreamChoice` already
-     says so in prose instead of drawing a radio group of one. This only
-     decides which sentence the row prints above them. */
-  const canChooseStream = feeds.some((f) => (f.profiles ?? []).length > 1);
 
   /* A COUNT, NOT A POSITION. This panel cannot say where home currently
      points without asking the tower, and inventing a description would be
      worse than saying nothing - so it reports the one thing it does know: how
      many of this site's cameras can hold a home at all. */
   const movable = feeds.filter((f) => f.ptz).length;
-  const homeSummary =
-    movable === 0
-      ? "No movable camera"
-      : movable === 1
-        ? "1 movable camera"
-        : `${movable} movable cameras`;
+  /* A COUNT, NOT A POSITION. This panel cannot say where home currently
+     points without asking the tower. The row is hidden when the count is
+     zero, so "No movable camera" is gone with it. */
+  const homeSummary = movable === 1 ? "1 camera" : `${movable} cameras`;
+
+  /* ⚠ A POSITIVE TEST, NOT `!== "hub"`. A device that has reported no
+     recording block at all has not said it records locally, and then the
+     recording rows stay hidden rather than appearing empty. Absent and "no"
+     are the same answer to the only question this decides: is there anything
+     here to show. */
+  const recordsLocally = tower.health?.recording?.mode === "tower" || isHub;
+
+  /* The cameras a home position can mean anything for. */
+  const movableFeeds = feeds.filter((f) => f.ptz);
+
+  /* WHERE THE FOOTAGE IS WRITTEN, in the words a customer uses.
+
+     ⚠ STILL NO "Continuous" OR "On Detection". Nothing on the wire reports a
+     capture mode, and inventing one would make a fixture out of the row that
+     exists to remove three. If we want that word on screen, a device has to
+     send it first.
+
+     ⚠ AND NO STREAM. This read "At the hub · 2K main stream", which is two of
+     our own words in a row; the resolution it was conveying has its own row,
+     named by resolution. */
+  const recordingModeRow = (() => {
+    const mode = tower.health?.recording?.mode;
+    if (!mode) return "";
+    return mode === "hub" ? "At the hub" : "On this tower";
+  })();
+
+  /* HOW LONG FOOTAGE REALLY LASTS. */
+  const retentionRow = (() => {
+    const rec = tower.health?.recording;
+    if (!rec) return { value: "", tone: undefined as string | undefined };
+    const asked = rec.retainDays;
+    const real = rec.effectiveDays;
+    if (rec.boundBy === "disk") {
+      /* THE DISK IS DECIDING, so the number shown is the real one and not the
+         one that was asked for. Amber: a full disk doing what it is meant to
+         is not a fault, but it IS less footage than the setting promises.
+
+         ⚠ THE EXPLANATION IS GONE. It said the window was "set to 30 days,
+         but the disk fills first, so older footage is already being removed"
+         -- three sentences to deliver one number. The number is the fact. */
+      return {
+        value:
+          real !== undefined ? `${Math.round(real)} days` : "Until the disk is full",
+        tone: "text-warn",
+      };
+    }
+    if (asked === undefined) return { value: "", tone: undefined };
+    return { value: `${asked} days`, tone: undefined };
+  })();
+
+  /* THIS MAST'S OWN SIGNAL, computed once so the row and its guard cannot
+     disagree about whether there is a number. */
+  const ownUplink = uplinkReading(tower.health?.uplink);
 
   const zoneCount = feeds.reduce(
     (n, f) => n + (settings.zones[f.id]?.length ?? 0),
@@ -522,8 +475,17 @@ export function CameraSettingsPanel({
     const stream = tower.health?.recording?.stream;
     if (!stream) return "";
     const labels = feeds
-      .map((f) => (f.profiles ?? []).find((pr) => pr.id === stream))
-      .map((pr) => (pr?.resolution ? profileLabel(pr) : null))
+      .map((f) => {
+        const list = f.profiles ?? [];
+        const match = list.find((pr) => pr.id === stream);
+        /* ⚠ THE SAME NAMES AS THE QUALITY ROW ABOVE, via `profileLabel`.
+           `tierFor` alone called 704x576 "HD", because it has no tier below
+           1920 -- so a hub recording its light stream read "Recording
+           resolution: HD", which is a worse claim than the "4K HD" this row
+           replaced. Naming it from the camera's own set cannot be wrong: the
+           light one is Standard here exactly as it is there. */
+        return match ? profileLabel(match, list) : null;
+      })
       .filter((l): l is string => l !== null);
     if (labels.length === 0) return "";
     return labels.every((l) => l === labels[0])
@@ -746,8 +708,7 @@ export function CameraSettingsPanel({
 
           {!settings.monitoring && (
             <p className="text-[0.875rem] leading-[20px] text-warn">
-              Monitoring is off. Both cameras keep streaming and neither will
-              raise an alert.
+              Monitoring is off, so no alerts will be raised.
             </p>
           )}
 
@@ -820,39 +781,19 @@ export function CameraSettingsPanel({
                 onPick={(v) => onChange({ nightVision: v })}
               />
             </Row>
-            {/* Per camera, not per tower — the two cameras on one site have
-                different hardware and different lists. Activity Zones is the
-                only other row that has to say which camera it means, and for
-                the same reason.
-
-                ⚠ IT NOW SAYS WHAT THE PIPELINE ACTUALLY DOES, which no
-                version of this row has said before. A customer reading
-                "Stream Quality" reasonably assumes one setting decides what
-                leaves their site. Two streams do, and they are chosen by
-                different things: the wall gets the sub stream permanently and
-                nobody picks that, and opening one camera gets the main stream
-                for as long as it is open. Without the sentence the pick below
-                reads as a site-wide quality control, which is the one thing it
-                is not. */}
+            {/* ⚠ TWO PARAGRAPHS AND A LESSON IN MEDIAMTX USED TO LIVE HERE.
+                The row explained that "the sub stream runs all the time and is
+                what the fleet wall shows", then that "opening one camera
+                switches that camera to its main stream" -- our words for two
+                paths, in front of somebody who wants a clearer picture. A
+                quality picker is a label and a list of qualities. */}
             <Row
-              label="Stream Quality"
+              label="Picture quality"
               value={streamSummary}
               expanded={open === "quality"}
               onToggle={() => toggle("quality")}
             >
               <div className="flex flex-col gap-[10px]">
-                <p className="px-[10px] text-[0.75rem] leading-[16px] text-muted">
-                  Two streams leave this site. The <b>sub stream</b> runs all
-                  the time and is what the fleet wall shows. Opening one camera
-                  switches that camera to its <b>main stream</b> until it is
-                  closed — thirteen times the pixels, so it is on demand rather
-                  than always on.
-                </p>
-                <p className="px-[10px] text-[0.75rem] leading-[16px] text-muted">
-                  {canChooseStream
-                    ? "Below is which stream each camera is being watched at now. Choosing one reopens that camera at it."
-                    : "Each camera is served at the one stream it reports. There is nothing to choose here."}
-                </p>
                 {feeds.map((f) => (
                   <StreamChoice
                     key={f.id}
@@ -864,56 +805,46 @@ export function CameraSettingsPanel({
                 ))}
               </div>
             </Row>
-            {/* HOME IS WHERE THE CAMERA POINTS WHEN NOBODY IS DRIVING IT, and
-                until now there was no way to say where that is: the daemon
-                took it from a file only root could write, and the script it
-                pointed at for doing so does not exist. This is that missing
-                half, and it is deliberately in settings rather than on the pad
-                — the pad's home button RECALLS home many times a shift, and
-                setting it is a once-a-deployment act that should not sit one
-                mis-tap away from the button that uses it. */}
-            <Row
-              label="Home Position"
-              value={homeSummary}
-              expanded={open === "home"}
-              onToggle={() => toggle("home")}
-            >
-              <div className="flex flex-col gap-[10px]">
-                {feeds.map((f) => (
-                  <SetHomeRow
-                    key={f.id}
-                    feed={f}
-                    multiple={feeds.length > 1}
-                    hasSession={Boolean(sessionFor?.(f.id))}
-                    phase={homePhase?.(f.id) ?? { kind: "idle" }}
-                    onSet={() => onSetHome?.(f.id)}
-                    onRetry={() => onRetryHome?.(f.id)}
-                    onDismiss={() => onDismissHome?.(f.id)}
-                  />
-                ))}
-              </div>
-            </Row>
-            {/* ⚠ WAS "Recording Settings · 4K HD", AND IT WAS NOT TRUE.
-                These cameras serve 2560x1440 and 704x576. 4K is not a
-                resolution any of this hardware produces, the three options
-                behind the chevron wrote to local state nothing reads, and an
-                operator who picked 720p to stretch a filling disk changed
-                nothing at all.
-
-                A READING NOW, with no chevron: the device says which stream it
-                records and the camera says that stream's resolution. "Not
-                reported" where either is missing, which is every device on a
-                release older than `health.recording`. */}
-            <RowReading
-              label="Recording resolution"
-              value={recordingResolution}
-              detail={
-                recordingResolution
-                  ? `The ${tower.health?.recording?.stream} stream, as this camera reports it.`
-                  : undefined
-              }
-              last
-            />
+            {/* ⚠ MOVABLE CAMERAS ONLY. A fixed dome used to get a row here
+                that existed to refuse: "This camera is fixed, it has no
+                position to save." A row whose only content is why it is not a
+                row is not a row. */}
+            {movableFeeds.length > 0 ? (
+              <Row
+                label="Home position"
+                value={homeSummary}
+                expanded={open === "home"}
+                onToggle={() => toggle("home")}
+              >
+                <div className="flex flex-col gap-[10px]">
+                  {movableFeeds.map((f) => (
+                    <SetHomeRow
+                      key={f.id}
+                      feed={f}
+                      multiple={movableFeeds.length > 1}
+                      hasSession={Boolean(sessionFor?.(f.id))}
+                      phase={homePhase?.(f.id) ?? { kind: "idle" }}
+                      onSet={() => onSetHome?.(f.id)}
+                      onGo={onGoHome ? () => onGoHome(f.id) : undefined}
+                      onRetry={() => onRetryHome?.(f.id)}
+                      onDismiss={() => onDismissHome?.(f.id)}
+                    />
+                  ))}
+                </div>
+              </Row>
+            ) : null}
+            {/* ⚠ HIDDEN WHERE THE FOOTAGE IS NOT THIS DEVICE'S. A mast that
+                streams to the hub has no recording resolution of its own, and
+                a row reading "Not reported" invites somebody to go looking for
+                a setting that does not exist here. The detail line is gone
+                too: it named the stream, which is our word. */}
+            {recordsLocally && recordingResolution ? (
+              <RowReading
+                label="Recording quality"
+                value={recordingResolution}
+                last
+              />
+            ) : null}
           </Group>
 
           {/* ── SHARING, UNDER CAMERA, ON A SERVER THAT HAS SITES ──────────
@@ -968,124 +899,52 @@ export function CameraSettingsPanel({
             />
           </Group>
 
-          {/* ── NETWORK, FROM REAL MEASUREMENTS ──────────────────────────
+          {/* ── NETWORK ──────────────────────────────────────────────────
 
               Two different boxes, two different sets of rows, because they
-              have two different networks. A TOWER has a radio link to its hub
-              and reaches the cloud only through that hub. A HUB has an uplink
-              to the cloud of its own and sector radios that masts associate
-              with. Printing one box's rows for the other is how "Backup
-              Connection · Satellite" came to sit on every tower in the fleet.
+              have two different networks. A tower has a radio link to its hub
+              and reaches the cloud through it; a hub has its own way out and
+              radios that towers connect to.
 
-              ⚠ "Backup Connection" IS GONE. It was `demoCabinet.ts`'s
-              fixture, it read "Satellite" on every tower in every fleet, and
-              nothing anywhere measured it. What a customer wants in that space
-              is whether their site can be seen from outside, which is the
-              Kallon Cloud row below and is real. */}
+              Every row here hides itself when the device has nothing to say,
+              so a site with no measurements shows a short Network group
+              instead of a column of "Not reported". */}
           <Group title="Network">
             {isHub ? (
               <>
-                {/* THE HUB'S OWN WAY OUT. Interface, state and the round trip
-                    the heartbeat actually costs — all three from the uplink
-                    agent that holds the socket, never sniffed. */}
                 <RowReading
                   label="Internet"
                   value={internetRow.value}
                   tone={internetRow.tone}
-                  detail={internetRow.detail}
                 />
-                {/* PER SECTOR: who is on it, and how well this radio hears
-                    them. `associations` decides whether the list means
-                    anything at all — see `SectorRows`. */}
                 <SectorRows sectors={tower.health?.sectors} />
-                {/* THE CLOUD LINK'S, not a mast's. A hub has no radio link to
-                    a hub of its own, so the useful "since" here is the one for
-                    the uplink the row above describes. */}
-                <ConnectedSince
-                  at={cloudSince}
-                  what="There is no link to Kallon Cloud at the moment."
-                />
+                {/* The CLOUD link's, not a mast's: a hub has no hub of its
+                    own, so the useful "since" is the one for the row above. */}
+                <ConnectedSince at={cloudSince} />
               </>
             ) : (
               <>
-                {/* ⚠ THIS USED TO BE "Uplink", GRADED FROM `iw`. On a sinew
-                    mast the radio is a Ubiquiti box on the far end of an
-                    Ethernet cable, so `iw` answered "operation not supported",
-                    the tower reported `type: ethernet`, and the row said
-                    "Wired" about a radio link. The number now comes from the
-                    radio itself over read-only SNMP, and the word beside it is
-                    this app's own arithmetic on that number. */}
                 <RadioLinkRow radio={tower.health?.radio} />
-                {/* ⚠ KEPT, AND ONLY FOR THE ONE CASE WHERE IT IS REAL. The
-                    tower's own `iw` reading is a genuine measurement on a mast
-                    whose uplink IS a Wi-Fi or LTE interface — and nothing
-                    else measures that. On a sinew mast the same probe answers
-                    "operation not supported", which the old row rendered as
-                    "Wired" beside a radio link it had not measured. So the row
-                    appears only for `kind: "signal"`: a number the tower
-                    actually read. Every other shape is silence rather than a
-                    row saying nothing. */}
-                {ownUplink.kind === "signal" ? (
-                  <UplinkRow reading={ownUplink} />
-                ) : null}
-                {/* WAS "IP Address", and that was a demo literal —
-                    192.168.1.230 on every tower in the fleet. How long the
-                    link has held is the more useful reading anyway: it is the
-                    difference between a healthy site and one that is
-                    flapping. */}
-                <ConnectedSince
-                  at={tower.connectedAt}
-                  what="This mast's link to its hub. A short one is itself the reading: it says the site is flapping."
-                />
+                <UplinkRow reading={ownUplink} />
+                <ConnectedSince at={tower.connectedAt} />
               </>
             )}
-            {/* THE SAME ROW ON BOTH, AND IT IS ABOUT THE SERVER. Every tower
-                on one hub is reaching the cloud, or not, together — which is
-                why `cloud` is one fact held by the shell rather than a field
-                on each tower.
-
-                ⚠ "KALLON CLOUD", NEVER "DC". The data centre is our word for
-                our own machine. */}
             <CloudRow cloud={cloud} last />
           </Group>
 
-          {/* ── STORAGE, WHERE THE FOOTAGE ACTUALLY IS ───────────────────
+          {/* ── STORAGE ──────────────────────────────────────────────────
 
-              ⚠ ALL THREE ROWS WERE WRONG IN DIFFERENT WAYS. "Memory" showed a
-              figure for a tower that records nothing locally; "Recording" and
-              "Keep Footage for" were drop-downs over `CameraSettings`, which
-              is local state nothing reads — a customer picked "90 days", the
-              chevron closed, and the hub carried on deleting at whatever it
-              was actually set to. The second is the worse failure: a silent
-              promise about evidence.
+              ⚠ "Set by Kallon" IS GONE FROM ALL THREE ROWS. It was there to
+              say the control had been taken away rather than broken, which is
+              our problem explained to a customer. A value with no chevron
+              beside it already reads as a value.
 
-              So: the disk row says which disk it means, and the two settings
-              are readings with "Set by Kallon" under them. */}
+              And the two rows that describe a disk this device does not have
+              are hidden rather than filled with "Not reported". */}
           <Group title="Storage">
-            {recordsAtHub && !isHub ? (
-              /* ⚠ A TOWER WITH NO SSD HAS NO STORAGE ROW TO FILL, and the
-                 figure it used to print was its own root filesystem — a few
-                 gigabytes of operating system, labelled as the site's
-                 footage. The honest row names the box the footage is on. */
+            {recordsLocally ? (
               <RowReading
                 label="Memory"
-                value="Recorded at the hub"
-                detail="This mast streams to the hub, which writes and keeps the footage. It has no recording disk of its own."
-              />
-            ) : (
-              <RowReading
-                label="Memory"
-                /* SUPERSEDED 2026-09-12. This said "the projection carries no
-                   storage figures at all", and refused to substitute
-                   `disk.free_pct` because it was "a percentage of an unknown
-                   total". The projection carries them now — on a hub from the
-                   archiver's own status file — so the row shows the real
-                   reading instead of "Not reported".
-
-                   THE REFUSAL ITSELF STANDS and is why the order below is what
-                   it is: gigabytes are preferred because that is what this row
-                   promises, and the percentage is shown AS a percentage rather
-                   than dressed up as a size. */
                 value={
                   tower.storageUsedGb !== undefined &&
                   tower.storageTotalGb !== undefined
@@ -1094,121 +953,68 @@ export function CameraSettingsPanel({
                       ? `${Math.round(storageFreePct)}% free`
                       : ""
                 }
-                /* One tier, shared with the fleet board's Storage cell — see
-                   lib/storage.ts. Amber below 20% free, red below 10%, where
-                   the device has started overwriting footage. */
+                /* One tier, shared with the fleet board's Storage cell. Amber
+                   below 20% free, red below 10%. */
                 tone={
                   storageFreePct !== undefined
                     ? storageTone(storageFreePct)
                     : undefined
                 }
-                detail={isHub ? "The hub's archive disk." : undefined}
               />
+            ) : (
+              /* The one row a mast with no disk still answers, because "where
+                 is my footage" is a real question and the answer is short. */
+              <RowReading label="Footage" value="Recorded at the hub" last />
             )}
-            {/* ⚠ READ-ONLY, AND SAYING WHO HOLDS IT. Continuous or on
-                detection is a decision with a cost in disk and uplink that
-                the customer does not pay for directly and cannot see the
-                consequences of from here, so for now it is ours. The row
-                reports what the device actually does. */}
-            <RowReading
-              label="Recording mode"
-              value={recordingModeRow}
-              note="Set by Kallon"
-            />
-            {/* ⚠ TWO NUMBERS, BECAUSE ONE OF THEM IS A PROMISE AND THE OTHER
-                IS WHAT HAPPENS. The sweep keeps footage for the window we ask
-                for UNLESS the disk fills first, and then it quietly keeps
-                less. A row printing the asked-for window alone would tell a
-                customer they have thirty days of evidence while the sweep
-                deletes at twelve. `boundBy` says which limit is deciding. */}
-            <RowReading
-              label="Keep footage for"
-              value={retentionRow.value}
-              tone={retentionRow.tone}
-              note="Set by Kallon"
-              detail={retentionRow.detail}
-              last
-            />
+            {recordsLocally && recordingModeRow ? (
+              <RowReading label="Recording" value={recordingModeRow} />
+            ) : null}
+            {recordsLocally && retentionRow.value ? (
+              <RowReading
+                label="Keep footage for"
+                value={retentionRow.value}
+                tone={retentionRow.tone}
+                last
+              />
+            ) : null}
           </Group>
 
-          <Group title="Power">
-            {/* The pack's own readings, above the control that spends them.
-                Same order as the Storage group: what is true, then what to do
-                about it. Each is empty — "Not reported" — when the tower did not
-                send it, and ALL of them are empty when the pack could not be
-                reached, because an unreachable battery has no readings rather
-                than old ones. */}
-            {/* ⚠ "Not connected" AND "Unreachable" ARE DIFFERENT FACTS, and
-                the row used to print the second for both. A site with no
-                battery configured was reported as a battery we could not
-                read, which reads as a fault on hardware that is not there --
-                and sends somebody to a cabinet to look at a pack nobody
-                fitted.
+          {/* ── POWER ────────────────────────────────────────────────────
 
-                  no battery block   nothing is configured: "Not connected"
-                  reachable: false   a pack IS fitted and would not answer.
-                                     Routine -- it allows one Bluetooth
-                                     connection, so somebody standing at the
-                                     cabinet with the vendor's app is enough --
-                                     and still worth saying. */}
-            <RowReading
-              label="Battery"
-              value={
-                chargePct !== undefined
-                  ? `${Math.round(chargePct)}%`
-                  : reportedBattery
-                    ? "Unreachable"
-                    : "Not connected"
-              }
-              tone={chargePct !== undefined ? batteryTone(chargePct) : undefined}
-              detail={
-                chargePct === undefined
-                  ? reportedBattery
-                    ? "A pack is fitted and did not answer. It allows one Bluetooth connection at a time."
-                    : "No battery is configured on this device."
-                  : undefined
-              }
-            />
-            <RowReading
-              label="Pack Voltage"
-              value={
-                reportedBattery?.reachable &&
-                reportedBattery.voltageV !== undefined
-                  ? `${reportedBattery.voltageV} V`
-                  : ""
-              }
-            />
-            <RowReading
-              label="Pack Temperature"
-              /* The PACK's temperature. `health.thermal.socC` is the processor's
-                 and is a different reading — the Device group's business, not
-                 this one's. */
-              value={
-                reportedBattery?.reachable && reportedBattery.tempC !== undefined
-                  ? `${reportedBattery.tempC}°C`
-                  : ""
-              }
-            />
-            {/* ⚠ READ-ONLY, BECAUSE NOTHING IS BEHIND IT. Performance /
-                Balanced / Battery saver wrote to `CameraSettings.powerMode`,
-                which is local state no server reads and no tower receives:
-                an operator managing a dark week chose "Battery saver",
-                watched the chevron close, and changed nothing at all. There
-                is no power-mode command in the protocol and no daemon to take
-                one.
+              ⚠ EVERY ROW HERE IS HIDDEN WHEN THERE IS NO PACK. A site with no
+              battery configured used to get four rows of "Not reported" under
+              a heading about power it does not have, which reads as four
+              things that are broken. With no pack there is no Power group at
+              all.
 
-                It stays as a row rather than disappearing because the mode IS
-                a real thing about the mast -- it is just not ours to set from
-                here yet. "Not reported" is the truthful value until a device
-                reports one. */}
-            <RowReading
-              label="Working mode"
-              value=""
-              note="Set by Kallon"
-              detail="The mast's power profile is set when it is installed. No device reports it yet."
-              last
-            />
-          </Group>
+              "Working mode" is gone entirely. It was a drop-down over local
+              state, then a row reading "Not reported" with a note explaining
+              who set it. Nothing reports it, so there is nothing to show. */}
+          {reportedBattery ? (
+            <Group title="Power">
+              <RowReading
+                label="Battery"
+                value={
+                  chargePct !== undefined
+                    ? `${Math.round(chargePct)}%`
+                    : "Not reachable"
+                }
+                tone={chargePct !== undefined ? batteryTone(chargePct) : undefined}
+              />
+              {reportedBattery.voltageV !== undefined ? (
+                <RowReading label="Voltage" value={`${reportedBattery.voltageV} V`} />
+              ) : null}
+              {reportedBattery.tempC !== undefined ? (
+                /* The PACK's temperature. `health.thermal.socC` is the
+                   processor's and is a different reading. */
+                <RowReading
+                  label="Temperature"
+                  value={`${reportedBattery.tempC}°C`}
+                  last
+                />
+              ) : null}
+            </Group>
+          ) : null}
 
           {/* ── WHAT THIS BOX IS ──────────────────────────────────────────
               Four of these five lines were WRONG until the hello carried them.
@@ -1406,10 +1212,6 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 /** 53px, label muted at 16, value white and medium at the right with a 20px
  *  chevron. The frame's row, and every row below is a variation of it. */
 const ROW = "flex h-[53px] w-full items-center justify-between gap-[12px] px-[16px] text-left";
-/* The same row with room for a second line under the label. `min-h` rather
-   than a taller fixed height, so a long note wraps instead of overflowing the
-   card it sits in. */
-const ROW_TALL = "flex min-h-[53px] w-full items-center justify-between gap-[12px] px-[16px] py-[8px] text-left";
 const ROW_LINE = "border-b border-row-line";
 const LABEL = "text-[0.875rem] leading-[18px] tracking-[0.14px] text-muted";
 /* The value's type, WITHOUT a colour. A reading that carries a tone must carry
@@ -1510,6 +1312,7 @@ function SetHomeRow({
   hasSession,
   phase,
   onSet,
+  onGo,
   onRetry,
   onDismiss,
 }: {
@@ -1518,18 +1321,15 @@ function SetHomeRow({
   hasSession: boolean;
   phase: MutationPhase;
   onSet: () => void;
+  onGo?: () => void;
   onRetry: () => void;
   onDismiss: () => void;
 }) {
-  const fixed = !feed.ptz;
-  const blocked = fixed || !hasSession;
+  /* Only movable cameras reach this now, so "fixed" is no longer a state it
+     has to explain. What is left is the one real precondition: both buttons
+     drive the camera, and driving it needs the live view open. */
+  const blocked = !hasSession;
   const pending = phase.kind === "pending";
-
-  const why = fixed
-    ? "This camera is fixed — it has no position to save."
-    : !hasSession
-      ? "Open the live view on this camera first — home is saved through the same authorized session a move uses."
-      : null;
 
   return (
     <div className="flex flex-col gap-[6px]">
@@ -1538,27 +1338,50 @@ function SetHomeRow({
           {feed.name ?? feed.id}
         </span>
       )}
-      <button
-        type="button"
-        disabled={blocked || pending}
-        aria-busy={pending || undefined}
-        onClick={onSet}
-        className={`flex items-center justify-between gap-[8px] rounded-[8px] px-[10px] py-[8px] text-left transition-colors ${
-          blocked
-            ? "cursor-not-allowed bg-card/40 text-muted"
-            : "bg-card hover:bg-card-hover"
-        } ${errorRing(phase)}`}
-      >
-        <span className="text-[13px]">Set current position as home</span>
-        <MutationIcon phase={phase} idle={<Chevron />} />
-      </button>
-      {/* The zoom rule, said once, where the decision is made. An operator who
-          framed a shot at 12x and pressed this would otherwise reasonably
-          expect to come back at 12x. */}
-      <span className="text-[11px] leading-[15px] text-muted">
-        {why ?? "Saves where this camera is pointing now. Home always returns at the widest zoom, not the current one."}
-      </span>
-      <MutationStatus phase={phase} label="Saving home position" />
+      <div className="flex gap-[6px]">
+        {/* ⚠ RECALL SITS BESIDE SAVE NOW. It already existed on the pad; a
+            customer reading "Home position" reasonably expects to be able to
+            use it from here, and having only the destructive half of a pair is
+            the odder arrangement. */}
+        {onGo && (
+          <button
+            type="button"
+            disabled={blocked || pending}
+            onClick={onGo}
+            className={`flex-1 rounded-[8px] px-[10px] py-[8px] text-[13px] transition-colors ${
+              blocked
+                ? "cursor-not-allowed bg-card/40 text-muted"
+                : "bg-card hover:bg-card-hover"
+            }`}
+          >
+            Go home
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={blocked || pending}
+          aria-busy={pending || undefined}
+          onClick={onSet}
+          className={`flex flex-1 items-center justify-between gap-[8px] rounded-[8px] px-[10px] py-[8px] text-left text-[13px] transition-colors ${
+            blocked
+              ? "cursor-not-allowed bg-card/40 text-muted"
+              : "bg-card hover:bg-card-hover"
+          } ${errorRing(phase)}`}
+        >
+          Set as home
+          <MutationIcon phase={phase} idle={null} />
+        </button>
+      </div>
+      {/* ⚠ ONE LINE, AND ONLY WHERE SOMEBODY WOULD BE STUCK. Two sentences
+          about zoom and about authorized sessions used to sit under every
+          camera. A disabled button with no reason is the one case the rules
+          still allow a line for. */}
+      {blocked && (
+        <span className="text-[11px] leading-[15px] text-muted">
+          Open this camera to move it.
+        </span>
+      )}
+      <MutationStatus phase={phase} label="Saving" />
       <MutationError phase={phase} onRetry={onRetry} onDismiss={onDismiss} />
     </div>
   );
@@ -1604,7 +1427,6 @@ function RowReading({
   icon,
   action,
   detail,
-  note,
   last = false,
 }: {
   label: string;
@@ -1623,30 +1445,15 @@ function RowReading({
    * stays one line either way.
    */
   detail?: string;
-  /**
-   * A small line under the LABEL, shown on screen rather than on hover.
-   *
-   * ⚠ IT EXISTS FOR "Set by Kallon", AND THAT IS NOT DECORATION. Recording
-   * mode and the retention window used to be drop-downs; they are readings
-   * now, and a reading where a control used to be reads as a thing that has
-   * stopped working unless the row says who holds it. A `title` would not do:
-   * nobody hovers a row to find out why they cannot change it.
-   */
-  note?: string;
   last?: boolean;
 }) {
   return (
-    <div
-      className={`${note ? ROW_TALL : ROW} ${last ? "" : ROW_LINE}`}
-    >
-      <span className="flex min-w-0 flex-col">
-        <span className={LABEL}>{label}</span>
-        {note && (
-          <span className="text-[0.75rem] leading-[14px] tracking-[0.12px] text-dim">
-            {note}
-          </span>
-        )}
-      </span>
+    <div className={`${ROW} ${last ? "" : ROW_LINE}`}>
+      {/* ⚠ NO SECOND LINE UNDER THE LABEL. This grew one to carry "Set by
+          Kallon" on the rows a customer cannot change. A value with no chevron
+          beside it already reads as a value, and the note was us explaining
+          our own product decision on their settings screen. */}
+      <span className={LABEL}>{label}</span>
       <span className="flex min-w-0 items-center gap-[6px]">
         {/* One colour class, never two — see VALUE_TYPE. */}
         <span
@@ -1665,7 +1472,7 @@ function RowReading({
           <button
             type="button"
             disabled
-            title={`${action} — not available yet`}
+            title={`${action} is not available yet`}
             className="shrink-0 text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-terra transition-colors hover:text-body-ink disabled:text-body-ink/30 disabled:hover:text-body-ink/30"
           >
             {action}
@@ -1677,55 +1484,35 @@ function RowReading({
 }
 
 /**
- * The uplink, graded only when there is a number behind the grade.
+ * This mast's own signal, where the Jetson measured one.
  *
- * Colour is the app's reserved set and it is spent here deliberately: this is a
- * READING of a site, which is what green/amber/red are for. The three
- * non-signal states get no colour at all — they are not degradations, and
- * painting "Wired" amber would report a fault on hardware that is working.
+ * Only reachable for `kind: "signal"` -- the call site hides the row for every
+ * other shape, because "Wired", "Radio not connected" and "No signal reading"
+ * were three ways of saying there is nothing to report. The three branches
+ * that printed them are gone with them.
  *
- * The dBm rides beside the grade for the same reason a stream profile shows its
- * resolution: a label with the measurement behind it can be checked, and one
- * without it has to be believed.
+ * ⚠ THE WORD, WITHOUT THE NUMBER. It read "Great · -58 dBm". The grade is
+ * what a customer acts on; the dBm is for whoever is aiming the dish, and they
+ * read it from the radio. Colour is the app's reserved set and is spent here
+ * deliberately: this is a reading of a site.
  */
 function UplinkRow({ reading }: { reading: UplinkReading }) {
-  if (reading.kind === "signal") {
-    const word =
-      reading.grade === "great" ? "Great" : reading.grade === "fair" ? "Fair" : "Poor";
-    return (
-      <RowReading
-        label="Uplink"
-        value={`${word} · ${reading.dbm} dBm`}
-        tone={
-          reading.grade === "poor"
-            ? "text-critical"
-            : reading.grade === "fair"
-              ? "text-warn"
-              : "text-terra"
-        }
-        /* The exported set is two-tier — there is no `wifi-bad.svg` — so a poor
-           uplink took the amber glyph and the row said red in words beside
-           amber in the picture. Better no glyph than one reporting a tier above
-           the truth. Give it the third export and it belongs back here. */
-        icon={
-          reading.grade === "great"
-            ? "/icons/wifi-good.svg"
-            : reading.grade === "fair"
-              ? "/icons/wifi-warn.svg"
-              : undefined
-        }
-      />
-    );
-  }
-
-  /* Everything below is an honest absence of a signal, not a bad one. */
-  if (reading.kind === "wired") {
-    return <RowReading label="Uplink" value="Wired" />;
-  }
-  if (reading.kind === "unassociated") {
-    return <RowReading label="Uplink" value="Radio not connected" tone="text-warn" />;
-  }
-  return <RowReading label="Uplink" value="No signal reading" />;
+  if (reading.kind !== "signal") return null;
+  const word =
+    reading.grade === "great" ? "Good" : reading.grade === "fair" ? "Fair" : "Weak";
+  return (
+    <RowReading
+      label="Signal"
+      value={word}
+      tone={
+        reading.grade === "poor"
+          ? "text-critical"
+          : reading.grade === "fair"
+            ? "text-warn"
+            : "text-terra"
+      }
+    />
+  );
 }
 
 /** The two health blocks the Network group draws, named once. */
@@ -1733,91 +1520,51 @@ type RadioBlock = NonNullable<NonNullable<Tower["health"]>["radio"]>;
 type SectorBlock = NonNullable<NonNullable<Tower["health"]>["sectors"]>;
 
 /**
- * The radio link to this mast's hub: the number, and the word for it.
+ * How good this mast's link to its hub is, in a word.
  *
- * ⚠ WHAT THIS REPLACED, AND WHY THE OLD ROW COULD NOT BE FIXED. The Network
- * group used to show "Uplink", graded from `health.uplink.signalDbm` — which
- * the tower measures by running `iw dev <iface> link`. On a sinew mast the
- * radio is a Ubiquiti box on the far end of an Ethernet cable: `iw` answers
- * "operation not supported", the tower honestly reports `type: ethernet`, and
- * the row said **"Wired"** about a radio link. No threshold could fix that;
- * the measurement was of the wrong thing.
+ * ⚠ THE WORD, NOT THE NUMBER. It read "Good · -62 dBm", with a tooltip
+ * naming SNMP and a path into the docs. The dBm is for whoever is aiming the
+ * dish, and they read it off the radio; what belongs on a settings screen is
+ * the thing a customer can act on.
  *
- * The number here comes from the radio itself, over read-only SNMP, and
- * `signalFrom` says which end read it — the mast's own radio hearing the hub,
- * or the hub's sector radio hearing the mast. They differ by a few dB, and a
- * reader comparing two sites deserves to know which one they have.
- *
- * ⚠ EVERY ABSENCE IS A DIFFERENT SENTENCE, and none of them is a grade:
- *
- *   no radio block        this mast has no radio link — wired, or WireGuard
- *   associated: false     a radio joined to nothing, which is a fault
- *   no signalDbm          nothing measured it: no SNMP community on the site,
- *                         or a radio that would not answer. "not measured",
- *                         never 0 dBm, which would grade as the best link in
- *                         the fleet.
+ * ⚠ UNMEASURED IS HIDDEN, NOT "not measured". A site with no signal reading
+ * configured has nothing to say here, and a row explaining that it has nothing
+ * to say is the "Not reported" problem with extra words. The mast's presence
+ * is already reported by Connected since beside it.
  */
 function RadioLinkRow({ radio }: { radio?: RadioBlock }) {
-  if (!radio) {
-    /* No radio link to describe. A mast on WireGuard over somebody's fibre is
-       a real deployment, and this row is not about it. */
-    return <RowReading label="Radio link" value="No radio link" />;
-  }
+  if (!radio) return null;
   if (!radio.associated) {
-    return (
-      <RowReading label="Radio link" value="Not connected" tone="text-critical" />
-    );
+    return <RowReading label="Radio link" value="Not connected" tone="text-critical" />;
   }
-  const note = radioStateNote(radio.state);
-  if (radio.signalDbm === undefined) {
-    /* ASSOCIATED, AND UNMEASURED. Both halves are true and the row says both,
-       because "Connected" alone invites a reader to assume it is also good. */
-    return (
-      <RowReading
-        label="Radio link"
-        value={note ? `Connected · ${note}` : "Connected · not measured"}
-        tone={note ? "text-warn" : undefined}
-        detail="The signal is read from the radio over SNMP. Nothing has reported one for this mast — see docs/release-tower.md."
-      />
-    );
-  }
+  if (radio.signalDbm === undefined) return null;
   const grade = radioGrade(radio.signalDbm);
-  const parts = [grade.word, `${radio.signalDbm} dBm`];
-  if (note) parts.push(note);
+  const note = radioStateNote(radio.state);
   return (
     <RowReading
       label="Radio link"
-      value={parts.join(" · ")}
+      value={grade.word}
       tone={note === "link down" ? "text-critical" : grade.tone}
-      detail={
-        radio.signalFrom === "tower"
-          ? "Measured by this mast's own radio, hearing the hub."
-          : radio.signalFrom === "hub"
-            ? "Measured by the hub's sector radio, hearing this mast."
-            : undefined
-      }
     />
   );
 }
 
 /**
- * A hub's sector radios: who is on each one, and how well it hears them.
+ * A hub's radios: how many masts are on each, and how well it hears them.
  *
- * ⚠ READ `associations` FIRST, NEVER `towers ?? []`. A sector whose radio
- * would not answer, or one on a hub with no station reader configured, carries
- * NO tower list — and `[]` printed for that case says "this sector has lost
- * every mast it had", which is the one wrong answer available here and the one
- * that sends somebody up a tower in the dark.
+ * ⚠ READ `associations` FIRST, NEVER `towers ?? []`. A radio nobody has asked
+ * carries no list, and `[]` printed for that case says "this radio has lost
+ * every mast it had" -- the one wrong answer available here, and the one that
+ * sends somebody up a tower in the dark. Under `unknown` the row shows the
+ * radio's own state and stops.
  *
- * One row per sector rather than one saying "3 sectors": the question this
- * answers is "which sector is the problem", and a count cannot answer it.
+ * One row per radio rather than one saying "3 radios": the question this
+ * answers is "which one is the problem", and a count cannot answer it.
  */
 function SectorRows({ sectors }: { sectors?: SectorBlock }) {
-  if (!sectors || sectors.length === 0) {
-    /* A single-radio hub, which is every hub built before sectors existed. It
-       has a radio; it does not have sectors. */
-    return <RowReading label="Radio" value="One radio, no sectors" />;
-  }
+  /* A hub with one radio has nothing per-radio to say, and a row explaining
+     that it has one radio is not a reading. */
+  if (!sectors || sectors.length === 0) return null;
   return (
     <>
       {sectors.map((sector) => {
@@ -1826,68 +1573,44 @@ function SectorRows({ sectors }: { sectors?: SectorBlock }) {
             <RowReading
               key={sector.id}
               label={`Radio ${sector.id}`}
-              value="Radio not answering"
+              value="Not responding"
               tone="text-critical"
             />
           );
         }
         if (sector.associations !== "observed") {
-          /* The radio may be perfectly fine. What is missing is anybody having
-             asked it who is associated, so the row says that and does not
-             imply an empty sector. */
           return (
             <RowReading
               key={sector.id}
               label={`Radio ${sector.id}`}
-              value={sector.state === "up" ? "Up · masts not read" : "Not known"}
-              detail="Nothing on this hub reads the radios' station lists. See docs/hub-deploy.md."
+              value={sector.state === "up" ? "Working" : "Not known"}
             />
           );
         }
         const towers = sector.towers ?? [];
         if (towers.length === 0) {
           return (
-            <RowReading
-              key={sector.id}
-              label={`Radio ${sector.id}`}
-              value="No masts on it"
-            />
+            <RowReading key={sector.id} label={`Radio ${sector.id}`} value="No towers" />
           );
         }
-        /* THE SIGNALS, WHERE THEY WERE MEASURED. A mast in `towers` with no
-           entry in `towerSignals` is associated and unmeasured — the older
-           password station reader scrapes MACs off an HTTP page and has no
-           signal to give — so it is listed without a number rather than left
-           out or handed one. */
+        /* The WEAKEST mast decides the word: a radio is as good as its worst
+           link, and an average would paint one failing dish green. A mast with
+           no measurement is simply not counted. */
         const byId = new Map(
           (sector.towerSignals ?? []).map((t) => [t.deviceId, t.signalDbm]),
         );
         const measured = towers
           .map((id) => byId.get(id))
           .filter((d): d is number => d !== undefined);
-        /* The WEAKEST of them decides the row's colour: a sector is as good as
-           its worst mast, and an average would paint one failing dish green. */
         const worst = measured.length > 0 ? Math.min(...measured) : undefined;
         return (
           <RowReading
             key={sector.id}
             label={`Radio ${sector.id}`}
-            value={`${towers.length} mast${towers.length === 1 ? "" : "s"}${
-              worst !== undefined
-                ? ` · ${radioGrade(worst).word} · ${worst} dBm`
-                : ""
+            value={`${towers.length} tower${towers.length === 1 ? "" : "s"}${
+              worst !== undefined ? ` · ${radioGrade(worst).word}` : ""
             }`}
             tone={worst !== undefined ? radioGrade(worst).tone : undefined}
-            detail={
-              measured.length === 0
-                ? "No signal was measured for these masts — this hub's station reader is on the older password path. See docs/hub-deploy.md."
-                : towers
-                    .map((id) => {
-                      const dbm = byId.get(id);
-                      return `${id}: ${dbm === undefined ? "not measured" : `${dbm} dBm`}`;
-                    })
-                    .join(" · ")
-            }
           />
         );
       })}
@@ -1896,37 +1619,20 @@ function SectorRows({ sectors }: { sectors?: SectorBlock }) {
 }
 
 /**
- * Whether this site can be seen from outside, and from how far away.
+ * Whether this site can be reached from outside.
  *
  * ⚠ "KALLON CLOUD", NEVER "DC". The data centre is our word for our own
- * machine. A customer reading this row is being told whether their site is
- * reachable by the service they bought, and that service has a name.
+ * machine. A customer is being told whether the service they bought can see
+ * their site.
  *
- * ⚠ ABSENT IS NOT "DISCONNECTED". A hub whose uplink agent has never run has
- * told us nothing; a hub whose agent says `connected: false` has told us the
- * link is down. The first is a gap in our own reporting, and printing it as a
- * fault at the customer's site is the mirror image of fake green.
+ * ⚠ NOTHING REPORTED IS HIDDEN, NOT "Not reported". A site that has not told
+ * us about its link has not told us it is down either, and a row saying so is
+ * a gap in our reporting dressed as a fact about their site.
  */
 function CloudRow({ cloud, last = false }: { cloud?: CloudReading; last?: boolean }) {
-  if (!cloud) {
-    return (
-      <RowReading
-        label="Kallon Cloud"
-        value="Not reported"
-        detail="This site has not reported its link to Kallon Cloud."
-        last={last}
-      />
-    );
-  }
+  if (!cloud) return null;
   if (cloud.isCloud) {
-    return (
-      <RowReading
-        label="Kallon Cloud"
-        value="Connected"
-        detail="You are reading this through Kallon Cloud, so the connection is in use right now."
-        last={last}
-      />
-    );
+    return <RowReading label="Kallon Cloud" value="Connected" last={last} />;
   }
   if (cloud.connected !== true) {
     return (
@@ -1934,23 +1640,11 @@ function CloudRow({ cloud, last = false }: { cloud?: CloudReading; last?: boolea
         label="Kallon Cloud"
         value="Not connected"
         tone="text-critical"
-        detail="The site keeps recording and stays viewable on its own network. It cannot be reached from outside until the link returns."
         last={last}
       />
     );
   }
-  return (
-    <RowReading
-      label="Kallon Cloud"
-      value={
-        cloud.latencyMs !== undefined
-          ? `Connected · ${cloud.latencyMs} ms`
-          : "Connected"
-      }
-      detail={cloud.iface ? `Over ${cloud.iface}.` : undefined}
-      last={last}
-    />
-  );
+  return <RowReading label="Kallon Cloud" value="Connected" last={last} />;
 }
 
 /**
@@ -2100,16 +1794,16 @@ function StreamChoice({
           {feed.name}
         </span>
       )}
-      {list.length === 0 ? (
-        <p className="px-[10px] py-[6px] text-[0.75rem] leading-[16px] text-muted">
-          This camera reports no stream profiles. It is served at its default.
-        </p>
-      ) : list.length === 1 ? (
-        <p className="px-[10px] py-[6px] text-[0.75rem] leading-[16px] text-muted">
-          One stream only — {profileLabel(list[0])}.
+      {list.length < 2 ? (
+        /* ⚠ ONE WORD, NOT A SENTENCE. This used to explain that the camera
+           "reports no stream profiles" and is "served at its default", which
+           tells a customer about our inventory format. There is one quality
+           and this is its name. */
+        <p className="px-[10px] py-[6px] text-[0.875rem] leading-[18px] text-muted">
+          {list.length === 1 ? profileLabel(list[0], list) : "Standard"}
         </p>
       ) : (
-        <div role="radiogroup" aria-label={`${feed.name} stream quality`} className="flex flex-col">
+        <div role="radiogroup" aria-label={`${feed.name} quality`} className="flex flex-col">
           {list.map((p) => {
             const picked = p.id === current?.id;
             return (
@@ -2119,20 +1813,19 @@ function StreamChoice({
                 role="radio"
                 aria-checked={picked}
                 onClick={() => onPick(p.id)}
-                className={`flex flex-col gap-[2px] rounded-[6px] px-[10px] py-[8px] text-left transition-colors ${
+                className={`flex items-center gap-[8px] rounded-[6px] px-[10px] py-[8px] text-left text-[0.875rem] text-body-ink transition-colors ${
                   picked ? "bg-panel" : "hover:bg-panel/60"
                 }`}
               >
-                <span className="flex items-center gap-[8px] text-[0.875rem] text-body-ink">
-                  <span
-                    aria-hidden
-                    className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-action" : "bg-overlay/20"}`}
-                  />
-                  {profileLabel(p)}
-                </span>
-                <span className="pl-[16px] text-[0.75rem] leading-[16px] text-muted">
-                  {profileNote(p, p.default)}
-                </span>
+                {/* ⚠ NO SECOND LINE. Each option carried a sentence about the
+                    uplink and the battery; two options meant two paragraphs
+                    under a choice between two words. The words are the
+                    choice. */}
+                <span
+                  aria-hidden
+                  className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-action" : "bg-overlay/20"}`}
+                />
+                {profileLabel(p, list)}
               </button>
             );
           })}
@@ -2314,8 +2007,7 @@ function ZoneEditor({
         </div>
 
         <p className="text-[0.875rem] leading-[20px] text-sub">
-          Drag on the picture to draw a zone. Movement outside your zones is
-          ignored. With none drawn, the whole frame is watched.
+          Drag on the picture to draw a zone.
         </p>
 
         {/* On the camera's own frame. The whole point is that you can see the
@@ -2416,7 +2108,7 @@ function ZoneEditor({
 
         {mine.length === 0 ? (
           <p className="text-[0.8125rem] leading-[20px] text-muted">
-            No zones. The whole frame is watched.
+            No zones. The whole picture is watched.
           </p>
         ) : (
           <ul className="flex flex-col gap-[8px]">
@@ -2446,7 +2138,7 @@ function ZoneEditor({
 
         {full && (
           <p className="text-[0.8125rem] leading-[20px] text-warn">
-            Three zones is the limit. Remove one to draw another.
+            Three zones is the limit.
           </p>
         )}
       </div>

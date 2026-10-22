@@ -182,9 +182,9 @@ export function MutationStatus({
       {phase.kind === "pending"
         ? `${label}…`
         : phase.kind === "done"
-          ? `${label} — done`
+          ? `${label}, done`
           : phase.kind === "error"
-            ? `${label} — failed. ${phase.message}`
+            ? `${label}, failed. ${phase.message}`
             : ""}
     </span>
   );

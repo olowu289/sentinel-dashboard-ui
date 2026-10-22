@@ -148,9 +148,7 @@ export function batteryCurrentLabel(reading: BatteryReading): string | undefined
 export function batteryHint(reading: BatteryReading): string {
   if (!reading.reachable) {
     return (
-      "The tower could not read its battery. The pack accepts one Bluetooth " +
-      "connection at a time, so this is usually something else holding it — " +
-      "no charge level is shown rather than an old one."
+      "The tower could not read its battery, so no charge is shown."
     );
   }
   if (reading.socPct === undefined) {

@@ -48,8 +48,8 @@ export function PendingTowerCard({
         onClick={onResume}
         aria-label={
           dead
-            ? `${claim.label} — registration expired, register again`
-            : `${claim.label} — registered, waiting for the tower to connect, ${formatCountdown(left)} left`
+            ? `${claim.label}, registration expired, register again`
+            : `${claim.label}, registered, waiting for the tower to connect, ${formatCountdown(left)} left`
         }
         className="absolute inset-0 rounded-[12px]"
       />

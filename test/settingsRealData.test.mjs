@@ -328,12 +328,16 @@ describe("the panel's own source: no fixture rows left", () => {
     assert.ok(!/onChange\(\{ recording:/.test(panel));
   });
 
-  test('the rows a customer cannot change say "Set by Kallon"', () => {
-    /* Three of them: recording mode, the retention window, working mode. A
-       reading where a control used to be reads as a thing that has stopped
-       working unless the row says who holds it. */
-    const notes = panel.match(/note="Set by Kallon"/g) ?? [];
-    assert.ok(notes.length >= 3, `expected 3 or more, found ${notes.length}`);
+  test('no row explains why it cannot be changed', () => {
+    /* ⚠ REVERSED 2026-10-22. These rows used to carry "Set by Kallon",
+       on the reasoning that a reading where a control used to be reads as
+       something broken unless it says who holds it. The writing rules take the
+       opposite view and are right: a value with no control beside it already
+       reads as a value, and the note was a sentence about our company on a row
+       about the customer's camera. The `note` prop is gone with it, so there is
+       nowhere to put one back. */
+    assert.ok(!/Set by Kallon/.test(rendered.join(" ")));
+    assert.ok(!/\bnote=/.test(panel), "the note prop is gone");
   });
 
   test('the words "Recorded at the hub" exist for a mast with no SSD', () => {

@@ -82,7 +82,7 @@ export function storageTone(freePct: number): string {
 export function storageHint(freePct: number, usedGb?: number, totalGb?: number): string {
   const size =
     usedGb !== undefined && totalGb !== undefined
-      ? ` — ${usedGb} of ${totalGb} GB used`
+      ? ` · ${usedGb} of ${totalGb} GB used`
       : "";
   const shown = Math.round(freePct);
   switch (storageTier(freePct)) {

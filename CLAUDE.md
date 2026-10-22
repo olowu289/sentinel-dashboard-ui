@@ -120,6 +120,49 @@ preference, so a camera that is already streaming is reused, not renegotiated.
 `text-muted`, `border-line`, `text-critical` and friends. A raw hex in a
 component is a bug unless it is a one-off scrim or overlay alpha.
 
+## Writing for the screen
+
+Every string a customer can read follows these. They cover the dashboard and
+any text this repo sends that the website or the dashboard shows: error
+messages, status labels, descriptions in API responses. They do **not** cover
+logs, installer output, code comments or docs, which are written for us.
+
+**1. A setting is a label and a value.** Nothing else. No paragraph explaining
+how the system works, no justification of the design, no history. If the
+explanation feels necessary, the label is wrong.
+
+**2. At most one short line of help, and only where somebody would get it
+wrong without it.** Not one per row. Most rows need none.
+
+**3. Never show an internal word.** Not `sub`, `main`, `stream`, `node`,
+`sinew`, `tunnel`, `OID`, `SNMP`, `tower reports`, an API path, a field name, a
+code or an id. If a value only makes sense once you know how the system is
+built, it is not a value a customer can use.
+
+**4. What does not apply is hidden.** A tower that does not record locally has
+no recording rows at all. Send nothing and let the screen hide it; do not send
+"Not reported" as the text for something the device does not have. Absence of
+a field and a field whose value is unknown are different, and only the second
+gets words.
+
+**5. A read-only value is plain text.** No note explaining why it cannot be
+changed, and in particular no "Set by Kallon". A value with no control beside
+it already reads as a value.
+
+**6. An error is one sentence: what happened, and what to do.** No code, no
+field name, no apology, no second sentence of context.
+
+**7. No em-dashes.** Not in a label, a value, a help line, an error or a
+placeholder. Use a full stop, a comma, or a middle dot `·` between parts of one
+value.
+
+These are enforced, not just agreed: `test/userFacingCopy.test.mjs` reads every
+string in `src/` off the source on each run, so a new em-dash or a banned word
+in user-facing text fails `npm test` the moment it is written. The scanner
+behind it is `test/lib/copyScan.mjs`, and the one thing it must get right is
+stripping comments — the house style above writes in em-dashes and always
+will.
+
 ## Gotchas that have already bitten
 
 **`AlertDetail` is deliberately never remounted.** `AlertsPanel` renders it

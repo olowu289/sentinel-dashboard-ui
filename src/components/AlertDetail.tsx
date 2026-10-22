@@ -336,7 +336,7 @@ export function AlertDetail({
               <div className="flex size-full flex-col items-center justify-center gap-[3px] px-[16px] text-center">
                 <p className="text-[0.75rem] text-body-ink/40">
                   {alert.kind === "fault"
-                    ? "No footage — feed was down"
+                    ? "No footage, the feed was down"
                     : "No clip attached"}
                 </p>
                 <p className="text-[0.6875rem] text-body-ink/25">
@@ -486,7 +486,7 @@ export function AlertDetail({
         <button
           type="button"
           disabled
-          title="Escalate — not available yet"
+          title="Escalate, not available yet"
           className="h-[39px] flex-1 rounded-[8px] bg-panel text-[0.8125rem] font-medium tracking-[0.13px] text-body-ink transition-colors hover:bg-overlay/12 disabled:bg-panel/60 disabled:text-body-ink/30 disabled:hover:bg-panel/60"
         >
           Escalate

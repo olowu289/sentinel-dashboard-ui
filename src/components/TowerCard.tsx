@@ -207,7 +207,7 @@ export function TowerCard({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${tower.id}, ${tower.site} — ${status.label}. ${telemetry}.`}
+        aria-label={`${tower.id}, ${tower.site}. ${status.label}. ${telemetry}.`}
         className="absolute inset-0 rounded-[12px]"
       />
 
@@ -244,7 +244,7 @@ export function TowerCard({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${tower.id} telemetry — ${telemetry}`}
+        aria-label={`${tower.id} telemetry. ${telemetry}`}
         className={`group/mast absolute right-[33px] block h-[101px] w-[58px] ${
           latest ? "bottom-[58px]" : "bottom-[14px]"
         }`}
@@ -436,7 +436,7 @@ export function TowerCard({
         <button
           type="button"
           onClick={onOpenAlerts}
-          aria-label={`Open ${tower.id} alerts — ${alertsLabel}`}
+          aria-label={`Open ${tower.id} alerts. ${alertsLabel}`}
           title={`Open alerts (${alertsLabel})`}
           className="flex items-center gap-[3px] text-[0.75rem] leading-[15px] font-medium tracking-[0.12px] text-body-ink transition-colors tabular-nums hover:text-body-ink/70"
         >
@@ -470,7 +470,7 @@ export function TowerCard({
           <button
             type="button"
             onClick={onDismissNotice}
-            aria-label={`Dismiss ${tower.id} alert notice — ${alertsLabel} remain`}
+            aria-label={`Dismiss ${tower.id} alert notice. ${alertsLabel} remain`}
             title="Dismiss"
             className="flex size-[16px] shrink-0 items-center justify-center text-body-ink/70 transition-colors hover:text-body-ink"
           >

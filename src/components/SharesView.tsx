@@ -559,8 +559,7 @@ export function SharesView({
       {sites.value && sites.value.sites.length === 0 ? (
         <Card>
           <p className="text-[0.8125rem] leading-[20px] text-muted">
-            You are not assigned to a site yet, so there is nothing to share.
-            An administrator assigns people to sites.
+            You are not in a site yet, so there is nothing to share.
           </p>
         </Card>
       ) : null}

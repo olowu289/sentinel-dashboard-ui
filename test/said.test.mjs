@@ -266,7 +266,13 @@ describe("nothing a person reads carries machinery", () => {
 
 describe("the codes that have their own words", () => {
   test("a locked sign-in is not a wrong password", () => {
-    assert.match(said({ code: "too_many_attempts", status: 429 }), /paused/i);
+    /* The old sentence opened "For your security, this is paused after
+       several unsuccessful attempts", which is a paragraph's worth of reason
+       for a wait. What a person needs is why and what to do. */
+    const text = said({ code: "too_many_attempts", status: 429 });
+    assert.match(text, /too many attempts/i);
+    assert.match(text, /try again/i);
+    assert.ok(!/password/i.test(text));
   });
 
   test("an organization with no login slug says what to do", () => {

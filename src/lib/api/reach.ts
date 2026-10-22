@@ -85,8 +85,7 @@ const DETAIL: Record<ReachFailure, string> = {
      go into the wrong place entirely. Said without handing them our plumbing. */
   unreachable: "Check your connection and try again. Nothing you did caused this.",
   client_bug:
-    "The app couldn't send the request. Reloading the page usually clears it — " +
-    "if it keeps happening, let us know.",
+    "The app could not send the request. Reload the page.",
   server_error: "What you can see may be incomplete. Try again in a moment.",
   contract:
     "This version can't read what it was sent. Reload the page, and tell us if " +

@@ -984,7 +984,7 @@ export function useTileControls({
       /* Says what it cannot do rather than going quietly grey. A fixed camera
          has no lens to move, and "why is this greyed out" is a question an
          operator should not have to carry to a supervisor. */
-      label: feed.ptz ? "Zoom in" : "Zoom in — this camera cannot zoom",
+      label: feed.ptz ? "Zoom in" : "Zoom in, this camera cannot zoom",
       /* The camera's REAL magnification, or nothing. Never a count of presses
          and never derived from the normalized axis — see `useZoomReadout`. */
       badge: zoomSide === "zoom-in" ? formatZoom(zoomRatio) : null,
@@ -1006,7 +1006,7 @@ export function useTileControls({
     },
     {
       id: "zoom-out",
-      label: feed.ptz ? "Zoom out" : "Zoom out — this camera cannot zoom",
+      label: feed.ptz ? "Zoom out" : "Zoom out, this camera cannot zoom",
       badge: zoomSide === "zoom-out" ? formatZoom(zoomRatio) : null,
       icon: "/icons/ctl-zoom-out.svg",
       disabled: isDead || !realPtz,

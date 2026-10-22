@@ -268,7 +268,7 @@ export function NotStreamingFallback({
     <div className="flex flex-col items-center gap-[8px] px-[16px] text-center text-body-ink/35">
       <CameraOffGlyph />
       <p className="text-[0.8125rem] font-medium text-body-ink/70">
-        {offscreen ? "Live — not on screen" : "Live — not streaming here"}
+        {offscreen ? "Live, not on screen" : "Live, not streaming here"}
       </p>
       <p className="-mt-[2px] max-w-[240px] text-[0.75rem] text-body-ink/35">
         {offscreen

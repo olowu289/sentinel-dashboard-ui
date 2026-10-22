@@ -189,7 +189,7 @@ export function FootageView({
           const d = resolve(day.union, c.at + dt * c.speed);
           if (d.kind === "end") return { ...c, playing: false };
           if (d.kind === "jump") {
-            say(`No footage for ${formatDuration(d.gap.seconds)} — skipped to ${formatClock24(d.to * 1000)}`);
+            say(`No footage for ${formatDuration(d.gap.seconds)}. Skipped to ${formatClock24(d.to * 1000)}`);
             return { ...c, at: d.to };
           }
           return { ...c, at: d.at };
@@ -222,7 +222,7 @@ export function FootageView({
       const timeline = camera === null || synced ? day.union : day.timelineFor(camera);
       const d = resolve(timeline, at);
       const landed = d.kind === "end" ? at : d.kind === "jump" ? d.to : d.at;
-      if (d.kind === "jump") say(`Nothing recorded then — moved to ${formatClock24(landed * 1000)}`);
+      if (d.kind === "jump") say(`Nothing recorded then. Moved to ${formatClock24(landed * 1000)}`);
       setClockFor(camera, (c) => ({ ...c, at: landed }));
       if (camera !== null) setLastTouched(String(camera));
     },
@@ -237,7 +237,7 @@ export function FootageView({
         const d = resolve(timeline, c.at + seconds);
         if (d.kind === "end") return c;
         if (d.kind === "jump") {
-          say(`Nothing recorded then — moved to ${formatClock24(d.to * 1000)}`);
+          say(`Nothing recorded then. Moved to ${formatClock24(d.to * 1000)}`);
           return { ...c, at: d.to };
         }
         return { ...c, at: d.at };
@@ -717,7 +717,7 @@ function EmptyDay({ archiveEnabled }: { archiveEnabled: boolean }) {
       </p>
       <p className="max-w-[320px] text-center text-[0.75rem] leading-[16px] text-body-ink/35">
         {archiveEnabled
-          ? "Pick another date — days that hold footage are highlighted in the calendar."
+          ? "Pick another date. Days with footage are highlighted."
           : "Nothing is being archived here, so there is nothing to review."}
       </p>
     </div>
@@ -934,7 +934,7 @@ function Transport({
           type="button"
           onClick={onDownload}
           disabled={!canDownload}
-          title="Saves the whole segments covering the range — the archive does not trim"
+          title="Saves whole segments covering the range"
           className="h-[30px] shrink-0 rounded-[6px] bg-action px-[10px] font-display text-[0.6875rem] tracking-[0.11px] text-action-ink transition-colors hover:bg-action/90 disabled:opacity-40"
         >
           Download

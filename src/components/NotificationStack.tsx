@@ -143,8 +143,7 @@ function History({ onClose }: { onClose: () => void }) {
            statement from an empty box, and the operator is entitled to the
            first one. */
         <p className="px-[12px] py-[14px] text-[0.8125rem] leading-[18px] text-muted">
-          Nothing yet. Requests, offers and anything that ends will be listed
-          here after they leave the corner.
+          Nothing yet. Requests and offers are listed here.
         </p>
       ) : (
         <>

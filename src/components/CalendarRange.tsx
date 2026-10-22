@@ -188,7 +188,7 @@ export function CalendarRange({
           </>
         ) : from ? (
           <>
-            <span className="text-body-ink/75">{formatDayLabel(from)}</span> — pick
+            <span className="text-body-ink/75">{formatDayLabel(from)}</span>, pick
             an end date
           </>
         ) : (

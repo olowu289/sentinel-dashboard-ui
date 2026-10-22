@@ -404,8 +404,7 @@ export function LoginView() {
                   </span>
                 </p>
                 <p className="text-[0.75rem] leading-[16px] text-muted">
-                  Nothing is wrong with the account. Trying again before the
-                  time is up makes the wait longer.
+                  Trying again before the time is up makes the wait longer.
                 </p>
               </motion.div>
             )}

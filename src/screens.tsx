@@ -1079,7 +1079,14 @@ function Harness() {
   install(screen.mode as Mode);
 
   const body =
-    which.startsWith("card-") ? (
+    /* ⚠ THE TWO FLEET CARDS COME FIRST, because `card-fleet` and
+       `card-revoked` also start with "card-": the prefix below swallowed them
+       and handed them to `Cards`, which has nothing for those ids, so both
+       screens photographed an empty wall and the branch further down was
+       dead. Caught by looking at the pictures. */
+    which === "card-fleet" || which === "card-revoked" ? (
+      <FleetCards which={which} />
+    ) : which.startsWith("card-") ? (
       which === "card-undo" ? <UndoCard /> : <Cards which={which} />
     ) : which.startsWith("sharing-") ? (
       <SharingScreen
@@ -1101,8 +1108,6 @@ function Harness() {
       </div>
     ) : which.startsWith("add-") ? (
       <AddScreen which={which} />
-    ) : which === "card-fleet" || which === "card-revoked" ? (
-      <FleetCards which={which} />
     ) : which === "admin-people" ? (
       <AdministrationView />
     ) : which === "ptz-yielded" ? (

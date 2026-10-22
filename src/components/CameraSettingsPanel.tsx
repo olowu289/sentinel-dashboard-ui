@@ -934,19 +934,38 @@ export function CameraSettingsPanel({
             </Row>
           </Group>
 
+          {/* ── WHAT THIS BOX IS ──────────────────────────────────────────
+              Four of these five lines were WRONG until the hello carried them.
+              Model and Serial Number came from the fixture in `lib/data.ts`,
+              so every tower on every fleet was a "Terra Sentry XL"; Firmware
+              read `v1.5.0-23-g8e6f18b (dev)` on a tower running something
+              else. Each row now shows what the tower reported, and "Not
+              reported" when it reported nothing -- which is true, and is the
+              one thing a fixture can never be. */}
           <Group title="About Device">
             <RowReading label="Model Name" value={tower.model ?? ""} />
+            {/* THE UNIT's serial, from its label. It survives a re-flash and a
+                move: neither changes which unit this is. */}
             <RowReading label="Serial Number" value={tower.serial ?? ""} />
+            {/* THE BOARD's own, read off the Jetson at every start. Beside the
+                unit serial rather than merged with it, because a swapped board
+                changes this line and leaves the one above alone -- which is
+                how a repair becomes visible instead of remembered. */}
+            <RowReading label="Board Serial" value={tower.boardSerial ?? ""} />
             <RowReading label="Cameras" value={`${feeds.length}`} />
-            {/* The tower's reported RELEASE (agent_version -> firmware via the
-                projection), colour-coded by channel: green (stable), amber (beta),
-                grey (dev/unknown). No "Update Firmware" action — firmware moves via
-                OTA/releases, not from this panel; a control that cannot act does
-                not belong here. Honest "Unknown" when the tower reported none. */}
+            {/* The release this tower is RUNNING, as `v1.5.0-23`: the version
+                and the build number, no commit hash and no "(dev)" on a
+                customer's screen. The whole string is the row's detail, for
+                the support call. Colour-coded by channel: green (stable),
+                amber (beta), grey (ahead of a release, or unknown). No "Update
+                Firmware" action -- firmware moves via OTA/releases, not from
+                this panel, and a control that cannot act does not belong
+                here. */}
             <RowReading
               label="Firmware"
               value={firmware.label}
               tone={firmware.tone}
+              detail={firmware.detail}
               last
             />
           </Group>
@@ -1279,6 +1298,7 @@ function RowReading({
   tone,
   icon,
   action,
+  detail,
   last = false,
 }: {
   label: string;
@@ -1288,6 +1308,15 @@ function RowReading({
   icon?: string;
   /** An action beside the value, as the firmware row carries. */
   action?: string;
+  /**
+   * The whole fact, when the row shows a shortened one.
+   *
+   * The firmware row prints `v1.5.0-23` and keeps the commit here: the hash is
+   * what an engineer needs and what a customer should never be handed. It is a
+   * `title`, so it is on hover and read out by a screen reader, and the row
+   * stays one line either way.
+   */
+  detail?: string;
   last?: boolean;
 }) {
   return (
@@ -1295,7 +1324,10 @@ function RowReading({
       <span className={LABEL}>{label}</span>
       <span className="flex min-w-0 items-center gap-[6px]">
         {/* One colour class, never two — see VALUE_TYPE. */}
-        <span className={`truncate ${VALUE_TYPE} ${tone ?? "text-body-ink"} tabular-nums`}>
+        <span
+          title={detail || undefined}
+          className={`truncate ${VALUE_TYPE} ${tone ?? "text-body-ink"} tabular-nums`}
+        >
           {value || "Not reported"}
         </span>
         {icon && <img src={icon} alt="" width={16} height={16} className="block shrink-0" />}

@@ -418,12 +418,27 @@ export function toTower(raw: TowerInfo | TowerDetail, now?: number): {
        SUPERSEDED 2026-09-12 in part: this listed STORAGE among the things
        "ABSENT FROM THE CONTRACT and therefore absent here". It is in the
        contract now — §3.1's `disk` block carries free_pct and, additively, the
-       gigabytes — and it is mapped just above. The rest of the list stands:
-       battery, solar, cabinet temperature, location, model, IP, backup
-       connection and serial are still absent, and still must not be invented
-       here. See the note on `Tower`. */
+       gigabytes — and it is mapped just above.
+
+       SUPERSEDED AGAIN, for MODEL and SERIAL. Both are on the wire now, from
+       the tower's own device.env, and the board's own serial comes with them.
+       Until then the About screen showed a FIXTURE — every tower on every
+       fleet was a "Terra Sentry XL" — which is the thing this comment was
+       written to prevent and the thing that happened anyway, because the
+       fixture was already there when the field was not.
+
+       The rest of the list stands: battery, solar, cabinet temperature,
+       location, IP and backup connection are still absent, and still must not
+       be invented here. See the note on `Tower`. */
     ...(raw.agent_version ? { firmware: raw.agent_version } : {}),
     ...(raw.ota_channel ? { firmwareChannel: raw.ota_channel } : {}),
+    ...(raw.model ? { model: raw.model } : {}),
+    ...(raw.serial ? { serial: raw.serial } : {}),
+    /* The JETSON's own, read off the board at every start rather than written
+       in config. Kept beside the unit serial and never merged with it: a
+       swapped board changes this one and not the other, and that difference is
+       the answer to "is this still the same board inside the same unit". */
+    ...(raw.board_serial ? { boardSerial: raw.board_serial } : {}),
     /* Real, and one of the very few things on the settings panel's Network
        section that is. Omitted rather than nulled when the tower is offline —
        `Tower.connectedAt` documents why absence is the honest answer. */

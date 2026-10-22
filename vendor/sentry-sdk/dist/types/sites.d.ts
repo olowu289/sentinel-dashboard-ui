@@ -395,6 +395,29 @@ export interface ManagedCell {
     readonly full: boolean;
     /** Three quarters or more. Worth warning about; not yet a refusal. */
     readonly filling: boolean;
+    /**
+     * WHAT THE BOX IS, as the hub last reported it in `hub.hello`.
+     *
+     * ⚠ EVERY ONE OF THESE IS ABSENT ON A HUB THAT HAS NOT SAID, which is every
+     * hub that has not reconnected since this shipped. A consumer renders an
+     * absent field as "Not reported" and never as a blank that could be read as
+     * an empty value somebody set.
+     *
+     * `model`        the hub's configuration code (`HUB-3S`), from its device.env
+     * `serial`       the UNIT's serial from its label (`KLN-H-2610-0001`), which
+     *                survives a re-flash and a move
+     * `board_serial` the Jetson's own, read off the board at every start, so a
+     *                swapped board is visible beside an unchanged unit serial
+     * `firmware`     the release the hub runs. It used to report the literal
+     *                string "uplink-1" for every hub on every fleet.
+     * `sectors`      the radios it declares, as the screen shows them ("A, B, C").
+     *                Absent on a single radio hub, which declares none.
+     */
+    readonly model?: string;
+    readonly serial?: string;
+    readonly board_serial?: string;
+    readonly firmware?: string;
+    readonly sectors?: string;
 }
 /** One tower in a cell, named as its hub last reported it. */
 export interface CellTower {

@@ -912,6 +912,27 @@ export interface TowerInfo {
     /** The OTA release channel the tower is on (e.g. `stable`, `beta`), for
      *  classifying the reported version. Optional — absent when unreported. */
     ota_channel?: string;
+    /**
+     * What the box IS — the three lines of "About device" beside the version.
+     *
+     * ⚠ ABSENT MEANS THE TOWER DID NOT SAY, and a consumer must render that as
+     * "Not reported" rather than as an empty value somebody set. They were a
+     * FIXTURE in the dashboard until coordination started carrying them: every
+     * tower on every fleet claimed to be the same model with the same serial.
+     *
+     * `model`  the configuration code from the tower's own device.env
+     *          (`TOWER_MODEL`, e.g. `TWR-2CR-FXD`).
+     * `serial` the UNIT's serial, assigned at build and printed on the label
+     *          (`KLN-T-2610-0001`). It survives a re-flash and a move: neither
+     *          changes which unit it is.
+     * `board_serial` the JETSON's own, read off the board at every start. Kept
+     *          separate from `serial` on purpose — a swapped board changes this
+     *          one and not the other, and that difference is the answer to "is
+     *          this still the same board inside the same unit".
+     */
+    model?: string;
+    serial?: string;
+    board_serial?: string;
     capabilities?: string[];
     last_seen?: Timestamp | null;
     health?: TowerHealth;

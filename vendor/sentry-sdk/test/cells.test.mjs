@@ -361,3 +361,58 @@ test("a person missing from the answer is a ValidationError, not undefined", asy
     ValidationError,
   );
 });
+
+/* ================================================================== *
+ * WHAT THE BOX IS
+ * ================================================================== */
+
+test("a cell carries what the hub says it IS, when the hub says it", async () => {
+  /* The About section for a cell. Before this the DC knew a hub's name, its
+     tower count and whether it was up -- and nothing about the hardware, so
+     "which hub is this, and is it still the same board" could not be answered
+     from the dashboard at all. */
+  const { c } = client(() => ({
+    body: {
+      cells: [{
+        ...CELL,
+        model: "HUB-3S",
+        serial: "KLN-H-2610-0001",
+        board_serial: "1422220012345",
+        firmware: "v1.5.0-258-g1d80628",
+        sectors: "A, B, C",
+      }],
+    },
+  }));
+  const cell = (await c.listCells()).cells[0];
+  assert.equal(cell.model, "HUB-3S");
+  assert.equal(cell.serial, "KLN-H-2610-0001");
+  assert.equal(cell.board_serial, "1422220012345");
+  assert.equal(cell.firmware, "v1.5.0-258-g1d80628");
+  assert.equal(cell.sectors, "A, B, C");
+});
+
+test("and a hub that has not said carries NO such keys", async () => {
+  /* ⚠ ABSENT, NOT "". Every hub that has not reconnected since this shipped is
+     here, and a consumer that read `serial ?? ""` would print an empty line
+     where "Not reported" belongs -- which reads as a hub with no serial rather
+     than as a hub that has not been asked. */
+  const { c } = client(() => ({ body: { cells: [CELL] } }));
+  const cell = (await c.listCells()).cells[0];
+  for (const key of ["model", "serial", "board_serial", "firmware", "sectors"]) {
+    assert.equal(key in cell, false, key);
+  }
+});
+
+test("a hub that reports only some of them keeps the rest absent", async () => {
+  /* The ordinary state of a hub whose SERIAL_NUMBER is still blank in its
+     device.env: it has a model and a firmware and no serial, and the one that
+     is missing must not take the others down with it. */
+  const { c } = client(() => ({
+    body: { cells: [{ ...CELL, model: "HUB-1S", firmware: "v1.5.0" }] },
+  }));
+  const cell = (await c.listCells()).cells[0];
+  assert.equal(cell.model, "HUB-1S");
+  assert.equal(cell.firmware, "v1.5.0");
+  assert.equal("serial" in cell, false);
+  assert.equal("board_serial" in cell, false);
+});

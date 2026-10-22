@@ -751,6 +751,14 @@ function towerInfo(c: Check, path: string, raw: unknown): TowerInfo {
   if (agent !== undefined) value.agent_version = agent;
   const channel = c.optStr(`${p}ota_channel`, o["ota_channel"]);
   if (channel !== undefined) value.ota_channel = channel;
+  /* What the box is. Optional, each independently: a tower that reports a
+     model and no serial is an ordinary state (the serial is blank in its
+     device.env), and the dashboard says "Not reported" for the one that is
+     missing rather than refusing the whole tower. */
+  for (const key of ["model", "serial", "board_serial"] as const) {
+    const got = c.optStr(`${p}${key}`, o[key]);
+    if (got !== undefined) value[key] = got;
+  }
   if (o["last_seen"] !== undefined) {
     value.last_seen = o["last_seen"] === null ? null : c.str(`${p}last_seen`, o["last_seen"]);
   }

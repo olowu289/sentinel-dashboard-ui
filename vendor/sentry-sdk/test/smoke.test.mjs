@@ -751,6 +751,43 @@ test("parseTowerInfo forwards ota_channel (for firmware classification)", async 
   assert.equal(t2.ota_channel, undefined);
 });
 
+test("parseTowerInfo forwards what the box IS: model, serial, board serial", async () => {
+  /* The other three lines of "About device". They were a FIXTURE in the
+     dashboard -- every tower on every fleet was a "Terra Sentry XL" with the
+     same serial -- because nothing on the wire carried them. */
+  const full = {
+    ...PROJECTED,
+    model: "TWR-2CR-FXD",
+    serial: "KLN-T-2610-0001",
+    board_serial: "1422220012345",
+  };
+  const [t] = await client(fakeFetch(() => json({ towers: [full] }))).listTowers();
+  assert.equal(t.model, "TWR-2CR-FXD");
+  assert.equal(t.serial, "KLN-T-2610-0001");
+  assert.equal(t.board_serial, "1422220012345");
+});
+
+test("and a tower that reports none of them has no such keys", async () => {
+  /* ⚠ ABSENT, NOT "". A dashboard reading `serial ?? ""` would print a blank
+     line where "Not reported" belongs, which reads as a unit with no serial
+     rather than one that has not been asked. Every tower running a build older
+     than this is in exactly this state. */
+  const [t] = await client(fakeFetch(() => json({ towers: [PROJECTED] }))).listTowers();
+  for (const key of ["model", "serial", "board_serial"]) {
+    assert.equal(key in t, false, key);
+  }
+});
+
+test("a tower with a serial and no board serial keeps the one it has", async () => {
+  /* A board whose device tree does not publish a serial: the unit still has
+     its own, and the two are independent on purpose -- the pair is what
+     answers "is this still the same board inside the same unit". */
+  const partial = { ...PROJECTED, serial: "KLN-T-LAB-0003" };
+  const [t] = await client(fakeFetch(() => json({ towers: [partial] }))).listTowers();
+  assert.equal(t.serial, "KLN-T-LAB-0003");
+  assert.equal("board_serial" in t, false);
+});
+
 
 // ---------------------------------------------------------------------------
 // getSegmentUrl: a fresh presigned pair, asked for when a clip is OPENED

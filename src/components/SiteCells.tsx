@@ -36,7 +36,7 @@
  */
 
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import type { ManagedCell, Site } from "@kallon/sentry-sdk";
 
 import {
@@ -47,6 +47,7 @@ import {
   adminRenameTower,
 } from "@/lib/api/sites";
 import { useCell } from "@/lib/useSites";
+import { classifyFirmware } from "@/lib/firmware";
 import { ENTER, FADE } from "@/lib/motion";
 import {
   Failed,
@@ -121,6 +122,80 @@ function Confirm({
 }
 
 /* ------------------------------------------------------------------ *
+ * What the hub IS
+ * ------------------------------------------------------------------ */
+
+/**
+ * The cell's About block: the same four facts a tower's About screen shows,
+ * plus the radios this hub declares.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  THE DC KNEW A HUB'S NAME AND NOTHING ELSE ABOUT THE BOX
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A cell row said how many towers it holds and whether it is up. Which model
+ * it is, which unit, which board, and what release it runs were not on the
+ * wire at all -- and the version the DC did hold was the literal string
+ * `uplink-1`, the same on every hub on every fleet.
+ *
+ * ⚠ ABSENT IS "Not reported", NEVER A BLANK. Every hub that has not
+ * reconnected since this shipped reports none of it, and a row that printed an
+ * empty value would read as a hub with no serial rather than one that has not
+ * been asked.
+ *
+ * The whole block is hidden when the hub has told us nothing: five "Not
+ * reported" lines say less than no block at all, and the sentence that
+ * replaces it says WHY.
+ */
+function HubAbout({ cell }: { cell: ManagedCell }) {
+  const firmware = classifyFirmware(cell.firmware, null);
+  const known = Boolean(
+    cell.model || cell.serial || cell.board_serial || cell.firmware,
+  );
+  if (!known) {
+    return (
+      <p className="text-[0.75rem] leading-[16px] text-muted">
+        This cell has not reported what it is yet. A hub sends its model,
+        serial and release when it connects, so this fills in after its next
+        reconnect.
+      </p>
+    );
+  }
+  const rows: readonly (readonly [string, string])[] = [
+    ["Model", cell.model ?? ""],
+    /* THE UNIT's serial, from its label -- it survives a re-flash and a move.
+       THE BOARD's is read off the Jetson at every start, so a swapped board
+       changes that line and leaves this one alone. */
+    ["Serial number", cell.serial ?? ""],
+    ["Board serial", cell.board_serial ?? ""],
+    ["Firmware", firmware.label === "Unknown" ? "" : firmware.label],
+    /* Only when there are any: a single radio hub declares none, and "0" would
+       read as a hub with no radios rather than one with one. */
+    ...(cell.sectors ? ([["Radio sectors", cell.sectors]] as const) : []),
+  ];
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-[12px] gap-y-[2px] rounded-[8px] border border-line/70 bg-card/30 px-[12px] py-[8px]">
+      {rows.map(([label, value]) => (
+        <Fragment key={label}>
+          <dt className="font-display text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
+            {label}
+          </dt>
+          <dd
+            title={label === "Firmware" ? firmware.detail || undefined : undefined}
+            className={
+              "min-w-0 truncate text-[0.75rem] "
+              + (value ? "text-body-ink" : "text-muted")
+            }
+          >
+            {value || "Not reported"}
+          </dd>
+        </Fragment>
+      ))}
+    </dl>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * The towers in one cell
  * ------------------------------------------------------------------ */
 
@@ -184,6 +259,7 @@ function CellTowers({
 
   return (
     <div className="flex flex-col gap-[8px]">
+      <HubAbout cell={detail.value?.cell ?? cell} />
       {towers.length === 0 ? (
         <p className="text-[0.8125rem] leading-[18px] text-muted">
           No towers on this cell yet. Add one with the code the tower printed

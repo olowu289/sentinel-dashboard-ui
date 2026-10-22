@@ -408,6 +408,13 @@ function managedCell(c, at, raw) {
     if (o.capacity !== undefined) {
         out.capacity = c.num(`${at}.capacity`, o.capacity);
     }
+    /* The About block, each field independently: a hub that reports a model and
+       no serial is an ordinary state, and the one that is missing reads as "Not
+       reported" rather than failing the whole cell. */
+    for (const key of ["model", "serial", "board_serial", "firmware", "sectors"]) {
+        if (o[key] !== undefined)
+            out[key] = c.str(`${at}.${key}`, o[key]);
+    }
     return out;
 }
 export function parseCellList(raw, ctx = {}) {

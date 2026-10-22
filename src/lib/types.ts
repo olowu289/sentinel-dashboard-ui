@@ -241,7 +241,15 @@ export interface Tower {
   link?: LinkQuality;
   /** Where it stands, as the settings panel prints it. Not in the projection. */
   location?: string;
-  /** Hardware model, for the About group. Not in the projection. */
+  /**
+   * Hardware model, for the About group — `TOWER_MODEL` from the tower's own
+   * device.env, carried in the hello and whitelisted by the projection.
+   *
+   * ⚠ IT USED TO SAY "Not in the projection", AND THE FIXTURE FILLED THE GAP.
+   * Every tower on every fleet read "Terra Sentry XL" on the About screen,
+   * because `data.ts` had a value and the wire did not. Absent now means the
+   * tower did not report one, and the screen says "Not reported".
+   */
   model?: string;
   /* NO `ipAddress`. The row that printed one was replaced by "Connected since",
      which reports a real `connected_at` instead of a demo literal. An address is
@@ -250,9 +258,24 @@ export interface Tower {
      it should not come back as a convenience. */
   /** What it falls back to when the primary uplink drops. Not in the projection. */
   backupConnection?: string;
-  /** Chassis serial, printed on the cabinet label beside the QR. Not in the
-   *  projection — the platform id is, and that is what the radio uses. */
+  /**
+   * The UNIT's serial, printed on the label: `KLN-T-2610-0001`.
+   *
+   * Assigned when the unit is built and carried in `SERIAL_NUMBER`. It names
+   * the cabinet, so it survives a re-flash and a move to another site --
+   * neither changes which unit it is.
+   */
   serial?: string;
+  /**
+   * The BOARD's own serial, read off the Jetson at every start.
+   *
+   * ⚠ A SECOND, DIFFERENT FACT, and never merged with `serial`. The unit
+   * serial comes from config and the board serial comes from the board, so a
+   * swapped Jetson changes this one and leaves the other alone -- which is the
+   * only way the screen can answer "is this still the same board inside the
+   * same unit".
+   */
+  boardSerial?: string;
   /** Running firmware. `agent_version` is the nearest real field. */
   firmware?: string;
   /** The OTA release channel (stable/beta) the tower reports, for classifying the

@@ -76,8 +76,15 @@ interface Clock {
   speed: Speed;
 }
 
-const cameraLabel = (c: CameraKey): string =>
-  typeof c === "number" ? `CAMERA ${c}` : String(c).toUpperCase();
+/* A CAMERA KEY IS NOT A LABEL. A number becomes "Camera 2"; anything else is
+   the key the hub reports (`cam1`), and shouting it back was the closest this
+   screen came to printing an identifier at somebody. */
+const cameraLabel = (c: CameraKey): string => {
+  if (typeof c === "number") return `Camera ${c}`;
+  const key = String(c).trim();
+  const n = /^cam(?:era)?[-_ ]?(\d+)$/i.exec(key);
+  return n ? `Camera ${Number(n[1])}` : key;
+};
 
 /** A `09:30` / `9:30` / `0930` box, as an epoch inside the day. */
 function parseGoTo(raw: string, dayFrom: number): number | null {

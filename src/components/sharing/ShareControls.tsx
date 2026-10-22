@@ -149,6 +149,9 @@ export function DurationPicker({
   const [amount, setAmount] = useState(opening.amount);
   const [unit, setUnit] = useState<DurationUnit>(opening.unit);
   const parsed = parseDuration(amount, unit);
+  /* Typed RIGHT NOW, not "was typed when this opened": pressing a quick
+     button after typing clears the box, and the summary goes with it. */
+  const typedNow = quickLabel(value) === null;
 
   /* Typing commits as soon as what is typed is a valid length. No Apply
      button: this sits inside a form that already has one, and a second button
@@ -190,7 +193,7 @@ export function DurationPicker({
         })}
       </div>
 
-      <div className="flex items-center gap-[6px]">
+      <div className="flex flex-wrap items-center gap-[6px]">
         <span className="text-[0.75rem] text-muted">or</span>
         <input
           type="text"
@@ -210,11 +213,13 @@ export function DurationPicker({
           <option value="minutes">minutes</option>
           <option value="hours">hours</option>
         </select>
-        {/* WHAT IS ACTUALLY SET, in words, whichever way it was chosen. The
-            buttons say it themselves; a typed value does not, and "2700" is
-            not a length anybody reads. */}
-        {value > 0 && !parsed.problem ? (
-          <span className="text-[0.75rem] text-muted">
+        {/* WHAT IS ACTUALLY SET, in words -- for a TYPED value only.
+            ⚠ It used to show for a pressed button too, which put "1 hour"
+            next to the lit "1 hour" button saying the same thing, and in a
+            narrow card the repeat wrapped into a column of two words beside
+            the unit box. The buttons say it themselves; "2700" does not. */}
+        {typedNow && value > 0 && !parsed.problem ? (
+          <span className="whitespace-nowrap text-[0.75rem] text-muted">
             {sayDuration(value)}
           </span>
         ) : null}

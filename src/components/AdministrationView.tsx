@@ -34,16 +34,18 @@
  * the other is the product not lying.
  */
 
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { IconRail } from "@/components/IconRail";
 import { useSession } from "@/components/AuthProvider";
-import { useCallback, useMemo, useState } from "react";
-import type { Person, Share, Site } from "@kallon/sentry-sdk";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { AuditEntry, Person, Share, Site } from "@kallon/sentry-sdk";
 import { said } from "@/lib/said";
-import { isShareLive } from "@kallon/sentry-sdk";
+import { AUDIT_GROUPS, sentenceFor } from "@/lib/auditSentence";
+import { isAdminRole, isShareLive } from "@kallon/sentry-sdk";
 import {
   adminAddPerson,
   adminCreateSite,
+  adminRemovePerson,
   adminRemoveSite,
   adminRenamePerson,
   adminRenameSite,
@@ -68,15 +70,19 @@ import { ENTER, FADE } from "@/lib/motion";
 import { ShareRow } from "@/components/SharesView";
 import {
   Allowances,
-  Card,
+  ConfirmDialog,
+  CopyableLogin,
   Empty,
   Failed,
   Field,
   Loading,
+  MultiSelect,
+  OverflowMenu,
   PaneHead,
   PrimaryButton,
   QuietButton,
   Row,
+  SidePanel,
   StatusPill,
   Tabs,
   inputClass,
@@ -103,6 +109,8 @@ function SitesPane() {
      ceiling, and this route is the only place they exist. */
   const cells = useCells();
   const [newName, setNewName] = useState("");
+  /** The "Add a site" panel. */
+  const [naming, setNaming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -147,6 +155,7 @@ function SitesPane() {
     try {
       await adminCreateSite(newName.trim());
       setNewName("");
+      setNaming(false);
       sites.reload();
     } catch (err) {
       const e = err as { status?: number };
@@ -194,15 +203,33 @@ function SitesPane() {
 
   return (
     <div className="flex flex-col gap-[20px]">
-      {/* ADD, FROM THE TOP OF THE PANE as well as from inside a site: the
-          first cell in an organization is added before any site has one. */}
-      <div className="flex flex-wrap gap-[8px]">
-        <PrimaryButton onClick={() => setAdding({ what: "cell" })}>
-          Add a cell
-        </PrimaryButton>
-        <QuietButton onClick={() => setAdding({ what: "tower" })}>
-          Add a tower
-        </QuietButton>
+      {/* ⚠ ONE PRIMARY, AND THE OTHER TWO MOVED TO WHERE THEY MEAN
+          SOMETHING.
+          The head carried three buttons: Add a site, Add a cell, Add a tower.
+          The second and third ask "which site?" and "which cell?" as their
+          first question, and every site card already offers Add a cell and
+          every cell row already offers Add a tower -- where the answer is the
+          card somebody pressed. So the head keeps the one action that needs
+          no target.
+
+          The exception is an organization with NO sites yet: its first cell
+          has nowhere else to be added from, so the button appears there and
+          only there. */}
+      <div className="flex flex-wrap items-center justify-between gap-[10px]">
+        <PaneHead
+          title="Sites"
+          blurb="A site is a place: North Gate, the yard, the workshop. It holds cells, and a cell is one hub with its towers."
+        />
+        <div className="flex flex-wrap items-center gap-[8px]">
+          {list.length === 0 && !sites.loading ? (
+            <QuietButton onClick={() => setAdding({ what: "cell" })}>
+              Add a cell
+            </QuietButton>
+          ) : null}
+          <PrimaryButton onClick={() => setNaming(true)}>
+            Add a site
+          </PrimaryButton>
+        </div>
       </div>
 
       <AddDeviceDrawer
@@ -216,37 +243,61 @@ function SitesPane() {
         onAdded={reloadAll}
       />
 
-      <Card>
-        <Field
-          label="Add a site"
-          hint="A named location, like North Gate. It holds one or more cells."
-        >
-          <div className="flex flex-wrap gap-[8px]">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void create();
-              }}
-              placeholder="North Gate"
-              className={inputClass + " max-w-[320px]"}
-            />
+      {error ? (
+        <p role="alert" className="text-[0.8125rem] text-critical">
+          {error}
+        </p>
+      ) : null}
+
+      <SidePanel
+        open={naming}
+        title="Add a site"
+        onClose={() => {
+          setNaming(false);
+          setNewName("");
+        }}
+        footer={
+          <>
             <PrimaryButton disabled={busy || !newName.trim()} onClick={create}>
-              Create
+              {busy ? "Creating…" : "Create site"}
             </PrimaryButton>
-          </div>
+            <QuietButton
+              onClick={() => {
+                setNaming(false);
+                setNewName("");
+              }}
+            >
+              Cancel
+            </QuietButton>
+          </>
+        }
+      >
+        <Field
+          label="Name"
+          hint={
+            /* ⚠ AND NOT "All sites". That name means the ACCESS CHOICE --
+               "may see every site" -- and a place called the same thing cannot
+               be told apart from it. The server refuses it too, in the same
+               words, so the rule is not only in the browser. */
+            "A place: North Gate, the yard, the workshop. Not “All sites”: that is what the access choice is called."
+          }
+        >
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void create();
+            }}
+            placeholder="North Gate"
+            className={inputClass}
+          />
         </Field>
-        {error ? (
-          <p role="alert" className="text-[0.8125rem] text-critical">
-            {error}
-          </p>
-        ) : null}
-      </Card>
+      </SidePanel>
 
       {list.length === 0 ? (
         <Empty
           title="No sites yet"
-          why="Create one above, then put this organization's hubs in it. Until a hub is in a site, only you can see it."
+          why="Add a site for each place you have cameras: North Gate, the yard, the workshop. Until a cell is in a site, only an administrator can see it."
         />
       ) : (
         <motion.div initial={{ opacity: 0 }}
@@ -293,19 +344,28 @@ function SitesPane() {
                   </h3>
                 )}
                 {renaming === site.site_id ? null : (
-                  <span className="flex gap-[8px]">
-                    <QuietButton
-                      onClick={() => {
-                        setRenaming(site.site_id);
-                        setRenameTo(site.name);
-                      }}
-                    >
-                      Rename
-                    </QuietButton>
-                    <QuietButton danger onClick={() => setDeleting(site.site_id)}>
-                      Delete
-                    </QuietButton>
-                  </span>
+                  <OverflowMenu
+                    label={`Actions for ${site.name}`}
+                    items={[
+                      {
+                        label: "Rename",
+                        onSelect: () => {
+                          setRenaming(site.site_id);
+                          setRenameTo(site.name);
+                        },
+                      },
+                      {
+                        label: "Add a cell",
+                        onSelect: () =>
+                          setAdding({ what: "cell", siteId: site.site_id }),
+                      },
+                      {
+                        label: "Delete",
+                        onSelect: () => setDeleting(site.site_id),
+                        danger: true,
+                      },
+                    ]}
+                  />
                 )}
               </div>
 
@@ -324,40 +384,18 @@ function SitesPane() {
 
               {/* DELETE, AND IT IS REFUSED UNLESS THE SITE IS EMPTY. The
                   server counts what is in it and names it, because "not
-                  empty" sends somebody hunting through three screens. */}
-              <AnimatePresence>
-                {deleting === site.site_id ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={ENTER}
-                    className="flex flex-col gap-[8px] rounded-[8px] border border-critical/40 bg-critical/5 p-[12px]"
-                    role="alertdialog"
-                    aria-label={`Delete ${site.name}?`}
-                  >
-                    <p className="font-display text-[0.8125rem] text-body-ink">
-                      Delete {site.name}?
-                    </p>
-                    <p className="text-[0.75rem] leading-[16px] text-muted">
-                      Only an empty site can be deleted. Its cells and its
-                      people have to be moved first. The site stays in the
-                      audit log, so old entries still make sense.
-                    </p>
-                    <div className="flex gap-[8px]">
-                      <QuietButton
-                        danger
-                        disabled={busy}
-                        onClick={() => void removeSite(site.site_id)}
-                      >
-                        {busy ? "Working…" : "Delete it"}
-                      </QuietButton>
-                      <QuietButton onClick={() => setDeleting(null)}>
-                        Keep it
-                      </QuietButton>
-                    </div>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
+                  empty" sends somebody hunting through three screens. The
+                  dialog is the shared one, so this reads like the People
+                  screen's Remove rather than like its own invention. */}
+              <ConfirmDialog
+                open={deleting === site.site_id}
+                busy={busy}
+                title={`Delete ${site.name}?`}
+                consequence="Only an empty site can be deleted: its cells and its people have to be moved first. The site stays in the audit log, so old entries still make sense."
+                confirmLabel="Delete"
+                onCancel={() => setDeleting(null)}
+                onConfirm={() => void removeSite(site.site_id)}
+              />
             </div>
           ))}
         </motion.div>
@@ -388,8 +426,15 @@ function SitesPane() {
                 key={hubId}
                 className="flex flex-wrap items-center gap-[8px]"
               >
-                <span className="rounded-[8px] border border-detect/30 px-[10px] py-[4px] font-mono text-[0.75rem] text-detect">
-                  {hubId}
+                {/* ⚠ THE CELL'S NAME, NOT ITS HUB ID. This printed
+                    `hub-lab-01` in a monospace chip, which is the one kind of
+                    string this product must never show a customer. The name
+                    comes from /v1/cells; a hub that has enrolled and never
+                    been named has no name to show, and "An unnamed cell" is
+                    the honest version of that rather than its id. */}
+                <span className="rounded-[8px] border border-detect/30 px-[10px] py-[4px] text-[0.75rem] text-detect">
+                  {(cells.value?.cells ?? []).find((c) => c.hub_id === hubId)
+                    ?.name || "An unnamed cell"}
                 </span>
                 <span className="text-[0.75rem] text-sub/80">put it in</span>
                 {list.map((site) => (
@@ -423,154 +468,77 @@ function SitesPane() {
  * ------------------------------------------------------------------ */
 
 /**
- * Copy a login to the clipboard, and say that it happened.
+ * One row per person, every action in one menu, and the real status.
  *
- * ⚠ IT FALLS BACK RATHER THAN FAILING SILENTLY. `navigator.clipboard` needs a
- * secure context and a permission, and a hub's LAN dashboard is served over
- * plain HTTP to a browser that will refuse it. When it refuses, the button
- * says to select it instead — the login beside it is `select-all` text, which
- * is why that is a complete answer and not an apology.
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHAT THIS REPLACED, AND THE BUG IT SHIPPED WITH
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Six buttons in a row per person (Edit sites, Reset password, Fix a typo,
+ * Disable, and a chip per site), wrapping onto three lines on a laptop. The
+ * site membership was a row of chips whose state was readable only by colour.
+ * And the status was not shown at all: owner1 and guest1 are DISABLED on the
+ * production DC and the page offered both of them a "Disable" button, because
+ * it never read `status` — so the one fact that explains why somebody cannot
+ * sign in was the one fact missing, and the action offered was the one that
+ * had already been taken.
+ *
+ * Now: name, login with a copy button, role, a STATUS BADGE, a sites summary,
+ * and one overflow menu. The membership editor is a side panel with a
+ * searchable multi-select. Removing somebody is a real route, behind a
+ * confirmation that names them.
  */
-function CopyLogin({ login }: { login: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
-  const copy = useCallback(() => {
-    void (async () => {
-      try {
-        await navigator.clipboard.writeText(login);
-        setState("copied");
-        setTimeout(() => setState("idle"), 2_000);
-      } catch {
-        setState("manual");
-      }
-    })();
-  }, [login]);
-  return (
-    <QuietButton onClick={copy} label={`Copy the login ${login}`}>
-      {state === "copied" ? "Copied" : state === "manual" ? "Select it" : "Copy"}
-    </QuietButton>
-  );
-}
-
 function PeoplePane() {
   const people = usePeople();
   const sites = useSites();
   /* WHO IS SIGNED IN, so this screen does not offer an administrator a
-     Disable button for itself. The server refuses it -- that is what stops
-     an admin disabling the only admin -- and a button that cannot work is
-     not a safeguard, it is a 404 waiting for somebody to press it. */
+     Disable or Remove for itself. The server refuses both -- that is what
+     stops an admin locking the organization out of itself -- and a menu item
+     that cannot work is a refusal waiting to be discovered. */
   const { account } = useSession();
   const meId = account?.account_id ?? null;
-  const [adding, setAdding] = useState(false);
-  /* A NAME, not a login. Their login is `name.organization` and the
-     organization half is this admin's own, so there is nothing to type and
-     nothing to get wrong. */
-  const [name, setName] = useState("");
-  /* THE LOGIN, SHOWN ONCE, right after somebody is added. This is the only
-     moment it belongs on screen: an admin has to be able to tell them what
-     to type, and a list of credentials is a worse list than a list of
-     names. */
-  const [justAdded, setJustAdded] = useState<Person | null>(null);
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"admin" | "site_user">("site_user");
-  const [chosen, setChosen] = useState<string[]>([]);
+
+  /* ── THE PANELS AND DIALOGS, one of each, named by what they are for ── */
+  const [panel, setPanel] = useState<
+    | { kind: "add" }
+    | { kind: "sites"; person: Person }
+    | { kind: "password"; person: Person }
+    | { kind: "rename"; person: Person }
+    | null
+  >(null);
+  const [confirm, setConfirm] = useState<
+    { kind: "remove" | "disable" | "enable"; person: Person } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resetting, setResetting] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameTo, setRenameTo] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  /* THE LOGIN, SHOWN ONCE, right after somebody is added. The only moment a
+     credential belongs on screen: an admin has to be able to tell them what
+     to type, and reconstructing `name.organization` by hand is how a person is
+     given the wrong login on their first day. */
+  const [justAdded, setJustAdded] = useState<Person | null>(null);
 
-  const add = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await adminAddPerson({
-        name,
-        password,
-        role,
-        sites: chosen,
-      });
-      setAdding(false);
-      setName("");
-      setPassword("");
-      setChosen([]);
-      setJustAdded(created);
-      people.reload();
-    } catch (err) {
-      const e = err as { status?: number; code?: string };
-      setError(
-        e?.code === "name_taken" || e?.status === 409
-          ? "Somebody in this organization already has that name."
-          : said(err, "Could not add that person. Check the name and try again."),
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [name, password, role, chosen, people]);
+  const reload = people.reload;
+  const allSites = sites.value?.sites ?? [];
+  const orgSlug = people.value?.org?.slug ?? "";
+  const orgName = people.value?.org?.name ?? "this organization";
 
-  const rename = useCallback(
-    async (person: Person, to: string) => {
+  /** Every action goes through this, so one place sets busy and says why. */
+  const act = useCallback(
+    async (what: string, fn: () => Promise<unknown>) => {
       setBusy(true);
       setError(null);
       try {
-        await adminRenamePerson(person.account_id, to);
-        setRenaming(null);
-        people.reload();
+        await fn();
+        reload();
+        return true;
       } catch (err) {
-        const e = err as { code?: string };
-        setError(
-          e?.code === "name_taken"
-            ? "Somebody in this organization already has that name."
-            : said(err, "Could not change that name. Try again."),
-        );
+        setError(said(err, `${what} did not work. Try again.`));
+        return false;
       } finally {
         setBusy(false);
       }
     },
-    [people],
-  );
-
-  const toggleSite = useCallback(
-    async (person: Person, siteId: string) => {
-      const next = person.sites.includes(siteId)
-        ? person.sites.filter((s) => s !== siteId)
-        : [...person.sites, siteId];
-      setBusy(true);
-      try {
-        await adminSetPersonSites(person.account_id, next);
-        people.reload();
-      } finally {
-        setBusy(false);
-      }
-    },
-    [people],
-  );
-
-  const setStatus = useCallback(
-    async (person: Person, status: "active" | "disabled") => {
-      setBusy(true);
-      try {
-        await adminSetPersonStatus(person.account_id, status);
-        people.reload();
-      } finally {
-        setBusy(false);
-      }
-    },
-    [people],
-  );
-
-  const reset = useCallback(
-    async (person: Person) => {
-      setBusy(true);
-      try {
-        await adminResetPassword(person.account_id, newPassword);
-        setResetting(null);
-        setNewPassword("");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [newPassword],
+    [reload],
   );
 
   if (people.loading) return <Loading rows={4} label="Loading people" />;
@@ -578,20 +546,25 @@ function PeoplePane() {
     return <Failed message={people.error} onRetry={people.reload} />;
 
   const rows = people.value?.people ?? [];
-  const allSites = sites.value?.sites ?? [];
-  /* THE ORGANIZATION'S LOGIN HALF. Every person's login is `name.slug`, and
-     this screen cannot say what a new login will be without it. "" when the
-     server does not send one, and every sentence that would have used it
-     falls back rather than guessing. */
-  const orgSlug = people.value?.org?.slug ?? "";
 
   return (
-    <div className="flex flex-col gap-[20px]">
-      {/* ⚠ THE ONE MOMENT A LOGIN BELONGS ON SCREEN. An admin who has just
-          added somebody has to be able to tell them what to type, and
-          reconstructing `name.organization` by hand is how a person is given
-          the wrong login on their first day. It is dismissible, and it does
-          not come back: the list shows names. */}
+    <div className="flex flex-col gap-[16px]">
+      <div className="flex flex-wrap items-center justify-between gap-[10px]">
+        <PaneHead
+          title="People"
+          blurb="Everyone who signs in to this organization. Each person has their own login; there are no shared site passwords."
+        />
+        <PrimaryButton onClick={() => setPanel({ kind: "add" })}>
+          Add a person
+        </PrimaryButton>
+      </div>
+
+      {error ? (
+        <p role="alert" className="text-[0.8125rem] leading-[20px] text-critical">
+          {error}
+        </p>
+      ) : null}
+
       {justAdded ? (
         <motion.div
           initial={{ opacity: 0, y: 4 }}
@@ -599,24 +572,11 @@ function PeoplePane() {
           transition={ENTER}
           className="flex flex-wrap items-center justify-between gap-[10px] rounded-[10px] border border-line bg-card/60 px-[14px] py-[12px]"
         >
-          <span className="flex flex-col gap-[4px]">
+          <span className="flex min-w-0 flex-col gap-[4px]">
             <span className="font-display text-[0.875rem] text-body-ink">
               {justAdded.name ?? justAdded.login} can sign in now
             </span>
-            {/* ⚠ THE WHOLE LOGIN, EXACTLY AS TYPED AT THE PROMPT, and a
-                button that copies it. An administrator read
-                `guest2.<organization>` off this screen and passed it on,
-                because the hint below used to say that and this line was a
-                sentence somebody had to pick the login out of. */}
-            <span className="flex flex-wrap items-center gap-[8px]">
-              <code
-                data-login={justAdded.login}
-                className="select-all rounded-[6px] bg-ink/40 px-[8px] py-[3px] font-mono text-[0.8125rem] text-body-ink"
-              >
-                {justAdded.login}
-              </code>
-              <CopyLogin login={justAdded.login} />
-            </span>
+            <CopyableLogin login={justAdded.login} />
             <span className="text-[0.8125rem] text-muted">
               That is their login, with the password you just set. They can
               change the password in Settings; the login never changes.
@@ -625,334 +585,573 @@ function PeoplePane() {
           <QuietButton onClick={() => setJustAdded(null)}>Got it</QuietButton>
         </motion.div>
       ) : null}
-      {adding ? (
-        <motion.div initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={ENTER}>
-          <Card>
-            <div className="grid gap-[16px] sm:grid-cols-2">
-              <Field
-                label="Name"
-                hint={
-                  /* ⚠ THE REAL SLUG, FROM THE SERVER. This said
-                     `they will sign in as guest2.<organization>` -- angle
-                     brackets and all -- because the page never knew the
-                     organization's login half. `GET /v1/admin/people` says
-                     it now. With no slug there is nothing to promise, so the
-                     hint falls back to the rule rather than inventing one. */
-                  name.trim() && orgSlug
-                    ? `They will sign in as ${name.trim().toLowerCase()}.${orgSlug}`
-                    : "Lower case letters, digits and hyphens. No dots: the dot is what separates a name from its organization."
-                }
-              >
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className={inputClass}
-                  placeholder="dave"
-                  autoComplete="off"
-                />
-              </Field>
-              <Field
-                label="First password"
-                hint="They can change it themselves in Settings."
-              >
-                <input
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                  /* WORDS, NOT DOTS. A password input renders real input as
-                     dots, so a dotted placeholder reads as "already filled in"
-                     (test/passwordHints.test.mjs). */
-                  placeholder="their first password"
-                  className={inputClass}
-                  autoComplete="new-password"
-                />
-              </Field>
-            </div>
-            <Field label="Role">
-              <select
-                value={role}
-                onChange={(e) =>
-                  setRole(e.target.value as "admin" | "site_user")
-                }
-                className={inputClass + " max-w-[240px]"}
-              >
-                <option value="site_user">
-                  Site user: everything, inside their sites
-                </option>
-                <option value="admin">
-                  Administrator: everything, everywhere
-                </option>
-              </select>
-            </Field>
-            {allSites.length ? (
-              <Field label="Sites">
-                <div className="flex flex-wrap gap-[8px]">
-                  {allSites.map((s) => (
-                    <label
-                      key={s.site_id}
-                      className="flex items-center gap-[6px] rounded-[8px] border border-stroke px-[10px] py-[6px] text-[0.8125rem] text-sub"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={chosen.includes(s.site_id)}
-                        onChange={(e) =>
-                          setChosen((c) =>
-                            e.target.checked
-                              ? [...c, s.site_id]
-                              : c.filter((x) => x !== s.site_id),
-                          )
-                        }
-                        className="size-[16px] accent-white"
-                      />
-                      {s.name}
-                    </label>
-                  ))}
-                </div>
-              </Field>
-            ) : null}
-            {error ? (
-              <p role="alert" className="text-[0.8125rem] text-critical">
-                {error}
-              </p>
-            ) : null}
-            <div className="flex gap-[8px]">
-              <PrimaryButton
-                disabled={busy || !name.trim() || !password}
-                onClick={add}
-              >
-                Add person
-              </PrimaryButton>
-              <QuietButton onClick={() => setAdding(false)}>Cancel</QuietButton>
-            </div>
-          </Card>
-        </motion.div>
-      ) : (
-        <div>
-          <PrimaryButton onClick={() => setAdding(true)}>
-            Add a person
-          </PrimaryButton>
-        </div>
-      )}
 
       {rows.length === 0 ? (
         <Empty
-          title="Nobody yet"
-          why="Add people and assign them to sites. Everyone gets their own login; there are no shared site passwords."
+          title="Nobody here yet"
+          why="Add the people who work at your sites. Each one gets their own login, and you choose which sites they can see."
         />
       ) : (
-        <motion.div initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={FADE} className="flex flex-col gap-[8px]">
-          {rows.map((p) => {
-            const isAdmin = p.role === "admin" || p.role === "owner";
-            const disabled = p.status !== "active";
-            return (
-              <div
-                key={p.account_id}
-                className="flex flex-col gap-[10px] rounded-[10px] border border-line bg-card/40 px-[14px] py-[12px]"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-[8px]">
-                  <span className="flex flex-wrap items-center gap-[10px]">
-                    <span
-                      className={
-                        "text-[0.875rem] leading-[20px] " +
-                        (disabled ? "text-muted line-through" : "text-body-ink")
-                      }
-                    >
-                      {p.name ?? p.login}
-                      {/* `dele (was chi)`. The ledger holds account ids, so
-                          an old entry still resolves to this person -- this
-                          is how a READER of the list connects the two. */}
-                      {p.was ? (
-                        <span className="ml-[6px] text-[0.75rem] text-muted">
-                          (was {p.was})
-                        </span>
-                      ) : null}
-                    </span>
-                    {/* THE LOGIN, quiet and monospaced. It is a credential,
-                        not a name, and it is here because somebody on the
-                        phone to this person needs to read it out.
-
-                        ⚠ NOT WHEN IT IS THE NAME BESIDE IT. An organization's
-                        own account has no `name`, the line above falls back to
-                        the login, and this printed it a second time:
-                        `guest2.terra-industries guest2.terra-industries` was
-                        on screen in production. */}
-                    {p.name && p.name !== p.login ? (
-                      <span
-                        data-login={p.login}
-                        className="select-all font-mono text-[0.6875rem] text-muted/80"
-                      >
-                        {p.login}
-                      </span>
-                    ) : null}
-                    <span className="font-mono text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
-                      {isAdmin ? "administrator" : "site user"}
-                    </span>
-                    {disabled ? (
-                      <span className="font-mono text-[0.6875rem] uppercase tracking-[0.08em] text-critical">
-                        disabled
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="flex gap-[8px]">
-                    {p.account_id === meId ? (
-                      /* YOUR OWN ROW. Nothing here is yours to press: the
-                         password is changed in Settings, where it asks for
-                         the current one, and disabling yourself is refused
-                         by the server. */
-                      <span className="text-[0.75rem] text-muted">
-                        This is you. Change your password in Settings.
-                      </span>
-                    ) : null}
-                    {p.account_id === meId ? null : (
-                    <QuietButton
-                      onClick={() =>
-                        setResetting(
-                          resetting === p.account_id ? null : p.account_id,
-                        )
-                      }
-                    >
-                      Reset password
-                    </QuietButton>
-                    )}
-                    {/* ONLY A PERSON CAN BE RENAMED, and only to fix a
-                        typo. An organization's own login is not somebody's
-                        name, and the slug behind it is in every person's
-                        login in the organization. */}
-                    {p.name && p.account_id !== meId ? (
-                      <QuietButton
-                        onClick={() => {
-                          setRenaming(
-                            renaming === p.account_id ? null : p.account_id,
-                          );
-                          setRenameTo(p.name ?? "");
-                        }}
-                      >
-                        Fix a typo
-                      </QuietButton>
-                    ) : null}
-                    {p.account_id === meId ? null : disabled ? (
-                      <QuietButton
-                        disabled={busy}
-                        onClick={() => setStatus(p, "active")}
-                      >
-                        Enable
-                      </QuietButton>
-                    ) : (
-                      <QuietButton
-                        danger
-                        disabled={busy}
-                        onClick={() => setStatus(p, "disabled")}
-                      >
-                        Disable
-                      </QuietButton>
-                    )}
-                  </span>
-                </div>
-
-                {renaming === p.account_id ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={ENTER}
-                    className="flex flex-col gap-[8px]"
-                  >
-                    <Field
-                      label="Correct the name"
-                      hint={
-                        "This changes their login to " +
-                        (renameTo.trim().toLowerCase() || "name") +
-                        ".<organization>, so tell them. Their history keeps their old name beside the new one."
-                      }
-                    >
-                      <div className="flex flex-wrap gap-[8px]">
-                        <input
-                          value={renameTo}
-                          onChange={(e) => setRenameTo(e.target.value)}
-                          className={inputClass + " max-w-[220px]"}
-                          autoComplete="off"
-                        />
-                        <PrimaryButton
-                          disabled={busy || !renameTo.trim()}
-                          onClick={() => void rename(p, renameTo.trim())}
-                        >
-                          Save
-                        </PrimaryButton>
-                        <QuietButton onClick={() => setRenaming(null)}>
-                          Cancel
-                        </QuietButton>
-                      </div>
-                    </Field>
-                  </motion.div>
-                ) : null}
-                {resetting === p.account_id ? (
-                  <div className="flex flex-wrap items-end gap-[8px]">
-                    <Field label="New password">
-                      <input
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="a new password for them"
-                        className={inputClass + " max-w-[260px]"}
-                        autoComplete="new-password"
-                      />
-                    </Field>
-                    <PrimaryButton
-                      disabled={busy || !newPassword}
-                      onClick={() => reset(p)}
-                    >
-                      Set it
-                    </PrimaryButton>
-                  </div>
-                ) : null}
-
-                {isAdmin ? (
-                  <p className="text-[0.75rem] leading-[16px] text-muted">
-                    An administrator sees every site, so site membership does
-                    not apply.
-                  </p>
-                ) : allSites.length === 0 ? (
-                  <p className="text-[0.75rem] leading-[16px] text-muted">
-                    No sites exist yet, so there is nothing to assign.
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-[6px]">
-                    {allSites.map((s) => {
-                      const on = p.sites.includes(s.site_id);
-                      return (
-                        <button
-                          key={s.site_id}
-                          type="button"
-                          disabled={busy}
-                          aria-pressed={on}
-                          onClick={() => toggleSite(p, s.site_id)}
-                          className={
-                            "rounded-[8px] border px-[10px] py-[4px] text-[0.75rem] transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action " +
-                            (on
-                              ? "border-action bg-action text-action-ink"
-                              : "border-stroke text-muted hover:text-sub")
-                          }
-                        >
-                          {s.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {!isAdmin && p.sites.length === 0 ? (
-                  <p className="text-[0.75rem] leading-[16px] text-detect">
-                    Not in any site, so they can see nothing.
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-        </motion.div>
+        <div className="flex flex-col gap-[8px]">
+          {rows.map((p) => (
+            <PersonRow
+              key={p.account_id}
+              person={p}
+              sites={allSites}
+              isMe={p.account_id === meId}
+              onPanel={setPanel}
+              onConfirm={setConfirm}
+            />
+          ))}
+        </div>
       )}
+
+      {/* ── ADD, AND EDIT, IN THE SAME PANEL ─────────────────────────── */}
+      <AddPersonPanel
+        open={panel?.kind === "add"}
+        sites={allSites}
+        orgSlug={orgSlug}
+        busy={busy}
+        onClose={() => setPanel(null)}
+        onAdd={async (input) => {
+          let created: Person | null = null;
+          const ok = await act("Adding that person", async () => {
+            created = await adminAddPerson(input);
+          });
+          if (ok) {
+            setPanel(null);
+            if (created) setJustAdded(created);
+          }
+        }}
+      />
+
+      <SitesPanel
+        open={panel?.kind === "sites"}
+        person={panel?.kind === "sites" ? panel.person : null}
+        sites={allSites}
+        busy={busy}
+        onClose={() => setPanel(null)}
+        onSave={async (person, next) => {
+          const ok = await act("Changing their sites", () =>
+            adminSetPersonSites(person.account_id, next),
+          );
+          if (ok) setPanel(null);
+        }}
+      />
+
+      <PasswordPanel
+        open={panel?.kind === "password"}
+        person={panel?.kind === "password" ? panel.person : null}
+        busy={busy}
+        onClose={() => setPanel(null)}
+        onSave={async (person, password) => {
+          const ok = await act("Setting that password", () =>
+            adminResetPassword(person.account_id, password),
+          );
+          if (ok) setPanel(null);
+        }}
+      />
+
+      <RenamePanel
+        open={panel?.kind === "rename"}
+        person={panel?.kind === "rename" ? panel.person : null}
+        orgSlug={orgSlug}
+        busy={busy}
+        onClose={() => setPanel(null)}
+        onSave={async (person, name) => {
+          const ok = await act("Changing that name", () =>
+            adminRenamePerson(person.account_id, name),
+          );
+          if (ok) setPanel(null);
+        }}
+      />
+
+      {/* ── AND THE ONE PLACE RED IS SPENT ──────────────────────────── */}
+      <ConfirmDialog
+        open={confirm !== null}
+        busy={busy}
+        title={
+          confirm === null
+            ? ""
+            : confirm.kind === "remove"
+              ? `Remove ${personLabel(confirm.person)}?`
+              : confirm.kind === "disable"
+                ? `Disable ${personLabel(confirm.person)}?`
+                : `Enable ${personLabel(confirm.person)}?`
+        }
+        consequence={
+          confirm === null
+            ? ""
+            : confirm.kind === "remove"
+              ? `They are signed out at once, taken out of every site, and can no longer sign in to ${orgName}. The audit log keeps their name against everything they did.`
+              : confirm.kind === "disable"
+                ? "They are signed out at once and cannot sign in until you enable them again. Nothing they did is removed."
+                : "They can sign in again, with the password they already have."
+        }
+        confirmLabel={
+          confirm === null
+            ? ""
+            : confirm.kind === "remove"
+              ? "Remove"
+              : confirm.kind === "disable"
+                ? "Disable"
+                : "Enable"
+        }
+        onCancel={() => setConfirm(null)}
+        onConfirm={async () => {
+          if (!confirm) return;
+          const { kind, person } = confirm;
+          const ok = await act(
+            kind === "remove"
+              ? "Removing that person"
+              : kind === "disable"
+                ? "Disabling them"
+                : "Enabling them",
+            () =>
+              kind === "remove"
+                ? adminRemovePerson(person.account_id)
+                : adminSetPersonStatus(
+                    person.account_id,
+                    kind === "disable" ? "disabled" : "active",
+                  ),
+          );
+          if (ok) setConfirm(null);
+        }}
+      />
     </div>
+  );
+}
+
+/** What to call somebody on screen: their name, never their login. */
+function personLabel(p: Person): string {
+  return p.name ?? p.login;
+}
+
+/** "2 sites", "Every site", or the honest "No sites yet". */
+function sitesSummary(p: Person, total: number): string {
+  const n = p.sites.length;
+  if (isAdminRole(p.role)) return "Every site";
+  if (n === 0) return "No sites yet";
+  if (total > 0 && n === total) return "Every site";
+  return n === 1 ? "1 site" : `${n} sites`;
+}
+
+function PersonRow({
+  person,
+  sites,
+  isMe,
+  onPanel,
+  onConfirm,
+}: {
+  person: Person;
+  sites: readonly Site[];
+  isMe: boolean;
+  onPanel: (p: { kind: "sites" | "password" | "rename"; person: Person }) => void;
+  onConfirm: (c: { kind: "remove" | "disable" | "enable"; person: Person }) => void;
+}) {
+  /* ⚠ THE REAL STATUS, WHICH THE PAGE USED TO IGNORE. `status` has been on the
+     wire all along; owner1 and guest1 are disabled on the production DC and
+     this screen showed them as if they were not. A disabled row is muted and
+     badged, and its menu offers Enable rather than Disable. */
+  const disabled = person.status !== "active";
+  const admin = isAdminRole(person.role);
+  /* An ORGANIZATION's own login has no `name`: it is the customer's
+     credential, not a person on a list. It cannot be renamed, removed or
+     disabled, and the menu says so rather than offering an action the server
+     will refuse. */
+  const isOrganization = person.name === undefined;
+
+  return (
+    <Row>
+      <span className={"flex min-w-0 flex-1 flex-col gap-[4px] " + (disabled ? "opacity-60" : "")}>
+        <span className="flex flex-wrap items-center gap-[8px]">
+          <span
+            className={
+              "text-[0.875rem] leading-[20px] " +
+              (disabled ? "text-muted line-through" : "text-body-ink")
+            }
+          >
+            {personLabel(person)}
+          </span>
+          {person.was ? (
+            <span className="text-[0.75rem] text-muted">(was {person.was})</span>
+          ) : null}
+          <StatusPill status={disabled ? "disabled" : "active"} />
+          {/* ONE PHRASE, NOT TWO CHIPS. The organization's row ran
+              "ADMINISTRATOR THE ORGANIZATION" together, which reads as a
+              sentence that lost its verb. It is an administrator -- saying
+              what it IS covers that and explains why it has no menu. */}
+          <span className="font-mono text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
+            {isOrganization
+              ? "the organization's own login"
+              : admin
+                ? "administrator"
+                : "site user"}
+          </span>
+        </span>
+        <span className="flex flex-wrap items-center gap-[10px]">
+          <CopyableLogin login={person.login} />
+          <span className="text-[0.75rem] text-sub/80">
+            {sitesSummary(person, sites.length)}
+          </span>
+        </span>
+      </span>
+
+      <OverflowMenu
+        label={`Actions for ${personLabel(person)}`}
+        items={[
+          {
+            label: "Edit sites",
+            onSelect: () => onPanel({ kind: "sites", person }),
+            disabled: admin,
+            why: "An administrator sees every site, so there is no membership to change.",
+          },
+          {
+            label: "Reset password",
+            onSelect: () => onPanel({ kind: "password", person }),
+            disabled: isMe || isOrganization,
+            why: isMe
+              ? "Change your own password in Settings, where it asks for the current one."
+              : "This is the organization's own login. Change it in Settings.",
+          },
+          {
+            label: "Fix a typo in the name",
+            onSelect: () => onPanel({ kind: "rename", person }),
+            disabled: isMe || isOrganization,
+            why: isMe
+              ? "Nobody renames themselves: the audit log would read as though somebody else did it."
+              : "An organization's login is not a person's name.",
+          },
+          disabled
+            ? {
+                label: "Enable",
+                onSelect: () => onConfirm({ kind: "enable", person }),
+                disabled: isMe || isOrganization,
+                why: "This login is not yours to enable.",
+              }
+            : {
+                label: "Disable",
+                onSelect: () => onConfirm({ kind: "disable", person }),
+                disabled: isMe || isOrganization,
+                why: isMe
+                  ? "You cannot disable yourself."
+                  : "The organization's own login cannot be disabled.",
+                danger: true,
+              },
+          {
+            label: "Remove",
+            onSelect: () => onConfirm({ kind: "remove", person }),
+            disabled: isMe || isOrganization,
+            why: isMe
+              ? "Ask another administrator to remove you."
+              : "The organization's own login cannot be removed.",
+            danger: true,
+          },
+        ]}
+      />
+    </Row>
+  );
+}
+
+function AddPersonPanel({
+  open,
+  sites,
+  orgSlug,
+  busy,
+  onClose,
+  onAdd,
+}: {
+  open: boolean;
+  sites: readonly Site[];
+  orgSlug: string;
+  busy: boolean;
+  onClose: () => void;
+  onAdd: (input: {
+    name: string;
+    password: string;
+    role: "admin" | "site_user";
+    sites: string[];
+  }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"admin" | "site_user">("site_user");
+  const [chosen, setChosen] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setPassword("");
+    setRole("site_user");
+    setChosen([]);
+  }, [open]);
+
+  const ready = name.trim().length > 0 && password.length > 0;
+  return (
+    <SidePanel
+      open={open}
+      title="Add a person"
+      onClose={onClose}
+      footer={
+        <>
+          <PrimaryButton
+            disabled={!ready || busy}
+            onClick={() =>
+              onAdd({ name: name.trim(), password, role, sites: chosen })
+            }
+          >
+            {busy ? "Adding…" : "Add person"}
+          </PrimaryButton>
+          <QuietButton onClick={onClose}>Cancel</QuietButton>
+        </>
+      }
+    >
+      <Field
+        label="Name"
+        hint={
+          /* THE REAL SLUG, FROM THE SERVER. This promised
+             `they will sign in as guest2.<organization>` -- angle brackets and
+             all -- because the page did not know the organization's login
+             half. With no slug there is nothing to promise, so the hint falls
+             back to the rule. */
+          name.trim() && orgSlug
+            ? `They will sign in as ${name.trim().toLowerCase()}.${orgSlug}`
+            : "Lower case letters, digits and hyphens. No dots: the dot is what separates a name from its organization."
+        }
+      >
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className={inputClass}
+          placeholder="dave"
+          autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+      </Field>
+
+      <Field
+        label="First password"
+        hint="They can change it in Settings. Nobody else can read it, including you."
+      >
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={inputClass}
+          placeholder="At least 12 characters"
+          autoComplete="new-password"
+        />
+      </Field>
+
+      <Field label="Role" hint="An administrator sees every site and this area.">
+        <div role="radiogroup" aria-label="Role" className="flex flex-wrap gap-[6px]">
+          {(
+            [
+              ["site_user", "Site user"],
+              ["admin", "Administrator"],
+            ] as const
+          ).map(([id, text]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={role === id}
+              onClick={() => setRole(id)}
+              className={
+                "rounded-[8px] border px-[10px] py-[6px] text-[0.8125rem] transition-colors " +
+                (role === id
+                  ? "border-action bg-action text-action-ink"
+                  : "border-stroke text-muted hover:text-sub")
+              }
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {role === "admin" ? (
+        <p className="text-[0.8125rem] leading-[18px] text-muted">
+          An administrator sees every site, so there is no membership to choose.
+        </p>
+      ) : (
+        <MultiSelect
+          label="Which sites they can see"
+          options={sites.map((s) => ({ id: s.site_id, name: s.name }))}
+          selected={chosen}
+          onChange={setChosen}
+        />
+      )}
+    </SidePanel>
+  );
+}
+
+function SitesPanel({
+  open,
+  person,
+  sites,
+  busy,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  person: Person | null;
+  sites: readonly Site[];
+  busy: boolean;
+  onClose: () => void;
+  onSave: (person: Person, next: string[]) => void;
+}) {
+  const [chosen, setChosen] = useState<string[]>([]);
+  useEffect(() => {
+    if (open && person) setChosen([...person.sites]);
+  }, [open, person]);
+
+  return (
+    <SidePanel
+      open={open && person !== null}
+      title={person ? `${personLabel(person)}'s sites` : "Sites"}
+      onClose={onClose}
+      footer={
+        <>
+          <PrimaryButton
+            disabled={busy}
+            onClick={() => person && onSave(person, chosen)}
+          >
+            {busy ? "Saving…" : "Save"}
+          </PrimaryButton>
+          <QuietButton onClick={onClose}>Cancel</QuietButton>
+        </>
+      }
+    >
+      <p className="text-[0.8125rem] leading-[18px] text-muted">
+        They see the cameras at the sites you choose, and nothing else. Changes
+        take effect the next time they load a screen.
+      </p>
+      <MultiSelect
+        label="Sites"
+        options={sites.map((s) => ({ id: s.site_id, name: s.name }))}
+        selected={chosen}
+        onChange={setChosen}
+      />
+    </SidePanel>
+  );
+}
+
+function PasswordPanel({
+  open,
+  person,
+  busy,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  person: Person | null;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (person: Person, password: string) => void;
+}) {
+  const [password, setPassword] = useState("");
+  useEffect(() => {
+    if (open) setPassword("");
+  }, [open]);
+  return (
+    <SidePanel
+      open={open && person !== null}
+      title={person ? `Reset ${personLabel(person)}'s password` : "Reset password"}
+      onClose={onClose}
+      footer={
+        <>
+          <PrimaryButton
+            disabled={busy || password.length === 0}
+            onClick={() => person && onSave(person, password)}
+          >
+            {busy ? "Setting…" : "Set password"}
+          </PrimaryButton>
+          <QuietButton onClick={onClose}>Cancel</QuietButton>
+        </>
+      }
+    >
+      <p className="text-[0.8125rem] leading-[18px] text-muted">
+        They are signed out everywhere and will need this new password. Tell it
+        to them yourself; it is never shown again.
+      </p>
+      <Field label="New password" hint="At least 12 characters.">
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={inputClass}
+          /* WORDS, NOT DOTS. A dotted placeholder in a password box cannot be
+             told apart from a filled one; `test/passwordHints.test.mjs` is the
+             rule and it caught this field with no hint at all. */
+          placeholder="The password you will tell them"
+          autoComplete="new-password"
+        />
+      </Field>
+    </SidePanel>
+  );
+}
+
+function RenamePanel({
+  open,
+  person,
+  orgSlug,
+  busy,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  person: Person | null;
+  orgSlug: string;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (person: Person, name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  useEffect(() => {
+    if (open && person) setName(person.name ?? "");
+  }, [open, person]);
+  return (
+    <SidePanel
+      open={open && person !== null}
+      title={person ? `Fix ${personLabel(person)}'s name` : "Fix a typo"}
+      onClose={onClose}
+      footer={
+        <>
+          <PrimaryButton
+            disabled={busy || name.trim().length === 0}
+            onClick={() => person && onSave(person, name.trim())}
+          >
+            {busy ? "Saving…" : "Save name"}
+          </PrimaryButton>
+          <QuietButton onClick={onClose}>Cancel</QuietButton>
+        </>
+      }
+    >
+      <p className="text-[0.8125rem] leading-[18px] text-muted">
+        Their LOGIN changes with the name, so tell them the new one. The audit
+        log keeps both, so a year-old entry still reads as the same person.
+      </p>
+      <Field
+        label="Name"
+        hint={
+          name.trim() && orgSlug
+            ? `They will sign in as ${name.trim().toLowerCase()}.${orgSlug}`
+            : "Lower case letters, digits and hyphens."
+        }
+      >
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className={inputClass}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+      </Field>
+    </SidePanel>
   );
 }
 
@@ -1042,106 +1241,196 @@ function SharesPane() {
  * Audit log
  * ------------------------------------------------------------------ */
 
-const AUDIT_FILTERS: readonly { id: string; label: string; prefix?: string }[] = [
-  { id: "all", label: "Everything" },
-  { id: "share", label: "Shares", prefix: "share." },
-  { id: "site", label: "Sites", prefix: "site." },
-  { id: "person", label: "People", prefix: "person." },
-  { id: "login", label: "Sign-ins", prefix: "login." },
-  { id: "session", label: "Viewing", prefix: "session." },
-  { id: "ptz", label: "Camera control", prefix: "ptz." },
-  { id: "recording", label: "Footage", prefix: "recording." },
-];
-
+/**
+ * The history, as sentences.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHAT THIS REPLACED
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A four-column table of raw rows: the action verbatim (`person.create`), the
+ * actor's account id, the device id, and a time. Eight filter chips, two of
+ * which (Viewing, Camera control) were almost the entire table on a busy
+ * fleet, so the page a customer opens to read their own history mostly said
+ * `ptz.command` and an id.
+ *
+ * Now: four groups, one plain sentence per row with NAMES in it, times in the
+ * site's own clock, newest first, and filters for a person and a date range.
+ *
+ * ── WHAT IS NOT SHOWN, AND WHERE IT WENT ──────────────────────────────
+ *
+ * Nothing. The DC records exactly what it recorded before -- every PTZ nudge,
+ * every grant, every session and renewal -- and this view asks for the four
+ * groups it has words for. That is a SERVER filter (`groups=`), because a page
+ * that asked for 200 rows and hid the technical ones would show four sentences
+ * and a lot of nothing.
+ */
 function AuditPane() {
-  const [which, setWhich] = useState("all");
-  const prefix = AUDIT_FILTERS.find((f) => f.id === which)?.prefix;
-  const filter = useMemo(() => ({ action: prefix, limit: 200 }), [prefix]);
+  const people = usePeople();
+  const [groups, setGroups] = useState<readonly string[]>(
+    AUDIT_GROUPS.map((g) => g.id),
+  );
+  const [person, setPerson] = useState("");
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
+
+  /* ⚠ THE FILTER OBJECT IS MEMOISED ON ITS CONTENTS. `useAudit` re-fetches
+     when the object changes, and a fresh object every render is a request per
+     keystroke somewhere else on the page. */
+  const filter = useMemo(
+    () => ({
+      limit: 200,
+      groups,
+      ...(person ? { accountId: person } : {}),
+      ...(since ? { since: `${since}T00:00:00Z` } : {}),
+      ...(until ? { until: `${until}T23:59:59Z` } : {}),
+    }),
+    [groups.join(","), person, since, until],
+  );
   const audit = useAudit(filter);
+  const names = audit.value?.names ?? {};
+
+  /* A ROW WITH NO SENTENCE IS DROPPED. The server filters to the groups; this
+     is the second half of the same promise, for a row in a group whose action
+     this build has no words for yet. */
+  const rows = (audit.value?.entries ?? [])
+    .map((e) => ({ entry: e, text: sentenceFor(e, names) }))
+    .filter((r): r is { entry: AuditEntry; text: string } => r.text !== null);
+
+  const toggle = (id: string) =>
+    setGroups((cur) =>
+      cur.includes(id) ? cur.filter((g) => g !== id) : [...cur, id],
+    );
 
   return (
     <div className="flex flex-col gap-[16px]">
       <PaneHead
         title="Audit log"
-        blurb="Who viewed, controlled, downloaded, shared, revoked and signed in. Scoped to this organization by the server."
+        blurb="Who signed in, who changed what, and every share. Newest first, in this site's time. Kept by the server and scoped to this organization."
       />
-      <div className="flex flex-wrap gap-[6px]">
-        {AUDIT_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            aria-pressed={which === f.id}
-            onClick={() => setWhich(f.id)}
-            className={
-              "rounded-[8px] border px-[10px] py-[4px] text-[0.75rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action " +
-              (which === f.id
-                ? "border-action bg-action text-action-ink"
-                : "border-stroke text-muted hover:text-sub")
-            }
-          >
-            {f.label}
-          </button>
-        ))}
+
+      <div className="flex flex-col gap-[10px]">
+        <div className="flex flex-wrap gap-[6px]">
+          {AUDIT_GROUPS.map((g) => {
+            const on = groups.includes(g.id);
+            return (
+              <button
+                key={g.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggle(g.id)}
+                className={
+                  "rounded-[8px] border px-[10px] py-[4px] text-[0.75rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action " +
+                  /* ⚠ A CHOSEN FILTER IS NOT A PRIMARY BUTTON. All four are
+                     on when the page opens, and in the action colour that is
+                     four solid white pills -- louder than anything else on
+                     the screen and a shout about the default state. Chosen
+                     is a lit outline; the page's one primary stays the one
+                     thing that acts. */
+                  (on
+                    ? "border-action/60 bg-action/15 text-body-ink"
+                    : "border-stroke text-muted hover:text-sub")
+                }
+              >
+                {g.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-[10px]">
+          <label className="flex flex-col gap-[4px]">
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
+              Person
+            </span>
+            <select
+              value={person}
+              onChange={(e) => setPerson(e.target.value)}
+              aria-label="Person"
+              className={inputClass + " h-[34px] max-w-[220px] py-0"}
+            >
+              <option value="">Anyone</option>
+              {(people.value?.people ?? []).map((p) => (
+                <option key={p.account_id} value={p.account_id}>
+                  {p.name ?? p.login}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-[4px]">
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
+              From
+            </span>
+            <input
+              type="date"
+              value={since}
+              onChange={(e) => setSince(e.target.value)}
+              aria-label="From"
+              className={inputClass + " h-[34px] max-w-[170px] py-0"}
+            />
+          </label>
+          <label className="flex flex-col gap-[4px]">
+            <span className="font-display text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
+              To
+            </span>
+            <input
+              type="date"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+              aria-label="To"
+              className={inputClass + " h-[34px] max-w-[170px] py-0"}
+            />
+          </label>
+          {person || since || until || groups.length !== AUDIT_GROUPS.length ? (
+            <QuietButton
+              onClick={() => {
+                setPerson("");
+                setSince("");
+                setUntil("");
+                setGroups(AUDIT_GROUPS.map((g) => g.id));
+              }}
+            >
+              Clear filters
+            </QuietButton>
+          ) : null}
+        </div>
       </div>
 
       {audit.loading ? (
         <Loading rows={6} label="Loading the audit log" />
       ) : audit.error ? (
         <Failed message={audit.error} onRetry={audit.reload} />
-      ) : (audit.value?.entries.length ?? 0) === 0 ? (
+      ) : groups.length === 0 ? (
         <Empty
-          title="Nothing recorded for that filter"
-          why="The log keeps sign-ins, viewing, camera control, footage requests and every change to sites, people and shares. Try Everything."
+          title="Nothing chosen"
+          why="Pick at least one of the four groups above to see what happened."
+        />
+      ) : rows.length === 0 ? (
+        <Empty
+          title="Nothing here for that filter"
+          why="Sign-ins, people, sharing, and changes to sites and towers all appear here. Try widening the dates or choosing more groups."
         />
       ) : (
-        <motion.div initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={FADE} className="overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse text-left">
-            <caption className="sr-only">
-              Audit log entries, newest first
-            </caption>
-            <thead>
-              <tr className="border-b border-line text-[0.6875rem] uppercase tracking-[0.08em] text-muted">
-                <th scope="col" className="py-[8px] pr-[12px] font-normal">
-                  When
-                </th>
-                <th scope="col" className="py-[8px] pr-[12px] font-normal">
-                  What
-                </th>
-                <th scope="col" className="py-[8px] pr-[12px] font-normal">
-                  Who
-                </th>
-                <th scope="col" className="py-[8px] font-normal">
-                  Where
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(audit.value?.entries ?? []).map((e) => (
-                <tr
-                  key={e.seq}
-                  className="border-b border-row-line/60 align-top text-[0.8125rem]"
-                >
-                  <td className="py-[8px] pr-[12px] whitespace-nowrap text-muted">
-                    {siteStampLine(Date.parse(e.ts))}
-                  </td>
-                  <td className="py-[8px] pr-[12px] font-mono text-[0.75rem] text-body-ink">
-                    {e.action}
-                  </td>
-                  {/* ABSENCE IS DIAGNOSTIC: a system action with no account
-                      says so rather than leaving the cell blank. */}
-                  <td className="py-[8px] pr-[12px] font-mono text-[0.75rem] text-sub">
-                    {e.account_id ?? "the system"}
-                  </td>
-                  <td className="py-[8px] font-mono text-[0.75rem] text-sub">
-                    {e.device_id ?? "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </motion.div>
+        <motion.ul
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={FADE}
+          className="flex flex-col gap-[6px]"
+        >
+          {rows.map(({ entry, text }) => (
+            <li
+              key={entry.seq}
+              className="flex flex-wrap items-baseline gap-x-[12px] gap-y-[2px] rounded-[10px] border border-line bg-card/40 px-[14px] py-[10px]"
+            >
+              <span className="text-[0.8125rem] leading-[20px] text-body-ink">
+                {text}
+              </span>
+              <span className="ml-auto whitespace-nowrap text-[0.75rem] text-muted">
+                {siteStampLine(Date.parse(entry.ts))}
+              </span>
+            </li>
+          ))}
+        </motion.ul>
       )}
     </div>
   );

@@ -71,6 +71,13 @@ const SCREENS = [
   ["add-full", "add-cell-full"],
   ["card-fleet", "card-a-tower-was-added"],
   ["card-revoked", "card-a-tower-was-removed"],
+  /* ── WHAT A TILE SAYS WHEN THE PICTURE STOPS ────────────────────────
+     Both of these used to be one line with a device serial shouted in it.
+     They are the screens somebody is looking at at the worst moment to be
+     read machinery, so they are photographed. */
+  ["tile-ended", "tile-access-ended"],
+  ["tile-offline", "tile-camera-offline"],
+  ["ptz-refused", "ptz-not-included-in-the-share"],
 ];
 
 /** The two widths the brief asks for. Heights are generous; shots are full page. */
@@ -136,6 +143,45 @@ async function main() {
             const paneFile = `${OUT}/${paneName}-${label}.png`;
             await page.screenshot({ path: paneFile, fullPage: true });
             written.push(paneFile);
+            /* ⚠ AND THE STATES THAT ONLY EXIST AFTER A CLICK. A menu, a
+               side panel and a confirmation are three quarters of this
+               screen's design and none of them is in a static shot. Each
+               step is guarded, so a control that is not there costs its own
+               frame and not the run. */
+            if (tab === "People") {
+              written.push(...(await peopleFlow(page, label)));
+              await button.first().click();
+              await page.waitForTimeout(250);
+            }
+          }
+        }
+      }
+
+      /* The same, for the tile whose share ended: Request more time opens the
+         duration picker, which is the step the brief asks to see. */
+      if (id === "tile-ended") {
+        const ask = page.getByRole("button", { name: "Request more time" });
+        if (await ask.count()) {
+          await ask.first().click();
+          await page.waitForTimeout(350);
+          await hideChrome(page);
+          const file = `${OUT}/tile-access-ended-asking-${label}.png`;
+          await page.screenshot({ path: file, fullPage: true });
+          written.push(file);
+
+          /* And all the way through: a length, Send request, and what it
+             says afterwards. The request goes to the stubbed coordination,
+             so this is the real component's real success path. */
+          const hour = page.getByRole("radio", { name: "1 hour" });
+          if (await hour.count()) await hour.first().click();
+          const send = page.getByRole("button", { name: "Send request" });
+          if (await send.count()) {
+            await send.first().click();
+            await page.waitForTimeout(600);
+            await hideChrome(page);
+            const sent = `${OUT}/tile-access-ended-sent-${label}.png`;
+            await page.screenshot({ path: sent, fullPage: true });
+            written.push(sent);
           }
         }
       }
@@ -183,6 +229,69 @@ async function main() {
 }
 
 /** The harness's own picker is not part of any screen under review. */
+/**
+ * The People screen's three interactive states.
+ *
+ * The overflow menu on a DISABLED row (which is the bug this round fixed: the
+ * page offered "Disable" and showed no status), the site panel with its
+ * searchable list, and the removal confirmation that names who goes.
+ */
+async function peopleFlow(page, label) {
+  const shots = [];
+  const shoot = async (name) => {
+    await hideChrome(page);
+    const file = `${OUT}/${name}-${label}.png`;
+    await page.screenshot({ path: file, fullPage: true });
+    shots.push(file);
+  };
+
+  const menuFor = async (who) => {
+    const button = page.getByRole("button", { name: `Actions for ${who}` });
+    if (!(await button.count())) return false;
+    await button.first().click();
+    await page.waitForTimeout(300);
+    return true;
+  };
+
+  // The disabled person, with Enable where Disable used to be offered.
+  if (await menuFor("ex")) {
+    await shoot("administration-people-menu-disabled");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+  }
+
+  // Site membership, as a searchable multi-select.
+  if (await menuFor("grace")) {
+    const edit = page.getByRole("menuitem", { name: "Edit sites" });
+    if (await edit.count()) {
+      await edit.first().click();
+      await page.waitForTimeout(400);
+      await shoot("administration-people-sites-panel");
+      const cancel = page.getByRole("button", { name: "Cancel" });
+      if (await cancel.count()) await cancel.first().click();
+      await page.waitForTimeout(250);
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  }
+
+  // And removal, which names them and says what it does.
+  if (await menuFor("grace")) {
+    const remove = page.getByRole("menuitem", { name: "Remove", exact: true });
+    if (await remove.count()) {
+      await remove.first().click();
+      await page.waitForTimeout(400);
+      await shoot("administration-people-remove");
+      const keep = page.getByRole("button", { name: "Cancel" });
+      if (await keep.count()) await keep.first().click();
+      await page.waitForTimeout(250);
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  }
+  return shots;
+}
+
 async function hideChrome(page) {
   await page.evaluate(() => {
     const el = document.querySelector("[data-harness-chrome]");

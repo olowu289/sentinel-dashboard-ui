@@ -325,12 +325,36 @@ export interface AuditEntry {
     readonly account_id: string | null;
     readonly device_id: string | null;
     readonly detail: unknown;
+    /**
+     * The actor's NAME, resolved by the server. `""` means the system did it,
+     * which a reader is told in words rather than left to infer from a blank.
+     */
+    readonly who?: string;
 }
 export interface AuditResponse {
     readonly entries: readonly AuditEntry[];
     readonly limit: number;
     readonly offset: number;
+    /**
+     * Every id in this page, mapped to the name a person would recognise:
+     * account ids to people, site ids to site names, hub and device ids to the
+     * names somebody typed.
+     *
+     * ⚠ RESOLVED BY THE SERVER, AND THAT IS NOT AN OPTIMISATION. A screen must
+     * never print `acct_...` or `kln_lab_000002`, and the rows that most need a
+     * name are exactly the ones a browser cannot resolve: a REMOVED person is not
+     * in the people list any more, and an archived site is not in the sites list,
+     * so the oldest entries would be the ones that fell back to an id.
+     *
+     * Absent from a server that predates it, which is why the audit view falls
+     * back to "somebody" rather than to the id.
+     */
+    readonly names?: Readonly<Record<string, string>>;
+    /** The group names this server can filter by. */
+    readonly groups?: readonly string[];
 }
+/** The four groups the audit view offers. The server owns the membership. */
+export type AuditGroup = "sign_ins" | "people" | "sharing" | "places";
 /** `owner` is every pre-sites account's role and means admin. One place. */
 export declare function isAdminRole(role: string | null | undefined): boolean;
 /** Is this share granting access right now? Status AND expiry, both. */
@@ -460,6 +484,11 @@ export interface RemoveSiteResponse {
      * unreadable. It is gone from every list.
      */
     readonly archived: boolean;
+}
+export interface RemovePersonResponse {
+    readonly removed: string;
+    /** Their name, for the confirmation the screen shows afterwards. */
+    readonly name: string;
 }
 export declare function parseCellList(raw: unknown, ctx?: Ctx): CellListResponse;
 export declare function parseCellDetail(raw: unknown, ctx?: Ctx): CellDetailResponse;

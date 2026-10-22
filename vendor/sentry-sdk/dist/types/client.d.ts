@@ -29,7 +29,7 @@
  * await client.closeSession(session);
  * ```
  */
-import type { AddDeviceResponse, AuditResponse, Capabilities, CellDetailResponse, CellListResponse, MoveCellResponse, PeopleListResponse, Person, RemoveCellResponse, RemoveSiteResponse, RemoveTowerResponse, Share, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
+import type { AddDeviceResponse, AuditResponse, Capabilities, CellDetailResponse, CellListResponse, MoveCellResponse, PeopleListResponse, Person, RemoveCellResponse, RemovePersonResponse, RemoveSiteResponse, RemoveTowerResponse, Share, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
 import type { HttpOptions, RequestOptions } from "./http.js";
 import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
@@ -776,6 +776,17 @@ export declare class SentryClient {
         until?: string;
         limit?: number;
         offset?: number;
+        /**
+         * The groups to show, e.g. `["people", "sharing"]`.
+         *
+         * ⚠ A SERVER FILTER, AND IT HAS TO BE. The ledger records every PTZ
+         * nudge and every grant renewal, and it goes on doing so -- but a page
+         * that asked for 200 rows and hid the technical ones would show four
+         * sentences and a lot of nothing, because on a busy fleet those 200 rows
+         * are almost all `ptz.command`. Asking for the groups asks for 200 OF
+         * THOSE.
+         */
+        groups?: readonly string[];
     }, opts?: RequestOptions): Promise<AuditResponse>;
     /**
      * The cells this account may see — `GET /v1/cells`.
@@ -935,6 +946,20 @@ export declare class SentryClient {
      *
      * Admin only.
      */
+    /**
+     * Remove a person from the organization — `DELETE /v1/admin/people/{id}`.
+     *
+     * They are gone from the People screen, signed out at once, out of every
+     * site, and cannot sign in. The account ROW is kept, exactly as an archived
+     * site's row is: every audit entry and every closed share still refers to it,
+     * and the removal row carries their NAME so a year-old entry does not become
+     * an id nobody can resolve.
+     *
+     * @throws {ApiError} `409 cannot_remove_self` — ask another administrator.
+     * @throws {ApiError} `409 cannot_remove_organization` — that login is the
+     *   customer's own credential, not a person on a list.
+     */
+    adminRemovePerson(accountId: string, opts?: RequestOptions): Promise<RemovePersonResponse>;
     adminRemoveSite(siteId: string, opts?: RequestOptions): Promise<RemoveSiteResponse>;
     /**
      * Add a person — `POST /v1/admin/people`.

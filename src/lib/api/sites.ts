@@ -187,6 +187,17 @@ export function adminSetPersonStatus(
   return getClient().adminUpdatePerson(accountId, { status });
 }
 
+/**
+ * Remove a person from the organization.
+ *
+ * Gone from the People screen, signed out at once, out of every site, unable
+ * to sign in. The account row is KEPT so the audit log can still name them,
+ * and the removal row carries the name for exactly that.
+ */
+export function adminRemovePerson(accountId: string): Promise<{ name: string }> {
+  return getClient().adminRemovePerson(accountId);
+}
+
 export function adminResetPassword(
   accountId: string,
   password: string,
@@ -200,6 +211,10 @@ export function adminAudit(filter: {
   deviceId?: string;
   limit?: number;
   offset?: number;
+  /** The readable groups the website shows. Filtered by the SERVER. */
+  groups?: readonly string[];
+  since?: string;
+  until?: string;
 }): Promise<AuditResponse> {
   return getClient().adminAudit(filter);
 }

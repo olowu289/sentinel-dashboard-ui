@@ -188,14 +188,32 @@ export function usePeople(enabled = true): Loaded<PeopleListResponse> {
 }
 
 export function useAudit(
-  filter: { action?: string; limit?: number },
+  filter: {
+    action?: string;
+    limit?: number;
+    /** The four readable groups. A SERVER filter: see `AuditResponse.names`. */
+    groups?: readonly string[];
+    /** One person, by account id. The page shows their NAME. */
+    accountId?: string;
+    since?: string;
+    until?: string;
+  },
   enabled = true,
 ): Loaded<AuditResponse> {
   const load = useCallback(
     () => adminAudit({ ...filter, limit: filter.limit ?? 100 }),
-    // the filter is a fresh object each render; its contents are the identity
+    // the filter is a fresh object each render; its CONTENTS are the identity,
+    // and every field that changes what is fetched has to be in this list --
+    // the groups, the person and the dates were added with the readable view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filter.action, filter.limit],
+    [
+      filter.action,
+      filter.limit,
+      (filter.groups ?? []).join(","),
+      filter.accountId,
+      filter.since,
+      filter.until,
+    ],
   );
   return useLoader(load, "the activity log", enabled);
 }

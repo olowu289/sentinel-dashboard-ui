@@ -1,3 +1,4 @@
+import { saidQuiet } from "@/lib/said";
 import type {
   ArchivedRecordingList,
   ArchivedSegment,
@@ -159,28 +160,38 @@ export async function freshSegmentUrl(
  * misconfigured/absent archive. Each names a cause; none leaks an endpoint.
  */
 export function describeRecordingFailure(err: unknown): string {
-  if (err instanceof RecordingUnavailableError) return err.reason;
+  /* ⚠ PLAIN SENTENCES, NOT SHOUTED SUMMARIES, and through the one mapper.
+     This read "NOT PERMITTED TO REVIEW THIS CAMERA" and "THE HUB'S ARCHIVE IS
+     NOT CONFIGURED": the first is a security decision stated as a slogan, and
+     the second names a piece of software the customer has never heard of. The
+     words live in `lib/said.ts` with every other code the video seam can
+     produce, so the footage timeline and the camera tile say the same thing
+     about the same refusal. */
+  if (err instanceof RecordingUnavailableError) {
+    return saidQuiet({ code: err.reason, message: err.reason },
+                     "Footage isn't available for this camera right now.");
+  }
   const status = (err as { status?: unknown } | null)?.status;
   const code = (err as { code?: unknown } | null)?.code;
   if (status === 401 || status === 403 || code === "forbidden" || code === "unauthorized") {
-    return "NOT PERMITTED TO REVIEW THIS CAMERA";
+    return "Recorded footage wasn't included in what was shared with you.";
   }
   if (status === 404 || code === "tower_unknown" || code === "not_found") {
-    return "THIS TOWER IS NOT AVAILABLE FOR PLAYBACK";
+    return "This camera is no longer available.";
   }
   if (code === "archive_misconfigured" || status === 501) {
-    return "THE HUB'S ARCHIVE IS NOT CONFIGURED";
+    return "Recording isn't set up on this tower yet.";
   }
   if (status === 0 || code === "network_error") {
-    return "COULDN'T REACH THE HUB FOR FOOTAGE";
+    return "Couldn't reach the site for footage. Check the connection.";
   }
   if (typeof status === "number" && status >= 500) {
-    return "THE HUB COULDN'T SERVE THAT FOOTAGE";
+    return "The site couldn't serve that footage. Try again in a moment.";
   }
   /* ⚠ THE CODE USED TO BE IN THIS SENTENCE: `PLAYBACK FAILED —
      RESPONSE_INVALID`, on a tile, in front of somebody whose job is cameras.
      A machine code is for the console; the tile gets the only thing it can
      act on. */
   if (code) console.error("[footage] playback failed:", code, err);
-  return "PLAYBACK FAILED — TRY AGAIN";
+  return saidQuiet(err, "That footage didn't play. Try again.");
 }

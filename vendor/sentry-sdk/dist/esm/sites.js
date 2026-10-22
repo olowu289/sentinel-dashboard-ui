@@ -361,16 +361,34 @@ export function parseAudit(raw, ctx = {}) {
             action: c.str(`$.entries[${i}].action`, eo.action),
             account_id: c.strOrNull(`$.entries[${i}].account_id`, eo.account_id),
             device_id: c.strOrNull(`$.entries[${i}].device_id`, eo.device_id),
+            ...(eo.who === undefined
+                ? {}
+                : { who: c.str(`$.entries[${i}].who`, eo.who) }),
             // `detail` is free-form by design: each action records what it needs and
             // a validator that pinned it would break on the next action added.
             detail: eo.detail ?? null,
         };
     });
+    let names;
+    if (o.names !== undefined) {
+        const no = c.obj("$.names", o.names);
+        names = {};
+        for (const [id, name] of Object.entries(no)) {
+            if (typeof name === "string")
+                names[id] = name;
+        }
+    }
+    let groups;
+    if (o.groups !== undefined) {
+        groups = c.arr("$.groups", o.groups).map((g, i) => c.str(`$.groups[${i}]`, g));
+    }
     c.done("audit", ctx);
     return {
         entries,
         limit: c.num("$.limit", o.limit),
         offset: c.num("$.offset", o.offset),
+        ...(names ? { names } : {}),
+        ...(groups ? { groups } : {}),
     };
 }
 function managedCell(c, at, raw) {

@@ -44,10 +44,12 @@ import {
   SharedFeedBadge,
 } from "@/components/sharing/ShareNotifications";
 import { PtzPad } from "@/components/PtzPad";
-import { describeControl } from "@/lib/api/ptz";
+import { AccessEnded, CameraGone } from "@/components/AccessEnded";
+import { describeControl, describePtzFailure } from "@/lib/api/ptz";
 import { DEFAULT_FEATURES, type Feature } from "@/lib/features";
 import { resetCapabilities } from "@/lib/api/sites";
 import { resetClient } from "@/lib/api/client";
+import { AUDIT_GROUPS, groupOf } from "@/lib/auditSentence";
 
 /* ------------------------------------------------------------------ *
  * Fixtures: a plausible organization, not a tidy one
@@ -253,24 +255,77 @@ const PEOPLE = [
   },
 ];
 
-const AUDIT = [
-  ["share.revoke", "acct_admin", null, hourAgo(0.2)],
-  ["share.accept", "acct_abu", null, hourAgo(3)],
-  ["session.opened", "acct_grace", "kln_northgate_000001", hourAgo(3.1)],
-  ["ptz.command", "acct_grace", "kln_northgate_000001", hourAgo(3.2)],
-  ["recording.segment_url", "acct_abu", "kln_southpit_000003", hourAgo(5)],
-  ["person.create", "acct_admin", null, hourAgo(26)],
-  ["site.hub_assign", "acct_admin", "kln_hub_pit", hourAgo(27)],
-  ["login.success", "acct_abu", null, hourAgo(27.5)],
-  ["login.failure", null, null, hourAgo(30)],
-].map(([action, account_id, device_id, ts], i) => ({
-  seq: 900 - i,
-  ts,
-  action,
-  account_id,
-  device_id,
-  detail: { note: "fixture" },
+/**
+ * The ledger, as the DC sends it.
+ *
+ * ⚠ DETAIL AND NAMES, NOT JUST ACTIONS. The page draws a SENTENCE per row out
+ * of the detail and the server's `names` map, so a fixture of bare actions
+ * would photograph a page of "Somebody did something". The technical rows are
+ * in here on purpose: the website asks the server for four groups and draws
+ * nothing for anything else, and a picture of the page is the proof.
+ */
+interface AuditRow {
+  readonly action: string;
+  readonly account_id: string | null;
+  readonly device_id: string | null;
+  readonly ts: string;
+  readonly detail: Record<string, unknown>;
+}
+
+const AUDIT_ROWS: readonly AuditRow[] = ([
+  ["share.revoke", "acct_admin", null, hourAgo(0.2), {}],
+  ["share.accept", "acct_abu", null, hourAgo(3),
+   { towers: ["kln_northgate_000001", "kln_northgate_000002"] }],
+  ["session.opened", "acct_grace", "kln_northgate_000001", hourAgo(3.1), {}],
+  ["ptz.command", "acct_grace", "kln_northgate_000001", hourAgo(3.2),
+   { pan: 0.3 }],
+  ["recording.segment_url", "acct_abu", "kln_southpit_000003", hourAgo(5), {}],
+  ["person.remove", "acct_admin", null, hourAgo(20),
+   { target: "acct_left", person_name: "tunde", sessions_closed: 1 }],
+  ["site.member_add", "acct_admin", null, hourAgo(24),
+   { target: "acct_grace", site_id: "site_pit" }],
+  ["person.create", "acct_admin", null, hourAgo(26), { created: "acct_new" }],
+  ["site.hub_assign", "acct_admin", "kln_hub_pit", hourAgo(27),
+   { hub_id: "kln_hub_pit", site_id: "site_pit" }],
+  ["login.success", "acct_abu", null, hourAgo(27.5), {}],
+  ["login.failure", null, null, hourAgo(30),
+   { reason: "wrong_password", org_id: "org_kaduna" }],
+  ["login.locked", null, null, hourAgo(30.1),
+   { retry_after_sec: 300, org_id: "org_kaduna" }],
+] as const).map(([action, account_id, device_id, ts, detail]) => ({
+  action: action as string,
+  account_id: (account_id ?? null) as string | null,
+  device_id: (device_id ?? null) as string | null,
+  ts: ts as string,
+  detail: detail as Record<string, unknown>,
 }));
+
+const AUDIT = AUDIT_ROWS.map((r, i) => ({
+  ...r,
+  seq: 900 - i,
+  /* The actor's name, resolved by the server. "" means nobody did it, which
+     is what a refused sign-in and an expiry look like. */
+  who: r.account_id === "acct_admin" ? "kaduna-mine"
+    : r.account_id === "acct_abu" ? "abu"
+    : r.account_id === "acct_grace" ? "grace"
+    : "",
+}));
+
+/** The id -> name map the DC sends with the page. Removed people included. */
+const AUDIT_NAMES = {
+  acct_admin: "kaduna-mine",
+  acct_abu: "abu",
+  acct_grace: "grace",
+  acct_new: "sam",
+  acct_left: "tunde",
+  site_north: "North Gate",
+  site_pit: "South Pit",
+  site_yard: "West Yard",
+  kln_hub_pit: "Pit Office",
+  kln_northgate_000001: "North Gate",
+  kln_northgate_000002: "North Fence",
+  kln_southpit_000003: "Pit Ramp",
+};
 
 /* ------------------------------------------------------------------ *
  * The stub
@@ -287,8 +342,13 @@ function install(mode: Mode) {
       headers: { "content-type": "application/json" },
     });
 
-  window.fetch = (async (input: RequestInfo | URL) => {
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(typeof input === "string" ? input : (input as Request).url);
+    const method = (
+      init?.method ?? (typeof input === "object" && "method" in input
+        ? (input as Request).method
+        : "GET")
+    ).toUpperCase();
     /* THE CAPABILITY PROBE ANSWERS IN EVERY MODE, before the mode is even
        looked at. "loading" and "failed" are states of THIS SCREEN's data, not
        of what the server is: letting them swallow /v1/capabilities would empty
@@ -312,11 +372,48 @@ function install(mode: Mode) {
     const empty = mode === "empty";
     if (url.includes("/v1/admin/people"))
       return body({ people: empty ? [] : PEOPLE });
-    if (url.includes("/v1/admin/audit"))
-      return body({ entries: empty ? [] : AUDIT, limit: 200, offset: 0 });
+    if (url.includes("/v1/admin/audit")) {
+      /* THE GROUP FILTER IS THE SERVER'S, so the stub has to honour it or the
+         screenshot would show rows the real page never receives. */
+      const asked = new URL(url, "http://x").searchParams.get("groups");
+      const groups = asked ? asked.split(",") : [];
+      const keep = (e: { action: string }) =>
+        groups.length === 0 || groups.includes(groupOf(e as never) ?? "");
+      return body({
+        entries: empty ? [] : AUDIT.filter(keep),
+        limit: 200,
+        offset: 0,
+        names: AUDIT_NAMES,
+        groups: AUDIT_GROUPS.map((g) => g.id),
+      });
+    }
     if (url.includes("/v1/admin/shares"))
       return body({ shares: empty ? [] : SHARES });
-    if (url.includes("/v1/shares")) return body({ shares: empty ? [] : SHARES });
+    if (url.includes("/v1/shares")) {
+      /* ⚠ A POST IS A CREATE AND ANSWERS LIKE ONE. The stub used to return
+         the LIST to every call on this path, so asking for more time from a
+         tile whose share had ended got "We could not read the server's
+         answer" -- the harness failing, photographed as though the product
+         were. One share back, in the shape the SDK parses. */
+      if (method === "POST") {
+        return body({
+          share: {
+            ...SHARES[0],
+            share_id: "shr_asked_again",
+            direction: "request",
+            status: "pending",
+            owner_site_id: "site_north",
+            owner_site_name: "North Gate",
+            viewer_site_id: "site_pit",
+            viewer_site_name: "South Pit",
+            incoming: false,
+            created_at: new Date().toISOString(),
+            expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          },
+        });
+      }
+      return body({ shares: empty ? [] : SHARES });
+    }
     /* One site's cells, for the tower picker. Before the list below, because
        `/v1/sites/site_north` also contains `/v1/sites`. */
     if (/\/v1\/sites\/[^/?]+$/.test(url))
@@ -498,6 +595,15 @@ const SCREENS = [
   { id: "admin-people", label: "Administration · People", mode: "full" },
   { id: "card-fleet", label: "Card: a tower was added", mode: "full" },
   { id: "card-revoked", label: "Card: a tower was removed", mode: "full" },
+  /* ── WHAT A TILE SAYS WHEN IT CANNOT SHOW THE PICTURE ───────────────
+     The three states that used to be one shouted line with a device serial
+     in it ("kln_lab_000002 IS UNAVAILABLE"). They are photographed because
+     they are what somebody is looking at when they stop being able to see,
+     which is the worst moment to be read machinery. */
+  { id: "tile-ended", label: "Tile: access ended", mode: "full" },
+  { id: "tile-offline", label: "Tile: camera offline", mode: "full" },
+  /* And the refusal a shared viewer meets when steering was not included. */
+  { id: "ptz-refused", label: "PTZ: not included in the share", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -879,6 +985,71 @@ function HarnessCard({
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * A tile that cannot show the picture, and why
+ * ------------------------------------------------------------------ */
+
+/** The share that lent a camera and has since finished. */
+const ENDED_SHARE = {
+  share_id: "shr_ended",
+  direction: "offer" as const,
+  status: "expired" as const,
+  owner_site_id: "site_north",
+  owner_site_name: "North Gate",
+  viewer_site_id: "site_pit",
+  viewer_site_name: "South Pit",
+  incoming: false,
+  scope: [{ device_id: "kln_northgate_000001" }],
+  live: true,
+  ptz: false,
+  playback: false,
+  created_at: new Date(Date.now() - 3 * 3600_000).toISOString(),
+  decided_at: new Date(Date.now() - 2 * 3600_000).toISOString(),
+  expires_at: new Date(Date.now() - 60_000).toISOString(),
+};
+
+function TileState({ which }: { which: string }) {
+  return (
+    <ShareFeedProvider enabled={false}>
+      <div className="flex h-full w-full items-center justify-center bg-ink p-[24px]">
+        {/* Tile-shaped, because the point of these words is that they fit
+            inside one card on a wall of nine. */}
+        <div className="h-[320px] w-[520px] overflow-hidden rounded-[12px] border border-line bg-tile">
+          {which === "tile-ended" ? (
+            <AccessEnded share={ENDED_SHARE as never} onClose={() => {}} />
+          ) : (
+            <CameraGone reason="offline" onClose={() => {}} />
+          )}
+        </div>
+      </div>
+    </ShareFeedProvider>
+  );
+}
+
+/** The arrow a viewer pressed, and what the refusal says now. */
+function PtzRefused() {
+  const refusal = describePtzFailure({ code: "ptz_forbidden", status: 403 });
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-[28px] bg-ink">
+      <div className="relative h-[220px] w-[320px] rounded-[8px] bg-panel">
+        <div className="absolute bottom-[18px] left-[16px]">
+          <PtzPad disabled />
+        </div>
+        <div className="chip-blur absolute bottom-[18px] left-[104px] max-w-[200px] rounded-[4px] bg-black/60 px-[8px] py-[4px]">
+          <p className="font-display text-[0.75rem] leading-[16px] tracking-[0.11px] text-body-ink">
+            {refusal}
+          </p>
+        </div>
+      </div>
+      <p className="max-w-[420px] px-[24px] text-center text-[0.8125rem] leading-[20px] text-muted">
+        It said &ldquo;PTZ FAILED &mdash; PTZ_FORBIDDEN&rdquo;. A share is per
+        camera and per capability, so the sentence names what was not included
+        and leaves the next step obvious: ask the site that lent it.
+      </p>
+    </div>
+  );
+}
+
 function Harness() {
   const [which, setWhich] = useState<string>(
     new URLSearchParams(location.search).get("screen") ?? "admin-sites",
@@ -915,6 +1086,10 @@ function Harness() {
       <AdministrationView />
     ) : which === "ptz-yielded" ? (
       <PtzYielded />
+    ) : which === "ptz-refused" ? (
+      <PtzRefused />
+    ) : which.startsWith("tile-") ? (
+      <TileState which={which} />
     ) : which.startsWith("shares") ? (
       <SharesView />
     ) : (

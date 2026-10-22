@@ -54,6 +54,7 @@ import {
 import type { Share, ShareScopeEntry } from "@kallon/sentry-sdk";
 import { isShareLive } from "@kallon/sentry-sdk";
 import { borrowedFrom } from "@/lib/shareRules";
+import { said } from "@/lib/said";
 import {
   type NewShareRequest,
   acceptShare,
@@ -126,16 +127,31 @@ export type Listener = (next: readonly Share[], prev: readonly Share[]) => void;
 
 const FeedContext = createContext<Feed | null>(null);
 
+/**
+ * What a share card says when an answer is refused.
+ *
+ * ⚠ THREE SENTENCES OF ITS OWN, AND THEN THE ONE MAPPER.
+ *
+ * This used to be a second mapper: five rules ending in `return e.message ||
+ * "Something went wrong."`, which is the line that puts a validator's output
+ * on a card. `said` is where the words live, and it knows about codes, 500s
+ * and messages that were written for us.
+ *
+ * The three kept are kept because they are better HERE than anywhere else:
+ * this seam is always about answering a share, and "that share is no longer
+ * there" says more than "not found". They yield to a code the mapper has
+ * words for, which is how `grant_expired` reaches a card instead of a
+ * generic refusal.
+ */
 function describe(err: unknown): string {
-  const e = err as { code?: string; status?: number; message?: string };
-  if (e?.status === 403) return "This is not yours to answer.";
-  if (e?.status === 404) return "That share is no longer there.";
-  if (e?.status === 409) return "Somebody answered that already.";
-  if (e?.status === 422) return e.message || "That was not accepted.";
-  if (e?.code === "network_error" || e?.status === 0) {
-    return "Could not reach coordination. Check the connection.";
+  const e = err as { code?: string; status?: number } | null;
+  const code = typeof e?.code === "string" ? e.code : "";
+  if (!code) {
+    if (e?.status === 403) return "This is not yours to answer.";
+    if (e?.status === 404) return "That share is no longer there.";
+    if (e?.status === 409) return "Somebody answered that already.";
   }
-  return e?.message || "Something went wrong.";
+  return said(err, "That did not go through. Try again.");
 }
 
 export function ShareFeedProvider({

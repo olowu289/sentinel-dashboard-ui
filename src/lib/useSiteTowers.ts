@@ -15,13 +15,22 @@
  * ⚠ A TOWER MISSING FROM THE FLEET IS STILL OFFERED. An offline mast is
  * still that site's mast, and lending it while it is down is a perfectly
  * ordinary thing to do before somebody drives out to restart it. It is listed
- * by its device id with no camera list, which the picker renders as "all
- * cameras" -- the honest answer when nobody is reporting what it has.
+ * with no camera list, which the picker renders as "all cameras" -- the honest
+ * answer when nobody is reporting what it has.
+ *
+ * ── AND WHY THE CELLS ARE ASKED AS WELL ──────────────────────────────
+ *
+ * Such a tower used to be labelled with its DEVICE ID, which is the one thing
+ * this product promises never to put in front of anybody.
+ * `GET /v1/cells/{hub_id}` names every tower its hub has reported, online or
+ * not, so the name comes from there when the fleet is silent; only a tower
+ * that neither list can name falls back to a word. Both name sources are
+ * tolerant: losing one costs a label, not the picker.
  */
 
 import { useEffect, useState } from "react";
 import { said } from "@/lib/said";
-import { getSite } from "@/lib/api/sites";
+import { getCell, getSite } from "@/lib/api/sites";
 import { listFleet } from "@/lib/api/fleet";
 import type { PickableTower } from "@/components/sharing/ShareControls";
 
@@ -46,13 +55,33 @@ export function useSiteTowers(siteId: string | null | undefined): SiteTowers {
     let live = true;
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    Promise.all([getSite(siteId), listFleet().catch(() => null)])
-      .then(([detail, fleet]) => {
+    getSite(siteId)
+      .then(async (detail) => {
+        /* The site's own cells are asked for their towers BY NAME. One request
+           per cell, and a site has a handful; each is tolerant, because a cell
+           that will not answer should cost that cell's labels and nothing
+           else. */
+        const [fleet, ...cells] = await Promise.all([
+          listFleet().catch(() => null),
+          ...detail.cells.map((c) => getCell(c.hub_id).catch(() => null)),
+        ]);
+        return { detail, fleet, cells };
+      })
+      .then(({ detail, fleet, cells }) => {
         if (!live) return;
         const ids = detail.cells.flatMap((c) => c.towers);
         const labels = new Map<string, string>();
         const cameras = new Map<string, number[]>();
-        for (const t of fleet?.towers ?? []) labels.set(t.id, t.site || t.id);
+        /* The cells first, the fleet over the top: both name the same tower,
+           and the fleet's is the one a viewer sees on the wall. */
+        for (const cell of cells) {
+          for (const t of cell?.towers ?? []) {
+            if (t.name && t.name !== t.device_id) labels.set(t.device_id, t.name);
+          }
+        }
+        for (const t of fleet?.towers ?? []) {
+          if (t.site) labels.set(t.id, t.site);
+        }
         for (const f of fleet?.feeds ?? []) {
           if (f.index === undefined) continue;
           const list = cameras.get(f.towerId) ?? [];
@@ -62,7 +91,10 @@ export function useSiteTowers(siteId: string | null | undefined): SiteTowers {
         setState({
           towers: ids.map((id) => ({
             deviceId: id,
-            label: labels.get(id) ?? id,
+            /* NEVER THE ID. A tower nothing can name is "an unnamed tower":
+               less useful than a name and more useful than a serial, and the
+               cure is to give it a name on the Sites page. */
+            label: labels.get(id) ?? "An unnamed tower",
             cameras: (cameras.get(id) ?? []).sort((a, b) => a - b),
           })),
           loading: false,

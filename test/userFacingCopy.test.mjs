@@ -242,17 +242,29 @@ describe("rule 4: the guards are in place", () => {
 
 describe("picture quality is named the way the website names it", () => {
   let panel;
+  let rows;
   before(async () => {
     const { readFile } = await import("node:fs/promises");
     panel = await readFile(join(SRC, "components/CameraSettingsPanel.tsx"), "utf8");
+    /* The naming moved out of the component so that the collapsed row and the
+       choices under it provably share it -- see `lib/settingsRows.ts`. */
+    rows = await readFile(join(SRC, "lib/settingsRows.ts"), "utf8");
   });
 
   test("⭐ the light one is Standard, the rest are resolutions", () => {
-    assert.match(panel, /return "Standard";/);
-    assert.match(panel, /if \(w >= 3840\) return "4K";/);
-    assert.match(panel, /if \(w >= 2560\) return "2K";/);
-    assert.match(panel, /if \(w >= 1920\) return "1080p";/);
-    assert.match(panel, /return "HD";/);
+    assert.match(rows, /return "Standard";/);
+    assert.match(rows, /if \(w >= 3840\) return "4K";/);
+    assert.match(rows, /if \(w >= 2560\) return "2K";/);
+    assert.match(rows, /if \(w >= 1920\) return "1080p";/);
+    assert.match(rows, /return "HD";/);
+  });
+
+  test("⭐ and the panel does not keep a second copy of that naming", () => {
+    /* The row and the choices under it disagreed once already, which is what
+       `lib/settingsRows.ts` exists to make impossible. A `tierFor` back in the
+       component is that disagreement waiting to happen again. */
+    assert.ok(!/function tierFor/.test(panel), "tierFor is back in the panel");
+    assert.ok(!/function profileLabel/.test(panel), "profileLabel is back");
   });
 
   test("there is no second line under the choices", () => {

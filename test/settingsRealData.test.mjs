@@ -244,6 +244,59 @@ describe("tower or hub: the box's own word", () => {
   });
 });
 
+describe("a hub mast arrives in a tower's fields", () => {
+  /* ⚠ THE LAB SHOWED THREE "Not reported" LINES ON A HUB THAT KNEW ALL
+     THREE. The hub's device.env had HUB_MODEL and SERIAL_NUMBER, git describe
+     answered, and none of it was ever put into the mast's hello. These assert
+     the mapper reads the SAME field names for a hub as for a tower, because a
+     hub-shaped field would mean a second branch on every screen. */
+  test("model, serial and firmware map exactly as a tower's do", () => {
+    const { tower: hub } = map.toTower(
+      projected({
+        device_id: "kln_hub_lab",
+        kind: "hub",
+        model: "HUB-1S",
+        serial: "KLN-H-LAB-0001",
+        board_serial: "1424498765432",
+        agent_version: "v1.5.0-263-gd1a5bb7",
+        connected_at: "2026-10-13T10:35:00Z",
+        health: { uplink: { type: "Satellite" } },
+      }),
+    );
+    assert.equal(hub.model, "HUB-1S");
+    assert.equal(hub.serial, "KLN-H-LAB-0001");
+    assert.equal(hub.firmware, "v1.5.0-263-gd1a5bb7");
+    assert.equal(hub.kind, "hub");
+  });
+
+  test("connected since comes off the record, not off the cloud reading", () => {
+    /* The row said "Not connected" in red directly above a Kallon Cloud row
+       saying "Connected". `connected_at` is the tower's field and the hub
+       fills the same one, so the two rows cannot disagree. */
+    const { tower: hub } = map.toTower(
+      projected({ kind: "hub", connected_at: "2026-10-13T10:35:00Z" }),
+    );
+    assert.equal(typeof hub.connectedAt, "number");
+    assert.ok(!Number.isNaN(hub.connectedAt));
+  });
+
+  test("the internet type rides in the tower's uplink field", () => {
+    const { tower: hub } = map.toTower(
+      projected({ kind: "hub", health: { uplink: { type: "Satellite" } } }),
+    );
+    assert.equal(hub.health.uplink.type, "Satellite");
+  });
+
+  test("the board serial still crosses, for support", () => {
+    /* It stays in the data. Nothing labels it on a customer's screen, which
+       the copy tests hold; this holds that we did not drop it from the wire. */
+    const { tower: hub } = map.toTower(
+      projected({ kind: "hub", board_serial: "1424498765432" }),
+    );
+    assert.equal(hub.boardSerial, "1424498765432");
+  });
+});
+
 describe("where the footage goes, and what survives", () => {
   test("a hub's window crosses with what is actually deciding it", () => {
     const { tower } = map.toTower(

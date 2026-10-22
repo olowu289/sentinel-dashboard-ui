@@ -451,6 +451,56 @@ export function siteFileStamp(at: number = Date.now()): string {
   return `${get("year")}-${get("month")}-${get("day")}_${get("hour")}-${get("minute")}-${get("second")}`;
 }
 
+/** `1:18 PM` — no leading zero, which `clockShort` has. */
+const clockBare = () => fmt("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+/** `21 Oct` — day first, so the two forms below start with the day either way. */
+const dayFirst = () => fmt("en-GB", {
+  day: "numeric",
+  month: "short",
+});
+
+/**
+ * When a link came up: `Today 1:18 PM`, `Yesterday 1:18 PM`, `21 Oct 1:18 PM`.
+ *
+ * ⚠ A DELIBERATE DEPARTURE FROM `formatEventTime`, AND A NARROW ONE. The rule
+ * at the top of this file is wall-clock, in site time, labelled, and this
+ * drops the zone label and says "Today" for the current day. Both are on
+ * purpose and neither is the thing the rule forbids:
+ *
+ *   * the INSTANT is still here and still quotable over the radio, which is
+ *     what "never a relative age" is protecting -- "3 days ago" replaces the
+ *     time, "Today 1:18 PM" is the time with the date said in words;
+ *   * the zone label is dropped because this row is read beside a dozen other
+ *     site-time rows on the same screen. `WAT` on one of them implies the
+ *     others are something else.
+ *
+ * It does NOT re-tick: the day word only changes at midnight, so unlike the
+ * uptime it used to carry this is not motion on a monitoring screen.
+ *
+ * Used by Connected since. Everything that is read on its own -- an alert, a
+ * clip, a file name -- keeps `formatEventTime` and its label.
+ */
+export function formatConnectedSince(at: number, now: number = siteNow()): string {
+  const time = clockBare().format(at);
+  if (isSameSiteDay(at, now)) return `Today ${time}`;
+  /* The last millisecond before today began, rather than `now - 24h`: the two
+     differ on any day that is not 24 hours long, and a zone that observes DST
+     would otherwise call yesterday afternoon "21 Oct" twice a year.
+
+     ⚠ `siteDayStart` ANSWERS IN SECONDS. It feeds the footage timeline, which
+     is an epoch-seconds API throughout; everything else in this file is
+     milliseconds. Subtracting 1 from the raw figure put the comparison in
+     1970 and yesterday came out as a date. */
+  const yesterdayEnd = siteDayStart(siteToday(now)) * 1000 - 1;
+  if (isSameSiteDay(at, yesterdayEnd)) return `Yesterday ${time}`;
+  return `${dayFirst().format(at)} ${time}`;
+}
+
 export function formatUptime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
   const mins = Math.floor(ms / 60000);

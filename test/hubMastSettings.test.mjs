@@ -384,3 +384,114 @@ describe("the panel wires those answers in, and only once", () => {
     assert.ok(!/One radio, no sectors/.test(code), "the sentence is back");
   });
 });
+
+/* ======================================================================
+ *  THE LAB HUB, EXACTLY AS THE WIRE SENT IT
+ * ====================================================================== */
+
+/**
+ * One tower out of `GET /v1/viewer/towers`, nested the way the live response
+ * nests it: Terra Industries' lab hub mast, website on 45bb449, hub and
+ * Kallon Cloud on sentry-core 23c423b.
+ *
+ * ⚠ THE SHAPE IS THE TEST. The word sits at `health.uplink.type`, which is
+ * the tower's own uplink field and the one the hub was agreed to fill
+ * (`coordination/hub/local_camera.py` does
+ * `hello["health"].setdefault("uplink", {})["type"]`). Every earlier test in
+ * this file builds that nesting with a helper; this one writes it out, so a
+ * reader can compare it against a response by eye.
+ */
+const LAB_HUB_WIRE = {
+  device_id: "kln_hub_terra_lab",
+  label: "LAB HUB MAST",
+  kind: "hub",
+  link: "up",
+  as_of: "2026-10-22T20:37:11Z",
+  connected_at: "2026-10-22T20:37:02Z",
+  model: "HUB-1S",
+  serial: "KLN-H-LAB-0001",
+  board_serial: "1424498765432",
+  agent_version: "v1.5.0-263-gd1a5bb7",
+  cameras: [{ index: 1, name: "HUB MAST", state: "live" }],
+  sensors: [],
+  health: {
+    uplink: { type: "Satellite" },
+    recording: { mode: "hub" },
+  },
+};
+
+/**
+ * What the DATA CENTRE sends for `cloud`, which is the whole of the bug.
+ *
+ * Not the hub's `/run/kallon/cloud.json` -- that one carries the interface and
+ * a latency. Coordination running in the data centre has no round trip to
+ * report and says so, with no `iface` at all. The row used to read this,
+ * answer "Connected", and stop.
+ */
+const DC_CLOUD = { connected: true, isCloud: true };
+
+/** What a HUB sends for the same block, read off /run/kallon/cloud.json. */
+const HUB_CLOUD = {
+  connected: true,
+  since: "2026-10-22T20:37:02Z",
+  latencyMs: 208,
+  iface: "Satellite",
+};
+
+describe("the lab hub's Internet row", () => {
+  test("⭐ shows Satellite, although the answer came from the data centre", () => {
+    /* THE REGRESSION. `is_cloud` was tested before the record was read, so a
+       hub reporting Satellite perfectly well showed "Connected" on
+       sentri.watch and the right word on nothing. */
+    const { tower } = map.toTower(LAB_HUB_WIRE);
+    assert.equal(tower.health.uplink.type, "Satellite", "the record carries it");
+    assert.equal(rows.internetRow(tower, DC_CLOUD).value, "Satellite");
+  });
+
+  test("and the same word when the hub itself answers", () => {
+    const { tower } = map.toTower(LAB_HUB_WIRE);
+    assert.equal(rows.internetRow(tower, HUB_CLOUD).value, "Satellite");
+  });
+
+  test("⭐ each of the five words, at that exact path, from the data centre", () => {
+    for (const [sent, shown] of [
+      ["Ethernet", "Ethernet"],
+      ["Fibre", "Fibre"],
+      ["Mobile", "Mobile"],
+      ["Satellite", "Satellite"],
+      ["Wi-Fi", "Wi-Fi"],
+    ]) {
+      const wire = { ...LAB_HUB_WIRE, health: { uplink: { type: sent } } };
+      const { tower } = map.toTower(wire);
+      assert.equal(rows.internetRow(tower, DC_CLOUD).value, shown, sent);
+    }
+  });
+
+  test("⭐ and case does not matter, in either direction", () => {
+    /* The hub's table and ours agree today. They are two processes and they
+       will not always, so the row lowercases before it looks up. */
+    for (const sent of ["SATELLITE", "satellite", "SaTeLlItE"]) {
+      const wire = { ...LAB_HUB_WIRE, health: { uplink: { type: sent } } };
+      const { tower } = map.toTower(wire);
+      assert.equal(rows.internetRow(tower, DC_CLOUD).value, "Satellite", sent);
+    }
+  });
+
+  test("a data centre answer with no record still says Connected", () => {
+    /* Unchanged, and the reason the old branch looked right: with nothing
+       declared there is still nothing to name. */
+    const wire = { ...LAB_HUB_WIRE, health: { recording: { mode: "hub" } } };
+    const { tower } = map.toTower(wire);
+    assert.equal(rows.internetRow(tower, DC_CLOUD).value, "Connected");
+  });
+
+  test("a link that is down still beats the declared word", () => {
+    /* The way out hardly matters when there is no way out, and the red row is
+       the one thing worth reading. `is_cloud` has no down case: the data
+       centre answering at all is the proof it is reachable. */
+    const { tower } = map.toTower(LAB_HUB_WIRE);
+    const row = rows.internetRow(tower, { connected: false, iface: "Satellite" });
+    assert.equal(row.value, "Not connected");
+    assert.equal(row.tone, "text-critical");
+  });
+});

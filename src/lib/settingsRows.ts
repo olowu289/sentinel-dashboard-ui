@@ -157,26 +157,39 @@ function internetWord(raw: string): string {
  * grammar exists to prevent. A hub that declared no interface says the plain
  * thing rather than an empty half of a value.
  *
- * ⚠ THE RECORD FIRST, THEN THE CLOUD READING, for the same reason
- * `connectedSinceAt` prefers the record: it is the device's own word about its
- * own link, and it is the field a tower has always used. The cloud's `iface`
- * is the same fact observed from our end and stands in until a hub's hello
- * carries the type.
+ * ⚠ THE RECORD FIRST, BEFORE ANY QUESTION ABOUT THE CLOUD READING. The
+ * device's `health.uplink.type` is the site's own word for its own way out.
+ * The cloud reading is about something else: whether WE can see the site, and
+ * from which end the answer came.
+ *
+ * ⚠ AND THIS IS WHAT THE LAB HUB CAUGHT. The `is_cloud` branch used to come
+ * first, on the reasoning that an answer served BY the data centre has no
+ * round trip and therefore no interface to name. True of the cloud's own
+ * link, and irrelevant to the mast's: on sentri.watch coordination runs in
+ * the data centre and sends `{"connected": true, "is_cloud": true}` with no
+ * `iface` at all, so the row answered "Connected" and never looked at the
+ * `"type": "Satellite"` sitting in the same response. The hub was reporting
+ * correctly the whole time. `is_cloud` says there is no latency to print; it
+ * says nothing about how the site gets out.
+ *
+ * So the order is: a link known to be DOWN beats everything, because the way
+ * out hardly matters then; otherwise the declared word, then the cloud's
+ * observed one, then the plain fact that there is a link.
  *
  * Nothing reported at all is an empty value, not "Not reported": a site that
  * has not told us about its link has not told us it is down either.
  */
 export function internetRow(tower?: Tower, cloud?: CloudReading): RowValue {
   const declared = tower?.health?.uplink?.type;
-  if (!cloud) {
-    return declared ? { value: internetWord(declared) } : { value: "" };
+  /* `isCloud` carries no `connected: false` case -- the data centre answering
+     at all is the proof it is reachable -- so it is excluded here rather than
+     relied on to be absent. */
+  if (cloud && !cloud.isCloud && cloud.connected !== true) {
+    return { value: "Not connected", tone: "text-critical" };
   }
-  /* The answer came FROM the cloud, so there is no round trip and no
-     interface of ours to name. */
-  if (cloud.isCloud) return { value: "Connected" };
-  if (cloud.connected !== true) return { value: "Not connected", tone: "text-critical" };
-  const word = declared ?? cloud.iface;
-  return { value: word ? internetWord(word) : "Connected" };
+  const word = declared ?? cloud?.iface;
+  if (word) return { value: internetWord(word) };
+  return { value: cloud ? "Connected" : "" };
 }
 
 /**

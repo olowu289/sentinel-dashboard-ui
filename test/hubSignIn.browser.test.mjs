@@ -72,6 +72,9 @@ const loginBox = (page) =>
   page.locator('input[placeholder="dave.terra-industries"]');
 const passwordBox = (page) =>
   page.locator('input[autocomplete="current-password"]');
+/** The line explaining that a login is a person within an organization. */
+const formatHint = (page) =>
+  page.getByText(/Your name and your organization/);
 
 /** Which element has the caret. */
 const focused = (page) =>
@@ -149,6 +152,16 @@ describe("a hub whose /healthz carries an organization", () => {
     await page.close();
   });
 
+  test("⭐ and the login-format hint is gone", async () => {
+    /* It explains that a login is a PERSON within an ORGANIZATION. A hub has
+       only its organization's login, so on a kiosk it teaches a format nobody
+       there can use -- under a box already filled with the only right
+       answer. */
+    const { page } = await open("hub-signin");
+    assert.equal(await formatHint(page).count(), 0);
+    await page.close();
+  });
+
   test("the browser's own suggestions are switched off on that box only", async () => {
     /* A saved credential arriving after paint would overwrite a value that
        was already correct, and the kiosk would show whoever signed in last.
@@ -185,6 +198,18 @@ describe("a hub that has not been told its customer", () => {
     assert.equal(await loginBox(page).getAttribute("autocomplete"), "username");
     await page.close();
   });
+
+  test("⭐ but the login-format hint is gone here too", async () => {
+    /* ⚠ THE HINT GOES ON THE KIND OF SERVER, NOT ON WHETHER THE BOX WAS
+       FILLED. This hub sends no organization, so the box is empty and the
+       caret is in it -- and it is still a hub, where a login is still only
+       ever an organization's. Hanging this on `hubLogin` would have left the
+       one screen that most needs the explanation removed showing it. */
+    const { page } = await open("hub-signin-bare");
+    assert.equal(await loginBox(page).inputValue(), "", "the box IS empty here");
+    assert.equal(await formatHint(page).count(), 0);
+    await page.close();
+  });
 });
 
 describe("Kallon Cloud", () => {
@@ -195,6 +220,21 @@ describe("Kallon Cloud", () => {
     assert.equal(await loginBox(page).inputValue(), "");
     assert.equal(await focused(page), "login");
     assert.equal(await loginBox(page).getAttribute("autocomplete"), "username");
+    await page.close();
+  });
+
+  test("⭐ and KEEPS the login-format hint, word for word", async () => {
+    /* Where it belongs: somebody arriving at sentri.watch has to be told that
+       their login is their name and their organization together. */
+    const { page } = await open("cloud-signin");
+    await formatHint(page).waitFor({ state: "visible", timeout: 2000 });
+    const text = (await formatHint(page).innerText()).replace(/\s+/g, " ").trim();
+    assert.equal(
+      text,
+      "Your name and your organization, like dave.terra-industries. "
+        + "An organization signs in with its own name, matched exactly, "
+        + "including spaces and capitals.",
+    );
     await page.close();
   });
 });

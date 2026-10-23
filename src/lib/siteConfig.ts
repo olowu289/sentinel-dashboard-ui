@@ -1,4 +1,5 @@
 import { coordinationBaseUrl } from "./config";
+import { isHubRole } from "./hubMode";
 import { setSiteTz, siteTz } from "./time";
 
 /**
@@ -39,13 +40,37 @@ export interface SiteConfig {
   tz: string;
   /** Whether the hub actually supplied it, as opposed to the fallback standing. */
   fromHub: boolean;
+  /**
+   * The company login this hub belongs to, for the SIGN-IN screen to fill in.
+   *
+   * ⚠ ONLY EVER SET ON A HUB, and `null` is the normal answer everywhere
+   * else. Kallon Cloud serves thousands of organizations and has no single
+   * right answer to put in the box; it never sends the field, and this never
+   * invents one. A hub that has not been told its customer yet does not send
+   * it either, and then the screen is the ordinary one.
+   *
+   * It is not a secret. It is the name printed on the hub's own paperwork,
+   * read off an unauthenticated status route by a person standing at the
+   * machine. The password is the secret and nothing here touches it.
+   */
+  hubLogin: string | null;
+  /** What the box that answered says it is. `"hub"`, `"datacenter"`, or "". */
+  role: string;
 }
 
 let resolved: Promise<SiteConfig> | null = null;
 
+/** What this resolves to when the hub said nothing useful. */
+const UNKNOWN = (): SiteConfig => ({
+  tz: siteTz(),
+  fromHub: false,
+  hubLogin: null,
+  role: "",
+});
+
 async function fetchSiteConfig(): Promise<SiteConfig> {
   const base = coordinationBaseUrl();
-  if (!base) return { tz: siteTz(), fromHub: false };
+  if (!base) return UNKNOWN();
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -56,14 +81,28 @@ async function fetchSiteConfig(): Promise<SiteConfig> {
       signal: ctrl.signal,
       cache: "no-store",
     });
-    if (!res.ok) return { tz: siteTz(), fromHub: false };
-    const body: unknown = await res.json();
-    const tz = (body as { site?: { tz?: unknown } } | null)?.site?.tz;
+    if (!res.ok) return UNKNOWN();
+    const body = (await res.json()) as {
+      site?: { tz?: unknown };
+      role?: unknown;
+      organization?: unknown;
+    } | null;
+    const tz = body?.site?.tz;
     const took = setSiteTz(typeof tz === "string" ? tz : null);
-    return { tz: siteTz(), fromHub: took };
+    const role = typeof body?.role === "string" ? body.role : "";
+    /* ⚠ THE LOGIN ONLY COUNTS ON A HUB, and the role is tested rather than
+       trusted to be absent elsewhere. If Kallon Cloud ever grew an
+       `organization` field for some unrelated reason, a sign-in screen that
+       read it would fill one customer's login in for every other customer. */
+    const org = body?.organization;
+    const hubLogin =
+      isHubRole(role) && typeof org === "string" && org.trim() !== ""
+        ? org.trim()
+        : null;
+    return { tz: siteTz(), fromHub: took, hubLogin, role };
   } catch {
     // Unreachable, aborted, or not JSON. The fallback stands.
-    return { tz: siteTz(), fromHub: false };
+    return UNKNOWN();
   } finally {
     clearTimeout(timer);
   }

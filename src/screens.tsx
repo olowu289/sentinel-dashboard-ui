@@ -53,6 +53,7 @@ import { AUDIT_GROUPS, groupOf } from "@/lib/auditSentence";
 import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
 import { TowersView } from "@/components/TowersView";
 import { SettingsView } from "@/components/SettingsView";
+import { LoginView } from "@/components/LoginView";
 import { DEFAULT_CAMERA_SETTINGS, type CameraFeed, type Tower } from "@/lib/types";
 import type { CloudReading } from "@/lib/api/fleet";
 
@@ -347,7 +348,7 @@ const AUDIT_NAMES = {
  */
 type Mode = "full" | "empty" | "failed" | "loading" | "hub";
 
-function install(mode: Mode) {
+function install(mode: Mode, screen = "") {
   resetCapabilities();
   resetClient();
   const body = (o: unknown) =>
@@ -369,6 +370,21 @@ function install(mode: Mode) {
        the rail as well, and a screenshot of a refused page would also be a
        screenshot of a rail that is missing two destinations for an unrelated
        reason. */
+    /* ⚠ `/healthz` IS UNAUTHENTICATED AND ANSWERS BEFORE ANYBODY SIGNS IN,
+       which is why the sign-in screen can read the hub's own company login
+       off it. Kallon Cloud never sends `organization`; a hub that has not
+       been told its customer does not either, and both of those screens are
+       here so the difference can be photographed. */
+    if (url.includes("/healthz")) {
+      const hub = mode === "hub";
+      return body({
+        role: hub ? "hub" : "datacenter",
+        site: { tz: "Africa/Lagos" },
+        ...(hub && screen !== "hub-signin-bare"
+          ? { organization: "terra-industries" }
+          : {}),
+      });
+    }
     if (url.includes("/v1/capabilities"))
       return body(
         mode === "hub"
@@ -584,11 +600,25 @@ const sessionAs = (role: "owner" | "site_user", login: string) => ({
   features: new Set<Feature>(DEFAULT_FEATURES),
   endedReason: null,
   pending: false,
-  signIn: async () => {},
+  /* ⚠ IT RECORDS RATHER THAN DOING NOTHING. The sign-in screens below are
+     driven by a browser test that has to see WHICH login was submitted -- a
+     screen that fills the box correctly and then sends the filled value
+     instead of the edited one passes every other check there is. There is no
+     server here, so the call itself is the observable thing. */
+  signIn: async (login: string, password: string) => {
+    (window as unknown as { __signIn?: unknown[] }).__signIn ??= [];
+    ((window as unknown as { __signIn: unknown[] }).__signIn).push({ login, password });
+  },
   signOut: async () => {},
 });
 
 const SESSION = sessionAs("owner", "kaduna-mine");
+/** Nobody signed in, which is the only state the sign-in screen is drawn in. */
+const SESSION_OUT = {
+  ...sessionAs("owner", "kaduna-mine"),
+  status: "signed-out" as const,
+  account: null,
+};
 const SESSION_SITE_USER = sessionAs("site_user", "ada");
 
 /* ------------------------------------------------------------------ *
@@ -670,6 +700,12 @@ const SCREENS = [
   { id: "hub-towers", label: "Hub: towers + navigation", mode: "hub" },
   { id: "hub-settings", label: "Hub: settings", mode: "hub" },
   { id: "hub-tower-settings", label: "Hub: tower settings", mode: "hub" },
+  /* ── SIGNING IN ───────────────────────────────────────────────────
+     Three servers, three screens. A hub that knows its customer fills the
+     login box; a hub that does not, and Kallon Cloud, do not. */
+  { id: "hub-signin", label: "Hub: sign in (login filled)", mode: "hub" },
+  { id: "hub-signin-bare", label: "Hub: sign in (no organization)", mode: "hub" },
+  { id: "cloud-signin", label: "Sign in (Kallon Cloud)", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -1377,7 +1413,7 @@ function Harness() {
     new URLSearchParams(location.search).get("screen") ?? "admin-sites",
   );
   const screen = SCREENS.find((s) => s.id === which) ?? SCREENS[0];
-  install(screen.mode as Mode);
+  install(screen.mode as Mode, which);
 
   const body =
     /* ⚠ THE TWO FLEET CARDS COME FIRST, because `card-fleet` and
@@ -1417,6 +1453,8 @@ function Harness() {
       <PtzRefused />
     ) : which === "towers-board" || which === "hub-towers" ? (
       <BoardScreen />
+    ) : which.endsWith("-signin") || which === "hub-signin-bare" ? (
+      <LoginView />
     ) : which === "hub-settings" ? (
       <SettingsView />
     ) : which === "hub-tower-settings" ? (
@@ -1434,9 +1472,11 @@ function Harness() {
   return (
     <AuthContextForHarness.Provider
       value={
-        (which.startsWith("sharing-admin") || !which.startsWith("sharing-")
-          ? SESSION
-          : SESSION_SITE_USER) as never
+        (which.endsWith("-signin") || which === "hub-signin-bare"
+          ? SESSION_OUT
+          : which.startsWith("sharing-admin") || !which.startsWith("sharing-")
+            ? SESSION
+            : SESSION_SITE_USER) as never
       }
     >
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-ink">

@@ -177,9 +177,20 @@ describe("autofill is allowed on the sign-in screen and nowhere else", () => {
     const source = await readFile(LOGIN, "utf8");
     const inputs = inputElements(source);
 
-    const user = inputs.find((el) => el.attrs.includes('autoComplete="username"'));
+    /* ⚠ IT IS AN EXPRESSION NOW, AND `username` IS STILL THE DEFAULT. On a
+       hub whose login the screen has already filled in, the token becomes
+       `off` -- a saved credential arriving after paint would otherwise
+       overwrite a value that was already correct, and the kiosk would show
+       whoever signed in last. Everywhere else, including sentri.watch,
+       nothing changed and a manager pairs exactly as before. */
+    const user = inputs.find((el) => /autoComplete=(?:"username"|\{[^}]*"username")/.test(el.attrs));
     const pass = inputs.find((el) => el.attrs.includes('type="password"'));
     assert.ok(user, "sign-in needs a username field for a manager to pair against");
+    assert.match(
+      user.attrs,
+      /autoComplete=\{hubLogin === null \? "username" : "off"\}/,
+      "username must be the answer whenever the screen has not filled the box",
+    );
     assert.ok(pass, "sign-in needs a password field");
     assert.match(
       pass.attrs,

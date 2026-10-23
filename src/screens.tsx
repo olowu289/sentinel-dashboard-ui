@@ -52,6 +52,7 @@ import { resetClient } from "@/lib/api/client";
 import { AUDIT_GROUPS, groupOf } from "@/lib/auditSentence";
 import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
 import { TowersView } from "@/components/TowersView";
+import { SettingsView } from "@/components/SettingsView";
 import { DEFAULT_CAMERA_SETTINGS, type CameraFeed, type Tower } from "@/lib/types";
 import type { CloudReading } from "@/lib/api/fleet";
 
@@ -335,7 +336,16 @@ const AUDIT_NAMES = {
  * The stub
  * ------------------------------------------------------------------ */
 
-type Mode = "full" | "empty" | "failed" | "loading";
+/**
+ * `hub` is "full", served by a HUB rather than by Kallon Cloud.
+ *
+ * ⚠ IT IS NOT A FOURTH DATA STATE, it is the same data from a different kind
+ * of server, and the only thing that changes is what `/v1/capabilities`
+ * answers. That is the whole point of hub mode: no build flag, no second
+ * fixture set, one probe. These screens exist so the hiding can be
+ * photographed rather than argued about.
+ */
+type Mode = "full" | "empty" | "failed" | "loading" | "hub";
 
 function install(mode: Mode) {
   resetCapabilities();
@@ -360,7 +370,19 @@ function install(mode: Mode) {
        screenshot of a rail that is missing two destinations for an unrelated
        reason. */
     if (url.includes("/v1/capabilities"))
-      return body({ role: "datacenter", features: { sites: true } });
+      return body(
+        mode === "hub"
+          ? { role: "hub", features: { sites: false } }
+          : { role: "datacenter", features: { sites: true } },
+      );
+    /* A hub has no sites, no cells, no people and no shares, and answers 404
+       rather than an empty list -- so the screens see what a kiosk sees. */
+    if (mode === "hub" && /\/v1\/(sites|cells|shares|admin)/.test(url)) {
+      return new Response(
+        JSON.stringify({ error: { code: "not_found", message: "this node has no sites" } }),
+        { status: 404, headers: { "content-type": "application/json" } },
+      );
+    }
     if (mode === "loading") {
       // Never resolves: this is what the skeleton state actually looks like.
       return new Promise<Response>(() => {});
@@ -642,6 +664,12 @@ const SCREENS = [
      Its Uplink column and the settings Radio link row read one function, and
      this is where the two can be compared side by side. */
   { id: "towers-board", label: "Towers board (uplink)", mode: "full" },
+  /* ── THE HUB'S OWN DASHBOARD ──────────────────────────────────────
+     The same screens, served by a hub: no Sharing, no Administration, no
+     site picker, no Account section. Everything the hub does itself stays. */
+  { id: "hub-towers", label: "Hub: towers + navigation", mode: "hub" },
+  { id: "hub-settings", label: "Hub: settings", mode: "hub" },
+  { id: "hub-tower-settings", label: "Hub: tower settings", mode: "hub" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -1387,8 +1415,12 @@ function Harness() {
       <PtzYielded />
     ) : which === "ptz-refused" ? (
       <PtzRefused />
-    ) : which === "towers-board" ? (
+    ) : which === "towers-board" || which === "hub-towers" ? (
       <BoardScreen />
+    ) : which === "hub-settings" ? (
+      <SettingsView />
+    ) : which === "hub-tower-settings" ? (
+      <SettingsScreen which="settings-tower" />
     ) : which.startsWith("settings-") ? (
       <SettingsScreen which={which} />
     ) : which.startsWith("tile-") ? (

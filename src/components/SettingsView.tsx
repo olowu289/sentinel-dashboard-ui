@@ -3,12 +3,15 @@ import { said } from "@/lib/said";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { useSession } from "@/components/AuthProvider";
+import { useCapabilities } from "@/lib/useSites";
+import { isHubMode } from "@/lib/hubMode";
 import { IconRail } from "@/components/IconRail";
 import { SharingPane } from "@/components/sharing/SharingPane";
 import { SiteClock } from "@/components/SiteClock";
@@ -275,6 +278,15 @@ const SECTION_LABEL: Record<SettingsSection, string> = {
  * The screen
  * ================================================================== */
 
+/**
+ * The sections a hub does not have.
+ *
+ * Named here rather than inline so the test can read the same list the screen
+ * does, and so adding a sixth section is one decision about whether a hub has
+ * it.
+ */
+const HUB_HIDES: ReadonlySet<SettingsSection> = new Set(["account", "sharing"]);
+
 export function SettingsView({
   onNavigate,
   onBack,
@@ -296,6 +308,27 @@ export function SettingsView({
   onCameraRenamed?: (tower: Tower, feeds: CameraFeed[]) => void;
 }) {
   const { account } = useSession();
+  const caps = useCapabilities();
+  /**
+   * What this server is, and therefore which sections exist.
+   *
+   * ⚠ ACCOUNT AND SHARING BOTH GO ON A HUB, for two different reasons.
+   * Sharing is between two sites over the internet and a hub has neither.
+   * Account manages the ORGANIZATION's login, which is a thing Kallon Cloud
+   * holds: the hub checks one company login and has no directory to rename
+   * anybody in. Signing out is not on this page at all -- it is the rail's
+   * own button -- so hiding Account here takes nothing away from somebody who
+   * wants to leave the kiosk.
+   */
+  const hubMode = isHubMode(caps);
+  const sections = useMemo(
+    () => SETTINGS_SECTIONS.filter((id) => !(hubMode && HUB_HIDES.has(id))),
+    [hubMode],
+  );
+  /* A hash pointing at a section this server does not have -- a bookmark from
+     the cloud opened on a kiosk -- lands on the first one that exists rather
+     than on an empty pane. */
+  const shown = sections.includes(section) ? section : (sections[0] ?? "appearance");
 
   /* The organization name the SERVER currently has. Not the same as the one in
      `account`: that block is a snapshot from sign-in, and after a rename it is
@@ -1250,8 +1283,8 @@ export function SettingsView({
             aria-label="Settings sections"
             className="hidden w-[232px] shrink-0 flex-col gap-[2px] border-r border-line p-[12px] sm:flex"
           >
-            {SETTINGS_SECTIONS.map((id) => {
-              const active = section === id;
+            {sections.map((id) => {
+              const active = shown === id;
               return (
                 <a
                   key={id}
@@ -1280,14 +1313,14 @@ export function SettingsView({
             {/* The same list as a scrolling row below `sm`, where a 232px
                 column would take a third of the window. */}
             <div className="flex shrink-0 gap-[6px] overflow-x-auto border-b border-line px-[12px] py-[8px] sm:hidden">
-              {SETTINGS_SECTIONS.map((id) => (
+              {sections.map((id) => (
                 <button
                   key={id}
                   type="button"
-                  aria-current={section === id ? "page" : undefined}
+                  aria-current={shown === id ? "page" : undefined}
                   onClick={() => onSectionChange?.(id)}
                   className={`shrink-0 rounded-[8px] px-[12px] py-[8px] text-[0.8125rem] transition-colors ${
-                    section === id ? "bg-card text-body-ink" : "text-sub hover:bg-card-hover"
+                    shown === id ? "bg-card text-body-ink" : "text-sub hover:bg-card-hover"
                   }`}
                 >
                   {SECTION_LABEL[id]}
@@ -1300,13 +1333,13 @@ export function SettingsView({
                   what discards a half-typed password rather than parking it
                   behind a tab somebody returns to an hour later. */}
               <motion.div
-                key={section}
+                key={shown}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={FADE}
                 className="mx-auto w-full max-w-[720px]"
               >
-                {PANES[section]}
+                {PANES[shown]}
               </motion.div>
             </main>
           </div>

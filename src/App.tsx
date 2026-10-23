@@ -29,6 +29,7 @@ import { FleetFeedProvider } from "@/lib/useFleetFeed";
 import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
 import { useCapabilities } from "@/lib/useSites";
+import { hasSites, isHubMode } from "@/lib/hubMode";
 import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
@@ -475,7 +476,10 @@ export function SentinelApp() {
      the destinations and then removing them a moment later looks like a bug
      even though it is only a race. */
   const caps = useCapabilities();
-  const sitesEnabled = caps?.features.sites === true;
+  const sitesEnabled = hasSites(caps);
+  /* THE WHOLE PRODUCT DECISION, from `GET /v1/capabilities`. See
+     `lib/hubMode.ts` for why this is the server's answer and not a flag. */
+  const hubMode = isHubMode(caps);
   const isAdmin = sitesEnabled && isAdminRole(account?.role);
   /* THE SHARES THEMSELVES LIVE IN `ShareFeedProvider` (see main.tsx), which
      is one list read by the cards, the Sharing page and the shared-feed badge
@@ -1939,7 +1943,11 @@ export function SentinelApp() {
             somebody find for themselves. It goes through `WatchProvider` so it
             re-reads the fleet first: the accept and the press can be in the
             same second, before any poll has run. */}
-        <ShareDeck />
+        {/* ⚠ NO SHARE CARDS ON A HUB. A share is between two sites over the
+            internet, and a hub has neither. The deck is one of the few things
+            that draws itself over whatever screen is open, so a stray card
+            would be the one piece of Sharing a kiosk could still show. */}
+        {hubMode ? null : <ShareDeck />}
         <NotificationStack />
         </FleetFeedProvider>
         </WatchProvider>

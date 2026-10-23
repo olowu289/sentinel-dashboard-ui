@@ -22,6 +22,8 @@
  * says "Acting as" rather than showing a bare name beside a chevron.
  */
 
+import { isHubMode } from "@/lib/hubMode";
+import { useCapabilities } from "@/lib/useSites";
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ENTER } from "@/lib/motion";
@@ -29,8 +31,16 @@ import { useActingSite } from "@/lib/useActingSite";
 
 export function ActingSiteChip({ className = "" }: { className?: string }) {
   const acting = useActingSite();
+  const caps = useCapabilities();
   const [open, setOpen] = useState(false);
 
+  /* ⚠ NOTHING AT ALL ON A HUB, and `candidates.length === 0` does not cover
+     it. A hub has no `/v1/sites`, so the list is empty there -- but the admin
+     branch below returns BEFORE that test and prints "Every site" off the
+     account's role alone. The hub's one company login is an administrator, so
+     the kiosk showed a site picker for an organization the hub cannot see.
+     A hub has one site: itself, and it is the thing you are looking at. */
+  if (isHubMode(caps)) return null;
   if (acting.loading) return null;
   if (acting.isAdmin) {
     return (

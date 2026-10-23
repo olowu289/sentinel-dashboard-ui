@@ -13,6 +13,8 @@ import { batteryCharging } from "@/lib/battery";
 import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import { formatConnectedSince } from "@/lib/time";
+import { uplinkDisplay, type UplinkDisplay } from "@/lib/uplinkDisplay";
+import { UplinkBars } from "@/components/UplinkBars";
 import {
   connectedSinceAt,
   internetRow,
@@ -846,7 +848,7 @@ export function CameraSettingsPanel({
               </>
             ) : (
               <>
-                <RadioLinkRow radio={tower.health?.radio} />
+                <RadioLinkRow tower={tower} />
                 <UplinkRow reading={ownUplink} />
                 <ConnectedSince at={connectedSince} />
               </>
@@ -1351,6 +1353,7 @@ function RowReading({
   value,
   tone,
   icon,
+  meter,
   action,
   detail,
   last = false,
@@ -1360,6 +1363,16 @@ function RowReading({
   tone?: string;
   /** A glyph after the value, as the uplink row carries. */
   icon?: string;
+  /**
+   * A signal meter BEFORE the value, as the Radio link row carries.
+   *
+   * ⚠ BEFORE, NOT AFTER, AND THAT IS THE DIFFERENCE FROM `icon`. The meter is
+   * the instrument and the word is its reading, the same order the Towers
+   * board draws them in; a reader scanning the Network group sees the bars
+   * line up down the right-hand side and the words sit beside them. `icon` is
+   * a decoration that follows a value, which is a different job.
+   */
+  meter?: UplinkDisplay;
   /** An action beside the value, as the firmware row carries. */
   action?: string;
   /**
@@ -1381,6 +1394,11 @@ function RowReading({
           our own product decision on their settings screen. */}
       <span className={LABEL}>{label}</span>
       <span className="flex min-w-0 items-center gap-[6px]">
+        {/* ⚠ `shrink-0` ON THE METER AND `truncate` ON THE WORD, which is what
+            keeps this one line on a phone. The bars are 12px of fixed width
+            and the value is the part allowed to give, so a narrow panel
+            shortens the word rather than wrapping the row in two. */}
+        {meter && <UplinkBars display={meter} />}
         {/* One colour class, never two — see VALUE_TYPE. */}
         <span
           title={detail || undefined}
@@ -1441,8 +1459,7 @@ function UplinkRow({ reading }: { reading: UplinkReading }) {
   );
 }
 
-/** The two health blocks the Network group draws, named once. */
-type RadioBlock = NonNullable<NonNullable<Tower["health"]>["radio"]>;
+/** The health block the Network group's radio rows draw, named once. */
 type SectorBlock = NonNullable<NonNullable<Tower["health"]>["sectors"]>;
 
 /**
@@ -1457,20 +1474,47 @@ type SectorBlock = NonNullable<NonNullable<Tower["health"]>["sectors"]>;
  * configured has nothing to say here, and a row explaining that it has nothing
  * to say is the "Not reported" problem with extra words. The mast's presence
  * is already reported by Connected since beside it.
+ *
+ * ⚠ AND THE WORD IS NOW DRAWN BESIDE THE SAME METER THE TOWERS BOARD DRAWS,
+ * from the same `uplinkDisplay`. The board used to read `health.uplink` while
+ * this row read `health.radio`, so a mast measuring -44 dBm was "Good" here
+ * and "No link" in amber over three grey bars two clicks away. Neither screen
+ * decides anything about the uplink any more; both print what that function
+ * returns. What stays local is only WHETHER THERE IS A ROW, which is this
+ * screen's own rule and not the board's -- a board column cannot hide itself
+ * for one mast without leaving a hole in the grid.
  */
-function RadioLinkRow({ radio }: { radio?: RadioBlock }) {
+function RadioLinkRow({ tower }: { tower: Tower }) {
+  const radio = tower.health?.radio;
   if (!radio) return null;
-  if (!radio.associated) {
-    return <RowReading label="Radio link" value="Not connected" tone="text-critical" />;
+  const display = uplinkDisplay(tower);
+  /* Nothing measured and nothing wrong: no row. `uplinkDisplay` says that
+     with a dash, which is the board's way of filling a cell it cannot leave
+     out; here the whole row goes. */
+  if (display.kind === "none" && !display.tone) return null;
+  /* A radio that is up but joined to nothing, or a tower that is off. Both
+     are readings and both keep their red. */
+  if (display.kind !== "signal") {
+    return (
+      <RowReading
+        label="Radio link"
+        value={display.word}
+        tone={display.tone}
+        meter={display}
+      />
+    );
   }
-  if (radio.signalDbm === undefined) return null;
-  const grade = radioGrade(radio.signalDbm);
+  /* `link down` on a radio that still reports a signal: the measurement is
+     real and the state overrides its colour, which is the one place this row
+     departs from the grade's own tone. */
   const note = radioStateNote(radio.state);
+  const down = note === "link down";
   return (
     <RowReading
       label="Radio link"
-      value={grade.word}
-      tone={note === "link down" ? "text-critical" : grade.tone}
+      value={display.word}
+      tone={down ? "text-critical" : display.tone}
+      meter={down ? { ...display, tone: "text-critical" } : display}
     />
   );
 }

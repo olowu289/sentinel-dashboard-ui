@@ -143,7 +143,13 @@ const INTERNET_WORD: Record<string, string> = {
   wireless: "Wi-Fi",
 };
 
-function internetWord(raw: string): string {
+/**
+ * One of the five words, however it was spelled on the way here.
+ *
+ * Exported because the Towers board names a hub's way out in the same column
+ * the masts show a radio grade in, and two tables would be two spellings.
+ */
+export function internetWord(raw: string): string {
   const key = raw.trim().toLowerCase();
   return INTERNET_WORD[key] ?? raw.trim().replace(/^./, (c) => c.toUpperCase());
 }

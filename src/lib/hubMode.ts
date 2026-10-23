@@ -59,13 +59,28 @@ export const CLOUD_ROLE = "datacenter";
  *
  * `null` (not answered yet) is NOT hub mode -- see the note above.
  */
+/**
+ * The rule itself, over a bare role string.
+ *
+ * ⚠ TWO ENDPOINTS CARRY THIS ROLE AND THEY MUST AGREE. `/v1/capabilities`
+ * answers it for the product gating below, and `/healthz` answers it for the
+ * SIGN-IN screen, which has to decide before anybody has a session. One rule,
+ * two carriers: a second copy of "is this a hub" is how the kiosk ends up
+ * filling in a login on a page that then shows an Administration area.
+ */
+export function isHubRole(role: string | null | undefined): boolean {
+  const word = typeof role === "string" ? role.trim().toLowerCase() : "";
+  return word !== "" && word !== CLOUD_ROLE;
+}
+
 export function isHubMode(caps: Capabilities | null | undefined): boolean {
   if (!caps) return false;
-  const role = typeof caps.role === "string" ? caps.role.trim().toLowerCase() : "";
   /* An EMPTY role falls back to the feature, because a server that sends no
      role at all is older than this field and `features.sites` predates it. */
-  if (role === "") return caps.features?.sites === false;
-  return role !== CLOUD_ROLE;
+  if (typeof caps.role !== "string" || caps.role.trim() === "") {
+    return caps.features?.sites === false;
+  }
+  return isHubRole(caps.role);
 }
 
 /**

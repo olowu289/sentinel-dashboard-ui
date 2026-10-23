@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { loadSiteConfig } from "@/lib/siteConfig";
 import { useSession } from "@/components/AuthProvider";
 import { ENTER, FADE } from "@/lib/motion";
 import {
@@ -117,6 +118,33 @@ export function LoginView() {
 
   const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
+  /**
+   * The hub's own company login, filled in so only the password is typed.
+   *
+   * ⚠ A HUB HAS EXACTLY ONE CUSTOMER AND THE KIOSK IS BOLTED TO IT. Typing
+   * `dave.terra-industries` on a TV with no keyboard, at a gate, in the rain,
+   * is the whole of what this removes. Kallon Cloud serves thousands of
+   * organizations, has no single right answer, and never sends the field --
+   * so there, and on a hub that has not been told its customer yet, this
+   * stays null and the screen is exactly the one it was.
+   *
+   * It is not a shortcut past anything: the password is unchanged, the
+   * lockout is unchanged, and the box below stays an ordinary editable input
+   * because Terra staff sign in on a customer's hub with their own login.
+   */
+  const [hubLogin, setHubLogin] = useState<string | null>(null);
+  /**
+   * Has anybody touched the login box?
+   *
+   * ⚠ THE PROBE IS ASYNCHRONOUS AND A PERSON IS NOT. `/healthz` can land a
+   * second after the screen does, and somebody who has already started typing
+   * their own login must not have it replaced under the cursor. Once this is
+   * true nothing fills, nothing refocuses, and what was typed is what is
+   * sent.
+   */
+  const touchedLogin = useRef(false);
+  /** For moving focus past a box that is already correct. */
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [failure, setFailure] = useState<Failure>(null);
   const [lock, setLock] = useState<Lock>(null);
   /* THE ONLY THING THAT TICKS. One second, and only while a lock is running:
@@ -153,6 +181,26 @@ export function LoginView() {
     setLock(until ? { until } : null);
     if (until) setNow(Date.now());
   }, [organizationName]);
+
+  /* ONE REQUEST, THE ONE ALREADY BEING MADE. `loadSiteConfig` is memoised on
+     its promise and the app asks it at boot for the site timezone, so this
+     adds no round trip and no new unauthenticated surface. */
+  useEffect(() => {
+    let alive = true;
+    void loadSiteConfig().then((config) => {
+      if (!alive || config.hubLogin === null) return;
+      if (touchedLogin.current) return;
+      setHubLogin(config.hubLogin);
+      setOrganizationName(config.hubLogin);
+      /* The box above is already right, so the cursor belongs in the one
+         thing left to do. Guarded on `touchedLogin` above: this must never
+         take the caret off a field somebody is using. */
+      passwordRef.current?.focus();
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const wasReturning = status === "ended";
 
@@ -303,6 +351,7 @@ export function LoginView() {
                 <input
                   value={organizationName}
                   onChange={(e) => {
+                    touchedLogin.current = true;
                     setOrganizationName(e.target.value);
                     setFailure(null);
                   }}
@@ -320,7 +369,14 @@ export function LoginView() {
                      the label say.
                      This is also the ONLY field in the app that invites a
                      manager to fill — see the Settings notes. */
-                  autoComplete="username"
+                  /* ⚠ AND `off` ONCE THE HUB HAS FILLED IT. A saved
+                     credential from another site, or a manager restoring the
+                     last login typed on this machine, arrives after paint and
+                     overwrites a value that was already correct -- so the
+                     kiosk would show whatever was signed in with last.
+                     Suggestions are what is switched off; the box is still an
+                     ordinary input and still takes anything typed into it. */
+                  autoComplete={hubLogin === null ? "username" : "off"}
                   autoFocus
                   /* The browser must not normalise what the server matches
                      exactly. And no `uppercase` — see the header. */
@@ -346,6 +402,7 @@ export function LoginView() {
                   PASSWORD
                 </span>
                 <input
+                  ref={passwordRef}
                   type="password"
                   value={password}
                   onChange={(e) => {

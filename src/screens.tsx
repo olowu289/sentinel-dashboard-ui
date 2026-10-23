@@ -51,6 +51,7 @@ import { resetCapabilities } from "@/lib/api/sites";
 import { resetClient } from "@/lib/api/client";
 import { AUDIT_GROUPS, groupOf } from "@/lib/auditSentence";
 import { CameraSettingsPanel } from "@/components/CameraSettingsPanel";
+import { TowersView } from "@/components/TowersView";
 import { DEFAULT_CAMERA_SETTINGS, type CameraFeed, type Tower } from "@/lib/types";
 import type { CloudReading } from "@/lib/api/fleet";
 
@@ -637,6 +638,10 @@ const SCREENS = [
      sector B, a hub on fibre with three sectors and an archive disk. */
   { id: "settings-tower", label: "Tower settings (real data)", mode: "full" },
   { id: "settings-hub", label: "Hub mast settings (real data)", mode: "full" },
+  /* The board, with one mast at each grade plus the two absences and a hub.
+     Its Uplink column and the settings Radio link row read one function, and
+     this is where the two can be compared side by side. */
+  { id: "towers-board", label: "Towers board (uplink)", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -1233,6 +1238,79 @@ const SETTINGS_CLOUD: CloudReading = {
   latencyMs: 42,
 };
 
+/**
+ * The Towers board, with one mast at each grade.
+ *
+ * ⚠ THE FIXTURES ARE THE POINT, so they are the shapes the Uplink column has
+ * to tell apart: a strong mast, a fair one, a weak one, one that is online
+ * and measured nothing, one that is off, and a hub whose way out is named
+ * rather than metered. Lab Tower 1 carries -44 dBm at `health.radio`, which
+ * is the record that used to read "Good" in settings and "No link" here.
+ */
+const BOARD_TOWERS: Tower[] = [
+  {
+    ...SETTINGS_TOWER,
+    id: "kln_lab_000001",
+    site: "LAB TOWER 1",
+    health: {
+      ...SETTINGS_TOWER.health,
+      radio: { associated: true, state: "up", sector: "A", signalDbm: -44, signalFrom: "tower" },
+    },
+  },
+  {
+    ...SETTINGS_TOWER,
+    id: "kln_northgate_000001",
+    site: "NORTH GATE",
+    health: {
+      ...SETTINGS_TOWER.health,
+      radio: { associated: true, state: "up", sector: "B", signalDbm: -70, signalFrom: "tower" },
+    },
+  },
+  {
+    ...SETTINGS_TOWER,
+    id: "kln_southpit_000003",
+    site: "SOUTH PIT",
+    health: {
+      ...SETTINGS_TOWER.health,
+      radio: { associated: true, state: "up", sector: "B", signalDbm: -80, signalFrom: "tower" },
+    },
+  },
+  {
+    /* Online, and nothing measured it: no SNMP community on the site. */
+    ...SETTINGS_TOWER,
+    id: "kln_yard_000004",
+    site: "WEST YARD",
+    health: {
+      ...SETTINGS_TOWER.health,
+      radio: { associated: true, state: "up", sector: "C" },
+    },
+  },
+  {
+    /* Off. The only shape allowed to say "No link". */
+    ...SETTINGS_TOWER,
+    id: "kln_quarry_000005",
+    site: "EAST QUARRY",
+    status: "offline",
+    online: false,
+    connectedAt: undefined,
+  },
+  SETTINGS_HUB,
+];
+
+function BoardScreen() {
+  return (
+    <TowersView
+      towers={BOARD_TOWERS}
+      feeds={SETTINGS_FEEDS}
+      alerts={[]}
+      alertFeed={false}
+      cloud={SETTINGS_CLOUD}
+      onNavigate={() => {}}
+      onOpenTower={() => {}}
+    />
+  );
+}
+
 function SettingsScreen({ which }: { which: string }) {
   const hub = which === "settings-hub";
   /* ⚠ THE HUB MAST'S CAMERA ADVERTISES NO PROFILES, and that is the fixture
@@ -1309,6 +1387,8 @@ function Harness() {
       <PtzYielded />
     ) : which === "ptz-refused" ? (
       <PtzRefused />
+    ) : which === "towers-board" ? (
+      <BoardScreen />
     ) : which.startsWith("settings-") ? (
       <SettingsScreen which={which} />
     ) : which.startsWith("tile-") ? (

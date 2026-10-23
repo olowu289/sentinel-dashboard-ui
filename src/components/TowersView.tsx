@@ -1,11 +1,9 @@
 import { AnimatePresence, motion } from "motion/react";
 import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
-import {
-  sectorReading,
-  uplinkReading,
-  type SectorReading,
-  type UplinkReading,
-} from "@/lib/api/map";
+import { sectorReading, type SectorReading } from "@/lib/api/map";
+import { uplinkDisplay, uplinkHint, type UplinkDisplay } from "@/lib/uplinkDisplay";
+import type { CloudReading } from "@/lib/api/fleet";
+import { UplinkBars } from "@/components/UplinkBars";
 import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
 import { batteryFlow, batteryHint, batteryTone } from "@/lib/battery";
@@ -122,8 +120,8 @@ interface Cell {
  * app contains an em-dash; this one is not punctuation in a sentence but a
  * placeholder glyph in a 96px column, and the column needs something to hold
  * its baseline. The narrower mark is the one that is unambiguously a symbol
- * rather than prose, and it sits beside `signed`'s real minus for the same
- * reason: on a board of figures, which dash you draw is a statement.
+ * rather than prose: on a board of figures, which dash you draw is a
+ * statement.
  */
 const EMPTY = "–";
 
@@ -172,8 +170,6 @@ const OFFLINE: Cell = {
   hint: "This tower is offline, so its last reading is not shown as current.",
 };
 
-/* A real minus, not a hyphen. It is a signed quantity in a column of them. */
-const signed = (n: number) => (n < 0 ? `−${Math.abs(n)}` : `${n}`);
 
 /* A camera the tower confirms is up. `delayed` and `frozen` are degraded
    pictures but still pictures; `connecting` and a never-reported camera are
@@ -206,40 +202,29 @@ function camerasCell(feeds: CameraFeed[]): Cell {
   };
 }
 
-const GRADE_WORD = { great: "Great", fair: "Fair", poor: "Poor" } as const;
-
-function uplinkCell(online: boolean, reading: UplinkReading): Cell {
-  if (!online) return OFFLINE;
-  switch (reading.kind) {
-    case "signal":
-      return {
-        /* The BARS carry the grade now, so the figure carries what they
-           cannot: the measurement itself. "Great · −56" said the same thing
-           twice in a column 96px wide. */
-        value: `${signed(reading.dbm)} dBm`,
-        tone:
-          reading.grade === "poor"
-            ? "text-critical"
-            : reading.grade === "fair"
-              ? "text-warn"
-              : "text-terra",
-        hint: `${GRADE_WORD[reading.grade]} signal.`,
-      };
-    case "wired":
-      return { value: "Wired", hint: "Wired, so there is no signal to grade." };
-    case "unassociated":
-      return {
-        value: "No link",
-        tone: "text-warn",
-        hint: "The radio is up but not joined to any network.",
-      };
-    default:
-      return {
-        value: EMPTY,
-        empty: true,
-        hint: "No signal reading.",
-      };
-  }
+/**
+ * The Uplink cell: the word, and the colour the bars take beside it.
+ *
+ * ⚠ IT READS `health.radio` NOW, WHICH IS WHAT SETTINGS ALWAYS READ. It used
+ * to read `health.uplink` through `uplinkReading`, a different block about a
+ * different thing, and the two screens said different words about one mast:
+ * -44 dBm graded "Good" in settings and "No link" in amber here, on a tower
+ * this same row described as up for eighteen minutes. `uplinkDisplay` is the
+ * one answer both now draw.
+ *
+ * The cell keeps no colour of its own and no thresholds of its own. Both come
+ * off the display, so the figure and the meter cross every threshold at the
+ * same instant.
+ */
+function uplinkCell(tower: Tower, display: UplinkDisplay): Cell {
+  return {
+    value: display.word,
+    ...(display.tone ? { tone: display.tone } : {}),
+    /* A dash is the empty reading, and `empty` is what dims it. "No link" and
+       "Not connected" are readings in their own right and keep their red. */
+    ...(display.kind === "none" && !display.tone ? { empty: true } : {}),
+    hint: uplinkHint(display, tower),
+  };
 }
 
 /**
@@ -540,7 +525,7 @@ const GRID = "grid grid-cols-[minmax(232px,1.7fr)_repeat(10,minmax(96px,1fr))_12
 interface Assessed {
   tower: Tower;
   cells: Record<ColumnId, Cell>;
-  uplink: UplinkReading;
+  uplink: UplinkDisplay;
   sector: SectorReading;
   rank: number;
   order: number;
@@ -553,15 +538,16 @@ function assess(
   alerts: Alert[],
   alertFeed: boolean,
   now: number,
+  cloud: CloudReading | undefined,
 ): Assessed {
   /* Cells the tower itself reports go dark with it — see the header. A
      pending cell keeps its own reason: it was never a reading to go stale. */
   const current = (c: Cell): Cell => (tower.online || c.pending ? c : OFFLINE);
-  const uplink = uplinkReading(tower.health?.uplink);
+  const uplink = uplinkDisplay(tower, cloud);
   const sector = sectorReading(tower.health?.radio);
   const cells: Record<ColumnId, Cell> = {
     cameras: camerasCell(feeds),
-    uplink: uplinkCell(tower.online, uplink),
+    uplink: uplinkCell(tower, uplink),
     sector: sectorCell(tower.online, sector),
     connected: connectedCell(tower, now),
     door: current(doorCell(tower)),
@@ -583,46 +569,6 @@ function assess(
             ? 3
             : 4;
   return { tower, cells, uplink, sector, rank, order };
-}
-
-/**
- * Three bars from the REAL dBm, in the grade's colour.
- *
- * Lit by the same grades the Uplink cell prints, so the drawing and the figure
- * cannot disagree. No reading lights nothing: three empty bars say "not
- * measured" as plainly as a dash. A wired tower draws a full, quiet set — there
- * is no radio to grade, and an empty meter would read as a bad one.
- */
-function SignalBars({ online, reading }: { online: boolean; reading: UplinkReading }) {
-  const lit =
-    online && reading.kind === "signal"
-      ? reading.grade === "great"
-        ? 3
-        : reading.grade === "fair"
-          ? 2
-          : 1
-      : online && reading.kind === "wired"
-        ? 3
-        : 0;
-  const tone =
-    reading.kind === "signal"
-      ? reading.grade === "great"
-        ? "bg-terra"
-        : reading.grade === "fair"
-          ? "bg-warn"
-          : "bg-critical"
-      : "bg-overlay/45";
-  return (
-    <span data-bars={lit} aria-hidden className="flex h-[12px] shrink-0 items-end gap-[1.5px]">
-      {[5, 8.5, 12].map((h, i) => (
-        <span
-          key={h}
-          style={{ height: h }}
-          className={`w-[3px] rounded-[1px] ${i < lit ? tone : "bg-overlay/15"}`}
-        />
-      ))}
-    </span>
-  );
 }
 
 /**
@@ -680,7 +626,7 @@ function CellView({ id, cell, row }: { id: ColumnId; cell: Cell; row: Assessed }
     >
       <span className={`flex shrink-0 items-center ${glyphTone} ${alarm ? "pulse-dot" : ""}`}>
         {id === "uplink" ? (
-          <SignalBars online={row.tower.online} reading={row.uplink} />
+          <UplinkBars display={row.uplink} />
         ) : id === "storage" ? (
           /* An EMPTY tank when there is nothing to fill it with, exactly as the
              signal bars sit unlit on a tower that measured no radio: the
@@ -934,6 +880,7 @@ export function TowersView({
   feeds,
   alerts,
   alertFeed,
+  cloud,
   seeded = false,
   loading = false,
   problem = null,
@@ -943,6 +890,14 @@ export function TowersView({
   towers: Tower[];
   feeds: CameraFeed[];
   alerts: Alert[];
+  /**
+   * The site's link to Kallon Cloud, for the hub rows' Uplink cell.
+   *
+   * ⚠ ONE FACT ABOUT THE SERVER, not about a tower, which is why it arrives
+   * as a prop rather than off a record -- the same reason the settings panel
+   * takes it as one. A mast's cell never reads it.
+   */
+  cloud?: CloudReading;
   /** Whether alerts come from a real source. Seed data does; a live fleet has
    *  no alert feed yet, and a count of zero there would claim a quiet site. */
   alertFeed: boolean;
@@ -972,7 +927,15 @@ export function TowersView({
 
   const rows = towers
     .map((t, i) =>
-      assess(t, i, feedsForTower(feeds, t.id), alertsForTower(alerts, t.id), alertFeed, now),
+      assess(
+        t,
+        i,
+        feedsForTower(feeds, t.id),
+        alertsForTower(alerts, t.id),
+        alertFeed,
+        now,
+        cloud,
+      ),
     )
     .sort((a, b) => a.rank - b.rank || a.order - b.order);
 

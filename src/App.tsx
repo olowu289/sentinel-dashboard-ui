@@ -1819,6 +1819,9 @@ export function SentinelApp() {
           towers={towers}
           feeds={feeds}
           alerts={alerts}
+          /* For the hub rows' Uplink cell, which names the site's way out.
+             The same reading the settings panel's Internet row takes. */
+          cloud={cloud}
           /* There IS an alert list now, on every fleet — see the note on
              `alerts`. Saying "no alert feed yet" here while the Alerts screen
              is full of them would be the board contradicting the screen next

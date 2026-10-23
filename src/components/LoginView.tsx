@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { loadSiteConfig } from "@/lib/siteConfig";
+import { isHubRole } from "@/lib/hubMode";
 import { useSession } from "@/components/AuthProvider";
 import { ENTER, FADE } from "@/lib/motion";
 import {
@@ -134,6 +135,16 @@ export function LoginView() {
    */
   const [hubLogin, setHubLogin] = useState<string | null>(null);
   /**
+   * Is this a hub at all, whether or not it knows its customer?
+   *
+   * ⚠ SEPARATE FROM `hubLogin`, AND IT HAS TO BE. A hub that has not been
+   * told its customer sends no `organization`, so `hubLogin` stays null there
+   * -- but it is still a hub, and the hint below still does not apply to it.
+   * Tying the two together would leave the one screen that most needs the
+   * explanation removed showing it.
+   */
+  const [hubMode, setHubMode] = useState(false);
+  /**
    * Has anybody touched the login box?
    *
    * ⚠ THE PROBE IS ASYNCHRONOUS AND A PERSON IS NOT. `/healthz` can land a
@@ -188,7 +199,12 @@ export function LoginView() {
   useEffect(() => {
     let alive = true;
     void loadSiteConfig().then((config) => {
-      if (!alive || config.hubLogin === null) return;
+      if (!alive) return;
+      /* ⚠ BEFORE THE RETURN BELOW. What kind of box this is does not depend
+         on whether it sent a login, and a hub that sent none still gets the
+         hub's screen. */
+      setHubMode(isHubRole(config.role));
+      if (config.hubLogin === null) return;
       if (touchedLogin.current) return;
       setHubLogin(config.hubLogin);
       setOrganizationName(config.hubLogin);
@@ -389,12 +405,23 @@ export function LoginView() {
                     rejected ? "ring-1 ring-critical" : ""
                   }`}
                 />
-                <span className="text-[0.75rem] leading-[16px] text-muted">
-                  Your name and your organization, like
-                  <span className="font-mono"> dave.terra-industries</span>.
-                  An organization signs in with its own name, matched
-                  exactly, including spaces and capitals.
-                </span>
+                {/* ⚠ NOT ON A HUB, FILLED OR NOT. The line explains that a
+                    login is a PERSON within an ORGANIZATION, which is true of
+                    Kallon Cloud and is the thing somebody arriving there has
+                    to be told. A hub has only its organization's login, so on
+                    a kiosk this is three lines teaching a format nobody can
+                    use -- under a box that, more often than not, is already
+                    filled in with the only right answer. Terra staff signing
+                    in on a customer's hub with their own login know what
+                    their login is. */}
+                {hubMode ? null : (
+                  <span className="text-[0.75rem] leading-[16px] text-muted">
+                    Your name and your organization, like
+                    <span className="font-mono"> dave.terra-industries</span>.
+                    An organization signs in with its own name, matched
+                    exactly, including spaces and capitals.
+                  </span>
+                )}
               </label>
 
               <label className="flex flex-col gap-[8px]">

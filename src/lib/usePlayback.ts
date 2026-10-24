@@ -10,6 +10,12 @@ import {
   type PlaybackHandle,
 } from "@/lib/api/media";
 import { CAMERAS_PER_TOWER } from "@/lib/types";
+import {
+  accessEnded,
+  logInterruption,
+  reconnectDelay,
+  type Reach,
+} from "@/lib/liveRecovery";
 
 /**
  * Live WebRTC sessions for every camera this browser is holding, across every
@@ -120,17 +126,21 @@ import { CAMERAS_PER_TOWER } from "@/lib/types";
  * Growing rather than fixed, because the failures that resolve resolve quickly
  * and the ones that do not should not be asked every two seconds forever.
  */
-export const RECONNECT_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 10_000];
+/* THE SCHEDULE MOVED, with the reasoning, to `lib/liveRecovery.ts` -- beside
+   the decision about WHETHER to retry at all, which is the thing it has to
+   stay in step with. Re-exported because callers and tests already name them
+   here. */
+export { RECONNECT_DELAYS_MS, RECONNECT_MAX_DELAY_MS } from "@/lib/liveRecovery";
 
 /**
- * The longest a visible tile waits between attempts.
+ * How long before a session's deadline to open its replacement.
  *
- * Derived rather than written twice: the schedule's last step IS the ceiling,
- * because `backOff` clamps its index to the end of the array and therefore
- * repeats it forever.
+ * Long enough to negotiate one on a slow radio link and still have the old one
+ * playing while it happens -- which is the whole of make-before-break. Short
+ * enough that a server which renews normally (coordination advances
+ * `expires_at` itself) has always done so first, and this never runs.
  */
-export const RECONNECT_MAX_DELAY_MS =
-  RECONNECT_DELAYS_MS[RECONNECT_DELAYS_MS.length - 1];
+export const RENEW_BEFORE_MS = 60_000;
 
 /**
  * How long `disconnected` is given to sort itself out before it counts.
@@ -195,9 +205,17 @@ export const IDLE_CLOSE_MS = 60_000;
  * media never arrived, negotiation failed, the tower did not answer — and every
  * one of those can be different a second later, especially on a phone.
  */
+/**
+ * ⚠ `session_expired` LEFT THIS SET, AND THAT IS THE BUG EVERYBODY SAW.
+ * It is produced for `grant_expired` and `session_unknown`, and coordination
+ * answers `session_unknown` for any session it no longer holds -- a withdrawn
+ * share, a restarted server, an ordinary lapse, one code for all three. As a
+ * terminal failure it put "Access to this camera ended" on healthy cameras
+ * about fifteen minutes in. It is a reconnect now, and the only thing that
+ * ends a view is a reason `liveRecovery.accessEnded` recognises.
+ */
 const TERMINAL: ReadonlySet<PlaybackFailure> = new Set<PlaybackFailure>([
   "not_permitted",
-  "session_expired",
 ]);
 
 /**
@@ -236,6 +254,16 @@ export type PlaybackPhase =
    * the difference between "give it a second" and "this is not coming back" is
    * exactly what an operator is trying to judge while they wait.
    */
+  /**
+   * The site is reported down, so nothing is being asked of it.
+   *
+   * ⚠ NOT A FAILURE AND NOT A RECONNECT. There is no request that could
+   * succeed while the box is off, so none is made: the tile keeps its last
+   * picture, names the box, and waits to be told it is back. It resumes by
+   * itself -- nobody has to press anything -- which is the difference between
+   * this and `failed`.
+   */
+  | { kind: "offline"; which: "tower-offline" | "hub-offline" }
   /** `attempt` counts up and does NOT run out: a visible tab keeps trying.
    *  There is deliberately no `of` -- a total would be a number we do not have,
    *  and "attempt 3 of 5" was exactly the fabricated reassurance this grammar
@@ -293,6 +321,19 @@ export interface SessionDemand {
   eligible: ReadonlySet<string>;
   /** The tower the operator has open, or null. Opening a DIFFERENT one is leaving. */
   focusTower: string | null;
+  /**
+   * Is anything between this tower and a picture, right now?
+   *
+   * ⚠ IT IS A QUESTION, NOT A LIST, because the answer changes while a tile
+   * is waiting on it and the player has to be able to re-ask. The screen
+   * already knows: it is drawing the tower's own `online` and the hub's. A
+   * tile told "tower-offline" stops asking for grants entirely and comes back
+   * by itself when this answers null again.
+   *
+   * Absent means "nothing known is in the way", which is what every screen
+   * that does not show live video should pass.
+   */
+  reach?: (towerId: string) => Reach;
 }
 
 /** A session's address, and the pool's key. One session per camera. */
@@ -317,6 +358,8 @@ interface Entry {
   handle: PlaybackHandle | null;
   disposed: boolean;
   timers: ReturnType<typeof setTimeout>[];
+  /** A make-before-break replacement is in flight; only ever one at a time. */
+  renewing?: boolean;
   /** Reconnects spent since this feed last delivered media. Reset on success. */
   retries: number;
   /** Whether media ever arrived, which separates "cannot reach" from "lost". */
@@ -401,7 +444,14 @@ function releaseForRetry(entry: Entry, handles: Map<string, PlaybackHandle>) {
   if (held) void held.close();
 }
 
-export function usePlayback({ attached, eligible, focusTower }: SessionDemand): Playback {
+export function usePlayback({ attached, eligible, focusTower, reach }: SessionDemand): Playback {
+  /* ⚠ A REF, READ AT THE MOMENT OF THE DECISION. `backOff` runs from a timer
+     and from a peer event minutes after the render that created it, and a
+     captured copy would answer with the fleet as it stood when the tile was
+     opened -- which is exactly the stale answer that would keep a tile
+     hammering a tower that went down since. */
+  const reachRef = useRef<(towerId: string) => Reach>(() => null);
+  reachRef.current = reach ?? (() => null);
   const [phases, setPhases] = useState<Record<string, PlaybackPhase>>({});
   /* Read by the visibility listener, which is registered once and would
      otherwise close over the phases of the render that mounted it. */
@@ -461,6 +511,16 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
       .join(","),
     [...eligible].sort().join(","),
     focusTower ?? "",
+    /* ⚠ REACHABILITY IS PART OF THE TRIGGER, which is how a tile RESUMES BY
+       ITSELF. A tile parked on "Tower offline" has no timer of its own on
+       purpose -- it is not retrying, so there is nothing to fire. What brings
+       it back is this string changing when the fleet reports the box up,
+       which re-runs the effect and reconnects it. Without it the tile would
+       wait for a click, which is the behaviour this whole change removes. */
+    [...selected.values()]
+      .map((t) => `${t.towerId}=${reachRef.current(t.towerId) ?? ""}`)
+      .sort()
+      .join(","),
   ].join("|");
 
   /* Close one session and forget it. Everything that can outlive a peer is
@@ -541,13 +601,43 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
           dispose(entry);
           return;
         }
+        /* ⚠ RETRY ONLY WHEN IT COULD WORK. The page is already drawing this
+           tower's and this hub's state; a box that is reported down has no
+           request that could succeed, so the tile makes none. It keeps its
+           last picture, says which box is off, and waits -- and the effect
+           that watches reachability reconnects it the moment the fleet
+           reports the box back. Before this, a site that went dark for an
+           hour was asked for a grant every ten seconds by every tile it had,
+           which is this client quietly attacking its own control plane. */
+        const blocked = reachRef.current(entry.target.towerId);
+        if (blocked) {
+          logInterruption({
+            camera: entry.camera,
+            event: why.failure,
+            reason: why.reason,
+            action: "waiting",
+          });
+          releaseForRetry(entry, openHandles.current);
+          set({ kind: "offline", which: blocked });
+          return;
+        }
         /* ⚠ ONLY AN ANSWER IS TERMINAL NOW. A refusal (`not_permitted`) is
            somebody telling us no, and asking again will not change it. A
            TIMEOUT is not an answer, and it used to become one after five
            attempts -- which turned "we cannot reach it yet" into "it is not
            coming back" on no new information at all. Retrying is the honest
            reading of silence, so the count is gone from this condition. */
-        if (TERMINAL.has(why.failure)) {
+        /* ⚠ THE SERVER'S REASON OVERRULES THE CLASSIFICATION, both ways.
+           `not_permitted` is produced for a bare 403 as well as for a named
+           refusal, and a 403 with no reason we know is not grounds to tell
+           somebody their access ended. */
+        if (TERMINAL.has(why.failure) && accessEnded(why.reason)) {
+          logInterruption({
+            camera: entry.camera,
+            event: why.failure,
+            reason: why.reason,
+            action: "ended",
+          });
           releaseForRetry(entry, openHandles.current);
           set({ kind: "failed", error: why });
           return;
@@ -578,10 +668,17 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
            tower's finite slots for the same tile. */
         releaseForRetry(entry, openHandles.current);
 
-        const base = RECONNECT_DELAYS_MS[Math.min(attempt - 1, RECONNECT_DELAYS_MS.length - 1)];
-        /* Jittered so a tower that drops four tiles at once does not get four
-           reconnects landing on the same millisecond, four times over. */
-        const wait = Math.round(base * (0.8 + Math.random() * 0.4));
+        /* The schedule and its jitter live in `lib/liveRecovery.ts`, with the
+           reason the ceiling is what bounds this rather than a count. */
+        const wait = reconnectDelay(attempt);
+        logInterruption({
+          camera: entry.camera,
+          event: why.failure,
+          reason: why.reason,
+          action: "retry",
+          attempt,
+          waitMs: wait,
+        });
         entry.pending = setTimeout(() => {
           entry.pending = null;
           /* Detached while it waited: same rule as above. */
@@ -592,6 +689,18 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
           connectRef.current(entry);
         }, wait);
       };
+
+      /* ⚠ NOT ONE REQUEST AT A DARK SITE, INCLUDING THE FIRST. The gate in
+         `backOff` covers a tile that was playing; this covers one that is
+         being opened while the box is already down -- a wall drawn fresh on a
+         site whose hub is off would otherwise open eight sessions at a
+         machine that cannot answer, and then retry all eight. The effect
+         re-runs when the fleet reports it back, and the tile connects then. */
+      const blockedNow = reachRef.current(entry.target.towerId);
+      if (blockedNow) {
+        set({ kind: "offline", which: blockedNow });
+        return;
+      }
 
       /* `connecting` is a feed that has never played; `reconnecting` is one the
          operator was watching and expects back. Coming off a background is the
@@ -689,6 +798,89 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
             set({ kind: "failed", error: new PlaybackError("session_expired", message) });
           };
 
+          /**
+           * Open a replacement session and swap the picture to it.
+           *
+           * ══════════════════════════════════════════════════════════════
+           *  MAKE BEFORE BREAK
+           * ══════════════════════════════════════════════════════════════
+           *
+           * ⚠ THE OLD SESSION IS CLOSED LAST, AND ONLY ONCE MEDIA IS
+           * FLOWING ON THE NEW ONE. A tile that tore down and reconnected
+           * showed a black rectangle for the length of a negotiation, every
+           * fifteen minutes, on a screen whose whole job is that there is
+           * always a picture. Here the phase moves straight from one playing
+           * stream to the next: the `<video>` element is never unmounted, its
+           * `srcObject` is replaced, and nobody watching sees anything.
+           *
+           * It is deliberately NOT a reconnect. `backOff` gives the grant
+           * back BEFORE asking for another, which is right when the thing in
+           * hand is broken and wrong when it is still playing.
+           *
+           * A failure here is an ordinary interruption: the current session
+           * is still running and still has until its deadline, so a refused
+           * replacement simply tries again on the next poll, and the deadline
+           * watcher below is the backstop if it never succeeds.
+           */
+          const renew = async () => {
+            if (entry.disposed || entry.renewing) return;
+            entry.renewing = true;
+            try {
+              const fresh = await openPlayback(
+                {
+                  towerId: entry.target.towerId,
+                  index: entry.target.index,
+                  ...(entry.openedWith !== undefined ? { profile: entry.openedWith } : {}),
+                },
+                {
+                  onStream: (stream) => {
+                    if (entry.disposed) return;
+                    /* THE SWAP. Same tile, same element, new stream. */
+                    set({ kind: "playing", stream });
+                  },
+                  /* The replacement's own troubles are not the current
+                     session's. It is dropped and the one in hand plays on. */
+                  onFailure: () => {},
+                  onDropped: () => {},
+                },
+                entry.controller.signal,
+              );
+              if (entry.disposed) {
+                await fresh.close();
+                return;
+              }
+              const previous = opened;
+              entry.handle = fresh;
+              openHandles.current.set(id, fresh);
+              deadline = Date.parse(fresh.session.expires_at);
+              logInterruption({
+                camera: entry.camera,
+                event: "renewed",
+                reason: null,
+                action: "recovered",
+              });
+              /* LAST. Closing it before the swap is the break this exists to
+                 remove; closing it after costs one overlapping session for
+                 the length of a negotiation. */
+              await previous.close();
+            } catch (err) {
+              if (entry.disposed) return;
+              const why = err instanceof PlaybackError ? err : null;
+              logInterruption({
+                camera: entry.camera,
+                event: "renewal-failed",
+                reason: why?.reason ?? null,
+                action: accessEnded(why?.reason) ? "ended" : "retry",
+              });
+              /* A refusal that is genuinely about access ends it. Anything
+                 else leaves the session in hand playing; the next poll tries
+                 again, and the deadline watcher is the backstop. */
+              if (accessEnded(why?.reason)) end("Access to this camera ended");
+            } finally {
+              entry.renewing = false;
+            }
+          };
+
           const poll = async () => {
             if (entry.disposed) return;
             try {
@@ -697,17 +889,61 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
                 entry.controller.signal,
               );
               if (entry.disposed) return;
-              if (status === null) {
-                /* DEFINITIVE: coordination no longer holds this session.
-                   Renewal was refused, or it lapsed. Never blame the network
-                   for an access ending. */
-                end("Access to this camera ended");
+              if (status.kind === "refused") {
+                /* ⚠ THE SERVER SAID NO, AND ONLY IT MAY SAY WHAT THAT MEANS.
+                   This used to end the view for every refusal, and the refusal
+                   it mostly met was a 404 that means "gone or not yours" --
+                   one code covering a withdrawn share, a restarted server and
+                   an ordinary lapse. So healthy cameras printed "Access to
+                   this camera ended" a quarter of an hour in.
+
+                   `verdictFor` decides, and it only says ended for a reason
+                   that is about a PERSON. Everything else reopens, which is
+                   also the honest answer to a lapse: a new session is exactly
+                   what is wanted, and if access really did end the next
+                   request is refused with a reason that says so. */
+                logInterruption({
+                  camera: entry.camera,
+                  event: "renewal-refused",
+                  reason: status.reason,
+                  action: accessEnded(status.reason) ? "ended" : "retry",
+                });
+                if (accessEnded(status.reason)) {
+                  end("Access to this camera ended");
+                } else {
+                  backOff(
+                    new PlaybackError(
+                      "session_expired",
+                      "The live view ended",
+                      status.reason,
+                    ),
+                  );
+                }
+                return;
+              }
+              if (status.kind === "unreachable") {
+                /* NOT an authorization answer. Keep playing on the expiry we
+                   know; the real deadline below is still the backstop. */
+                misses += 1;
+                if (!entry.disposed) {
+                  entry.timers.push(setTimeout(() => void poll(), STATUS_POLL_MS));
+                }
                 return;
               }
               misses = 0;
               const next = Date.parse(status.expiresAt);
               // Only ever move the deadline the way the SERVER moved it.
               if (Number.isFinite(next)) deadline = next;
+              /* ── MAKE BEFORE BREAK ──────────────────────────────────
+                 The server advances `expires_at` by renewing, and the viewer
+                 only ever reads it. When it has NOT advanced and the deadline
+                 is close, this opens a replacement BEFORE the current one
+                 lapses and swaps the picture over when media arrives, so the
+                 tile never shows the gap. `renew` returns without doing
+                 anything when there is still time. */
+              if (Number.isFinite(deadline) && deadline - Date.now() <= RENEW_BEFORE_MS) {
+                void renew();
+              }
               /* Apply the freshly-minted ICE credentials coordination re-issues
                  each poll, so a relayed (TURN) session's creds never reach their
                  expiry mid-view. Best-effort and non-negotiating: setConfiguration
@@ -723,9 +959,9 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
               }
             } catch {
               if (entry.disposed) return;
-              /* NOT an authorization answer. Keep playing on the expiry we
-                 know and try again — a working feed must not die because one
-                 request failed. The real deadline below is still the backstop. */
+              /* Thrown rather than answered -- aborted, or a shape nothing
+                 could read. Same rule: a working feed must not die because one
+                 request failed. */
               misses += 1;
             }
             if (!entry.disposed) {
@@ -738,10 +974,27 @@ export function usePlayback({ attached, eligible, focusTower }: SessionDemand): 
           const watchExpiry = () => {
             if (entry.disposed) return;
             if (Number.isFinite(deadline) && Date.now() >= deadline) {
-              end(
-                misses >= STATUS_POLL_TOLERANCE
-                  ? "The live view ended and couldn't be restarted"
-                  : "The live view ended",
+              /* ⚠ A DEADLINE PASSING IS NOT THE SERVER SAYING ACCESS ENDED,
+                 and it used to be shown as if it were. It means the grant was
+                 not renewed in time -- which is what happens when the polls
+                 could not get through, or when the replacement above has not
+                 landed yet -- and the honest move is the one an operator would
+                 make: open it again. If access really has gone, that attempt
+                 is refused with a reason that says so and the tile ends then,
+                 on the server's word rather than on a clock. */
+              logInterruption({
+                camera: entry.camera,
+                event: "grant-lapsed",
+                reason: null,
+                action: "retry",
+              });
+              backOff(
+                new PlaybackError(
+                  "session_expired",
+                  misses >= STATUS_POLL_TOLERANCE
+                    ? "The live view ended and couldn't be restarted"
+                    : "The live view ended",
+                ),
               );
               return;
             }

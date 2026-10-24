@@ -30,6 +30,7 @@ import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
 import { useCapabilities } from "@/lib/useSites";
 import { hasSites, isHubMode } from "@/lib/hubMode";
+import type { Reach } from "@/lib/liveRecovery";
 import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
@@ -652,6 +653,38 @@ export function SentinelApp() {
           .map((f) => cameraKey(f.towerId, f.index!)),
   );
 
+  /**
+   * Is anything between a camera and a picture right now?
+   *
+   * ⚠ READ OFF THE FLEET THIS PAGE IS ALREADY DRAWING, which is the point:
+   * the player makes no requests at a box the board is showing as down, so a
+   * site that goes dark for an hour costs nothing instead of a grant every
+   * few seconds from every tile it had.
+   *
+   * ⚠ ONE HUB IS ATTRIBUTED, SEVERAL ARE NOT, and that is a limit of the
+   * record rather than a choice. `Tower` carries no hub id -- a mast does not
+   * know which hub it is on, and the fleet reply does not say -- so with a
+   * single hub in view its being down is necessarily the reason its masts are
+   * unreachable, and with two there is no way to tell whose mast is whose.
+   * The masts still say "Tower offline" then, which is true and is what the
+   * fleet reports; only the attribution to the hub is lost. A `hub_id` on the
+   * tower projection would close it.
+   */
+  const reachOf = useCallback(
+    (towerId: string): Reach => {
+      const device = towers.find((t) => t.id === towerId);
+      if (!device) return null;
+      /* A hub's OWN mast. Its being down is the hub being down. */
+      if (device.kind === "hub") return device.online === false ? "hub-offline" : null;
+      if (device.online !== false) return null;
+      const hubs = towers.filter((t) => t.kind === "hub");
+      /* The single-hub site: its state explains every mast on it. */
+      if (hubs.length === 1 && hubs[0].online === false) return "hub-offline";
+      return "tower-offline";
+    },
+    [towers],
+  );
+
   const {
     phases: playback,
     retry: retryPlayback,
@@ -661,6 +694,7 @@ export function SentinelApp() {
     attached: attachedTargets,
     eligible: eligibleCameras,
     focusTower: open?.id ?? null,
+    reach: reachOf,
   });
 
   /* What each camera is ACTUALLY streaming, wherever a session is held — a

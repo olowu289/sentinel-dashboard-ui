@@ -119,10 +119,22 @@ export type PlaybackFailure =
 
 export class PlaybackError extends Error {
   readonly failure: PlaybackFailure;
-  constructor(failure: PlaybackFailure, message: string) {
+  /**
+   * The server's own error code, verbatim, where there was one.
+   *
+   * ⚠ KEPT RATHER THAN COLLAPSED, because `failure` is this app's reading and
+   * the reason is the server's statement, and only the second one may decide
+   * that somebody's access has ended. `classify` below maps many codes onto
+   * one `failure` on purpose -- an operator's move is the same for three
+   * pieces of a video chain -- and that is exactly why the original has to
+   * survive the mapping. `lib/liveRecovery.ts` is what reads it.
+   */
+  readonly reason: string | null;
+  constructor(failure: PlaybackFailure, message: string, reason: string | null = null) {
     super(message);
     this.name = "PlaybackError";
     this.failure = failure;
+    this.reason = reason;
   }
 }
 
@@ -172,24 +184,31 @@ export interface PlaybackHandlers {
 function classify(err: unknown): PlaybackError {
   const code = (err as { code?: unknown })?.code;
   const status = (err as { status?: unknown })?.status;
+  /* Carried onto every branch below. See `PlaybackError.reason`. */
+  const reason = typeof code === "string" ? code : null;
 
   if (code === "grant_permission" || code === "not_authorized" || status === 403) {
-    return new PlaybackError("not_permitted", "You don't have access to this camera");
+    return new PlaybackError("not_permitted", "You don't have access to this camera", reason);
   }
   if (code === "tower_offline" || status === 503) {
-    return new PlaybackError("tower_offline", "The tower is not connected");
+    return new PlaybackError("tower_offline", "The tower is not connected", reason);
   }
   if (code === "tower_timeout" || status === 504) {
-    return new PlaybackError("tower_timeout", "The tower did not answer");
+    return new PlaybackError("tower_timeout", "The tower did not answer", reason);
   }
   if (code === "camera_offline" || code === "mediamtx_unavailable" || code === "whep_failed") {
     /* Three different pieces of the video chain, and the operator's move is the
        same for all three. Naming which one broke told them about software they
        have never heard of; the code is still in the console line below. */
-    return new PlaybackError("camera_unavailable", "This camera isn't available right now");
+    return new PlaybackError("camera_unavailable", "This camera isn't available right now", reason);
   }
   if (code === "grant_expired" || code === "session_unknown") {
-    return new PlaybackError("session_expired", "The live view ended");
+    /* ⚠ NOT A VERDICT, AND THAT IS THE CHANGE. Both of these mean the server
+       no longer holds the session -- which covers a withdrawn share, a server
+       that restarted, and an ordinary lapse, with one code for all three. The
+       reason rides along and `liveRecovery.verdictFor` decides; neither of
+       these is in the ended set, so both reopen. */
+    return new PlaybackError("session_expired", "The live view ended", reason);
   }
   /* ⚠ THIS USED TO PUT `err.message` ON THE TILE, which meant whatever the SDK
      or the browser happened to say — "Failed to fetch", a bare status line, a
@@ -197,7 +216,7 @@ function classify(err: unknown): PlaybackError {
      unrecognised case gets one honest sentence; the error keeps its detail
      here, where it is read by somebody who can use it. */
   console.debug("[media] unclassified playback failure:", { code, status, err });
-  return new PlaybackError("unreachable", "Couldn't connect to this camera");
+  return new PlaybackError("unreachable", "Couldn't connect to this camera", reason);
 }
 
 /**
@@ -527,13 +546,47 @@ export async function openPlayback(
  * Throws on anything else — a network blip is NOT evidence a session is over
  * and must never tear down a working feed.
  */
+/**
+ * What a poll of the live session found.
+ *
+ * ⚠ THREE ANSWERS, NOT TWO, AND THE THIRD IS THE WHOLE FIX. This used to
+ * return `null` for every non-active answer and the player printed "Access to
+ * this camera ended" for it. `session_status` answers 404 for "gone or not
+ * yours" -- one code covering a withdrawn share, a restarted server and an
+ * ordinary lapse -- so that sentence appeared on healthy cameras about fifteen
+ * minutes in. A refusal now arrives WITH ITS REASON and the caller asks
+ * `liveRecovery.verdictFor` what it means.
+ */
+export type SessionPoll =
+  | { kind: "active"; expiresAt: string; iceServers: RTCIceServer[] }
+  /** The server answered, and said no. `reason` is its own code, or null. */
+  | { kind: "refused"; reason: string | null }
+  /** Nothing answered. Not an authorization answer and never read as one. */
+  | { kind: "unreachable" };
+
 export async function readSessionExpiry(
   session: ViewerSession,
   signal?: AbortSignal,
-): Promise<{ expiresAt: string; iceServers: RTCIceServer[] } | null> {
-  const status = await getClient().getSessionStatus(session, signal ? { signal } : {});
-  if (status.status !== "active") return null;
+): Promise<SessionPoll> {
+  let status;
+  try {
+    status = await getClient().getSessionStatus(session, signal ? { signal } : {});
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    const http = (err as { status?: unknown })?.status;
+    /* A 404 or a 403 IS an answer -- the server was reached and said no. A
+       timeout, a dropped connection or a parse failure is not, and must never
+       be allowed to end a view. */
+    if (http === 404 || http === 403 || typeof code === "string") {
+      return { kind: "refused", reason: typeof code === "string" ? code : null };
+    }
+    return { kind: "unreachable" };
+  }
+  if (status.status !== "active") {
+    return { kind: "refused", reason: status.status ?? null };
+  }
   return {
+    kind: "active",
     expiresAt: status.expires_at,
     // Fresh TURN/STUN creds re-minted by coordination each poll; may be absent on
     // direct-only deployments. The caller applies them so a relayed session's

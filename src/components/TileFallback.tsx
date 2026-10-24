@@ -256,6 +256,34 @@ export function ReconnectingFallback({ onRetry }: { onRetry?: () => void }) {
   );
 }
 
+/**
+ * The box this camera hangs off is reported down.
+ *
+ * ⚠ NO SPINNER, BECAUSE NOTHING IS HAPPENING. A spinner is a promise that
+ * something is in flight, and while the tower is off this tile is deliberately
+ * making no requests at all -- there is none that could succeed. It says which
+ * box, keeps the last picture behind it, and waits. It comes back on its own
+ * when the fleet reports the box up; there is nothing to press and nothing to
+ * wait out, which is why there is no button either.
+ *
+ * ⚠ AND IT NAMES THE RIGHT BOX. A hub that is down takes its masts' video
+ * with it whatever those masts last said about themselves, so "Hub offline"
+ * has to win -- sending somebody to a mast that is fine, in the dark, is the
+ * failure this wording exists to avoid.
+ */
+export function SiteOfflineFallback({ which }: { which: "tower-offline" | "hub-offline" }) {
+  return (
+    <div className="flex flex-col items-center gap-[6px] px-[16px] text-center">
+      <p className="text-[0.8125rem] font-medium text-body-ink/75">
+        {which === "hub-offline" ? "Hub offline" : "Tower offline"}
+      </p>
+      <p className="max-w-[240px] text-[0.75rem] leading-[16px] text-body-ink/35">
+        The picture returns on its own when it is back.
+      </p>
+    </div>
+  );
+}
+
 export function NotStreamingFallback({
   reason = "capped",
   onOpen,

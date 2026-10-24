@@ -12,6 +12,7 @@ import { SirenOverlay } from "./SirenOverlay";
 import {
   AwaitingMediaFallback,
   ReconnectingFallback,
+  SiteOfflineFallback,
   ConnectingFallback,
   ErrorFallback,
   NoMediaPathFallback,
@@ -107,6 +108,9 @@ export function CameraTile({
      `dropped` because `reconnecting` above already means something else here —
      the FEED's own reconnect, reported by the tower. */
   const dropped = playback?.kind === "reconnecting" ? playback : null;
+  /* The site is down and this tile is deliberately asking for nothing. Its
+     own state, not a failure and not a reconnect -- see `PlaybackPhase`. */
+  const siteOffline = playback?.kind === "offline" ? playback.which : null;
 
   /* Always fill, in the wall and in the takeover. Contain would collapse a 4:3
      source to a strip in a tile, and letterbox ~350px a side on an ultrawide
@@ -376,7 +380,7 @@ export function CameraTile({
           it — there is no point explaining a media path to a camera that is
           off. Below that, a playback failure outranks "awaiting", because a
           spinner over a failure is a promise that will not be kept. */}
-      {(isDead || playbackFailure || dropped || awaitingMedia) && (
+      {(isDead || playbackFailure || dropped || siteOffline || awaitingMedia) && (
         <div className="absolute inset-0 flex items-center justify-center">
           {hasError ? (
             <ErrorFallback error={feed.error!} onRetry={onRetry} />
@@ -389,6 +393,12 @@ export function CameraTile({
               name={feed.name}
               reconnecting={reconnecting}
             />
+          ) : siteOffline ? (
+            /* ⚠ ABOVE `dropped`. A tile whose tower went down while it was
+               playing is both: it stopped, and the site is off. The second is
+               the fact worth printing -- "Reconnecting…" over a mast with no
+               power is a promise nothing is keeping. */
+            <SiteOfflineFallback which={siteOffline} />
           ) : dropped ? (
             <ReconnectingFallback onRetry={onRetry} />
           ) : playbackFailure?.failure === "media_unreachable" ? (

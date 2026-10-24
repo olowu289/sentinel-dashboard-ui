@@ -107,6 +107,75 @@ describe("what the server said, and what it means", () => {
     }
   });
 
+  test("⭐ the server's `retryable` OUTRANKS the code list, both ways", () => {
+    /* THE POINT OF THE NEW CONTRACT. The list is this app's reading of codes
+       it happens to know; `retryable` is coordination's statement about the
+       session it has just ended. When they disagree the server is right -- it
+       is the one that knows whether a share was withdrawn or a process
+       restarted. */
+    assert.equal(r.verdictFor("share_ended", true), "retry", "the server said retry");
+    assert.equal(r.verdictFor("session_gone", false), "ended", "the server said ended");
+    assert.equal(r.verdictFor("anything_at_all", false), "ended");
+    assert.equal(r.verdictFor(null, false), "ended");
+    assert.equal(r.verdictFor(null, true), "retry");
+  });
+
+  test("⭐ and the list decides when the answer carries no verdict", () => {
+    /* An older server, a refusal from elsewhere in the stack, or no answer. */
+    for (const missing of [undefined, null]) {
+      assert.equal(r.verdictFor("share_ended", missing), "ended", String(missing));
+      assert.equal(r.verdictFor("session_gone", missing), "retry", String(missing));
+    }
+  });
+
+  test("⭐ sentry-core's ended codes end the view", () => {
+    for (const code of [
+      "share_ended", "tower_not_permitted", "hub_not_permitted", "tower_revoked",
+      "view_not_permitted", "account_disabled", "account_unknown",
+    ]) {
+      assert.equal(r.verdictFor(code), "ended", code);
+    }
+  });
+
+  test("⭐ sentry-core's retry codes reopen", () => {
+    /* Every one is a MACHINE -- a grant that lapsed, a session the server no
+       longer holds, a store or device that was not there, a forward that
+       failed, a link that dropped, a restart. None is about a person. */
+    for (const code of [
+      "renewal_lapsed", "session_gone", "no_store", "no_account", "no_device",
+      "viewer_left", "tower_offline", "hub_offline", "forward_failed",
+      "link_lost", "server_restart",
+    ]) {
+      assert.equal(r.verdictFor(code), "retry", code);
+      assert.ok(r.RETRYABLE_REASONS.has(code), `${code} is not listed`);
+      assert.ok(!r.ACCESS_ENDED_REASONS.has(code), `${code} is in BOTH sets`);
+    }
+  });
+
+  test("⭐ a lost SIGN-IN is neither ended nor retried", () => {
+    /* It is true of every tile at once and of every request about to be made,
+       so it is not a per-tile state at all. The app has one answer for it
+       already: the sign-in screen. */
+    for (const code of [
+      "login_session_revoked", "login_session_expired", "login_session_unknown",
+    ]) {
+      assert.equal(r.signedOut(code), true, code);
+      assert.ok(!r.ACCESS_ENDED_REASONS.has(code), `${code} would print "Viewing ended"`);
+      /* And if one ever reached the verdict anyway, it must not end a view. */
+      assert.equal(r.verdictFor(code), "retry", code);
+    }
+    assert.equal(r.signedOut("share_ended"), false);
+    assert.equal(r.signedOut(null), false);
+    assert.equal(r.signedOut(undefined), false);
+  });
+
+  test("the two sets never overlap", () => {
+    for (const code of r.ACCESS_ENDED_REASONS) {
+      assert.ok(!r.RETRYABLE_REASONS.has(code), `${code} is in both sets`);
+      assert.ok(!r.SIGNED_OUT_REASONS.has(code), `${code} is ended AND signed-out`);
+    }
+  });
+
   test("case and stray whitespace do not change the answer", () => {
     /* Two services spell their own constants and one of them will shout. */
     assert.equal(r.verdictFor("LIVE_FORBIDDEN"), "ended");
@@ -247,11 +316,12 @@ describe("every interruption is traceable afterwards", () => {
  * ====================================================================== */
 
 describe("the player is wired to those decisions", () => {
-  let player, media, tile, monitor, app, code;
+  let player, media, mediaCode, tile, monitor, app, code;
   before(async () => {
     const { stripComments } = await import("./lib/copyScan.mjs");
     player = await readFile(join(SRC, "lib/usePlayback.ts"), "utf8");
     media = await readFile(join(SRC, "lib/api/media.ts"), "utf8");
+    mediaCode = stripComments(media);
     tile = await readFile(join(SRC, "components/CameraTile.tsx"), "utf8");
     monitor = await readFile(join(SRC, "components/MonitorTile.tsx"), "utf8");
     app = await readFile(join(SRC, "App.tsx"), "utf8");
@@ -278,12 +348,35 @@ describe("the player is wired to those decisions", () => {
     assert.match(media, /reason: string \| null = null/);
   });
 
-  test("⭐ a refused poll is answered, not thrown away", () => {
+  test("⭐ a stopped session is answered, not thrown away", () => {
     /* It used to collapse every non-active answer to `null` and end the view. */
-    assert.match(media, /kind: "refused"; reason: string \| null/);
+    assert.match(media, /kind: "ended"; reason: string \| null; retryable: boolean \| null/);
+    assert.match(media, /kind: "signed-out"/);
     assert.match(media, /kind: "unreachable"/);
-    assert.match(code, /status\.kind === "refused"/);
-    assert.match(code, /accessEnded\(status\.reason\)/);
+    assert.match(code, /status\.kind === "ended"/);
+    assert.match(code, /accessEnded\(status\.reason, status\.retryable\)/);
+  });
+
+  test("⭐ the endpoint is read directly, because the SDK drops the answer", () => {
+    /* `parseSessionStatus` keeps five fields and drops `reason`, `retryable`
+       and `message`; it also requires `expires_at`, which an ended body has
+       no reason to carry, and synthesises `ended` from a 404. */
+    assert.match(media, /\/v1\/viewer\/sessions\//);
+    /* Over the code, not the prose: the comment at the site names the call it
+       replaced and says why, which is exactly the explanation a raw search
+       would delete. */
+    assert.ok(!/getSessionStatus/.test(mediaCode), "the lossy SDK call is back");
+  });
+
+  test("⭐ a sign-in that ended goes to the sign-in screen, not to a tile", () => {
+    assert.match(code, /status\.kind === "signed-out"/);
+    assert.match(code, /clearSession\("revoked"\)/);
+    /* And never as a camera failure: `end` would print "Viewing ended". */
+    const from = code.indexOf('if (status.kind === "signed-out")');
+    const to = code.indexOf('if (status.kind === "ended")', from);
+    assert.ok(from > 0 && to > from, "the signed-out branch is gone");
+    const branch = code.slice(from, to);
+    assert.ok(!/(^|[^A-Za-z.])end\(/m.test(branch), "a lost sign-in ends the view");
   });
 
   test("⭐ nothing is asked of a box that is off, on the first try or a later one", () => {
@@ -368,7 +461,7 @@ describe("the player is wired to those decisions", () => {
   });
 
   test("every interruption is logged where it is decided", () => {
-    for (const event of ["renewal-refused", "renewal-failed", "renewed"]) {
+    for (const event of ["session-ended", "renewal-failed", "renewed", "signed-out"]) {
       assert.ok(code.includes(`"${event}"`), `${event} is not logged`);
     }
     const calls = code.match(/logInterruption\(/g) ?? [];

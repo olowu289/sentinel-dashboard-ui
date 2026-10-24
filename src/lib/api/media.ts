@@ -35,6 +35,9 @@
 import type { IceCandidate, ViewerSession } from "@kallon/sentry-sdk";
 import { endSessionIfUnauthorized } from "./auth";
 import { getClient } from "./client";
+import { coordinationBaseUrl } from "@/lib/config";
+import { getSessionRef } from "./session";
+import { SIGNED_OUT_REASONS } from "@/lib/liveRecovery";
 
 /**
  * Send the offer the moment it exists, and trickle candidates after it.
@@ -559,40 +562,116 @@ export async function openPlayback(
  */
 export type SessionPoll =
   | { kind: "active"; expiresAt: string; iceServers: RTCIceServer[] }
-  /** The server answered, and said no. `reason` is its own code, or null. */
-  | { kind: "refused"; reason: string | null }
+  /**
+   * The server answered, and said the session is over.
+   *
+   * `retryable` is ITS verdict, and it outranks everything this app thinks it
+   * knows: `false` means access really ended, `true` means try again, and
+   * `null` means the answer carried none and the code list decides.
+   */
+  | { kind: "ended"; reason: string | null; retryable: boolean | null; message: string | null }
+  /** The sign-in behind this is no longer good. Not a camera problem at all. */
+  | { kind: "signed-out" }
   /** Nothing answered. Not an authorization answer and never read as one. */
   | { kind: "unreachable" };
 
+/**
+ * Ask the session endpoint what happened to a session that has stopped.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY THIS IS A BARE `fetch` AND NOT THE SDK CALL IT REPLACES
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * `GET /v1/viewer/sessions/{id}` now answers the owner with
+ * `{status, reason, retryable, message}`, and the SDK's `getSessionStatus`
+ * cannot carry that answer:
+ *
+ *   * `parseSessionStatus` keeps `session_id`, `camera`, `expires_at`,
+ *     `status` and `ice_servers`, and DROPS the other three -- so the whole
+ *     point of the new contract would be parsed away;
+ *   * it requires `expires_at`, which an ended body has no reason to carry,
+ *     so a perfectly good ending would come back as a validation throw;
+ *   * it SYNTHESISES `ended` from a 404, which was right when 404 was the
+ *     only signal and is wrong now that the server distinguishes a session it
+ *     no longer holds from access that has been withdrawn.
+ *
+ * So this reads the body itself. It is a small amount of plumbing in exchange
+ * for the server's own verdict arriving intact, and it is confined to this
+ * one function: everything else still goes through the SDK.
+ */
 export async function readSessionExpiry(
   session: ViewerSession,
   signal?: AbortSignal,
 ): Promise<SessionPoll> {
-  let status;
+  const base = coordinationBaseUrl();
+  if (!base) return { kind: "unreachable" };
+
+  let res: Response;
   try {
-    status = await getClient().getSessionStatus(session, signal ? { signal } : {});
-  } catch (err) {
-    const code = (err as { code?: unknown })?.code;
-    const http = (err as { status?: unknown })?.status;
-    /* A 404 or a 403 IS an answer -- the server was reached and said no. A
-       timeout, a dropped connection or a parse failure is not, and must never
-       be allowed to end a view. */
-    if (http === 404 || http === 403 || typeof code === "string") {
-      return { kind: "refused", reason: typeof code === "string" ? code : null };
-    }
+    const token = getSessionRef();
+    res = await fetch(
+      new URL(`/v1/viewer/sessions/${encodeURIComponent(session.session_id)}`, base).toString(),
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        cache: "no-store",
+        ...(signal ? { signal } : {}),
+      },
+    );
+  } catch {
+    /* Aborted, offline, DNS, a refused connection. NOT an answer, and never
+       allowed to end a view: a working feed must not die because one request
+       did not get out. */
     return { kind: "unreachable" };
   }
-  if (status.status !== "active") {
-    return { kind: "refused", reason: status.status ?? null };
+
+  /* ⚠ THE SIGN-IN, NOT THE CAMERA. A 401 says nothing about this camera and
+     everything about the person: their login session was revoked, expired or
+     is unknown. Showing "Viewing ended" for it sends somebody looking for a
+     share that was never withdrawn. */
+  if (res.status === 401) return { kind: "signed-out" };
+
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    body = null;
   }
-  return {
-    kind: "active",
-    expiresAt: status.expires_at,
-    // Fresh TURN/STUN creds re-minted by coordination each poll; may be absent on
-    // direct-only deployments. The caller applies them so a relayed session's
-    // credentials never expire mid-view.
-    iceServers: (status.ice_servers ?? []) as RTCIceServer[],
-  };
+
+  const str = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+  /* The code can arrive at the top level on an ended body, or inside the
+     usual `{error: {code}}` envelope on a refusal. Both are the server
+     naming the same thing. */
+  const envelope = (body?.["error"] ?? null) as Record<string, unknown> | null;
+  const reason = str(body?.["reason"]) ?? str(envelope?.["code"]);
+  const message = str(body?.["message"]) ?? str(envelope?.["message"]);
+  const retryable =
+    typeof body?.["retryable"] === "boolean" ? (body["retryable"] as boolean) : null;
+
+  if (reason !== null && SIGNED_OUT_REASONS.has(reason.toLowerCase())) {
+    return { kind: "signed-out" };
+  }
+
+  if (res.ok && body?.["status"] === "active") {
+    return {
+      kind: "active",
+      expiresAt: str(body["expires_at"]) ?? "",
+      // Fresh TURN/STUN creds re-minted by coordination each poll; may be absent
+      // on direct-only deployments. The caller applies them so a relayed
+      // session's credentials never expire mid-view.
+      iceServers: (Array.isArray(body["ice_servers"])
+        ? body["ice_servers"]
+        : []) as RTCIceServer[],
+    };
+  }
+
+  /* Everything else -- an `ended` body, a 404, a 403 -- is the server saying
+     this session is over. WHY is the caller's question, and `retryable` is
+     the first thing it asks. */
+  return { kind: "ended", reason, retryable, message };
 }
 
 /** Milliseconds until the grant expires. `expires_at` is a wall clock, not a hint. */

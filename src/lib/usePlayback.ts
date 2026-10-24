@@ -10,6 +10,7 @@ import {
   type PlaybackHandle,
 } from "@/lib/api/media";
 import { CAMERAS_PER_TOWER } from "@/lib/types";
+import { clearSession } from "@/lib/api/auth";
 import {
   accessEnded,
   logInterruption,
@@ -889,27 +890,61 @@ export function usePlayback({ attached, eligible, focusTower, reach }: SessionDe
                 entry.controller.signal,
               );
               if (entry.disposed) return;
-              if (status.kind === "refused") {
-                /* ⚠ THE SERVER SAID NO, AND ONLY IT MAY SAY WHAT THAT MEANS.
-                   This used to end the view for every refusal, and the refusal
-                   it mostly met was a 404 that means "gone or not yours" --
-                   one code covering a withdrawn share, a restarted server and
-                   an ordinary lapse. So healthy cameras printed "Access to
-                   this camera ended" a quarter of an hour in.
+              if (status.kind === "signed-out") {
+                /* ⚠ NOT A CAMERA PROBLEM AT ALL, AND NOT THIS TILE'S TO
+                   REPORT. The person's login session was revoked, expired or
+                   is unknown -- which is true of every other tile on the wall
+                   at the same instant, and of every request this app is about
+                   to make. "Viewing ended" here would send somebody looking
+                   for a share that was never withdrawn.
 
-                   `verdictFor` decides, and it only says ended for a reason
-                   that is about a PERSON. Everything else reopens, which is
-                   also the honest answer to a lapse: a new session is exactly
-                   what is wanted, and if access really did end the next
-                   request is refused with a reason that says so. */
+                   So it hands over to the one piece of this app that already
+                   knows what to do with an ended sign-in, which takes the
+                   whole page to the sign-in screen. */
                 logInterruption({
                   camera: entry.camera,
-                  event: "renewal-refused",
-                  reason: status.reason,
-                  action: accessEnded(status.reason) ? "ended" : "retry",
+                  event: "signed-out",
+                  reason: null,
+                  action: "ended",
                 });
-                if (accessEnded(status.reason)) {
-                  end("Access to this camera ended");
+                void opened.close();
+                /* ⚠ THE APP-WIDE MECHANISM, NOT A CALLBACK THREADED THROUGH
+                   THE TILE. `clearSession` is what the session store already
+                   calls when a sign-in ends for any other reason; its
+                   subscribers put the page on the sign-in screen with the
+                   ordinary "your session ended" handling. A per-tile prop
+                   would be a second way to do the same thing, and the two
+                   would drift. "revoked" because that is what a login session
+                   the server refuses has become, whichever of the three codes
+                   it sent. */
+                clearSession("revoked");
+                return;
+              }
+              if (status.kind === "ended") {
+                /* ⚠ THE SERVER'S OWN VERDICT FIRST, THE CODE LIST SECOND.
+                   `retryable` is coordination's statement about the session it
+                   has just ended; the list is this app's reading of codes it
+                   happens to know. When they disagree the server is right --
+                   it is the one that knows whether a share was withdrawn or a
+                   process restarted. The list stays for every answer that
+                   carries no `retryable`: an older server, a refusal from
+                   elsewhere in the stack, or no answer at all.
+
+                   Before any of this, every refusal ended the view, and the
+                   one it mostly met was a 404 meaning "gone or not yours" --
+                   so healthy cameras printed "Access to this camera ended" a
+                   quarter of an hour in. */
+                const over = accessEnded(status.reason, status.retryable);
+                logInterruption({
+                  camera: entry.camera,
+                  event: "session-ended",
+                  reason: status.reason,
+                  action: over ? "ended" : "retry",
+                });
+                if (over) {
+                  /* The server's own sentence when it sent one: it knows which
+                     share ended, and this app does not. */
+                  end(status.message ?? "Access to this camera ended");
                 } else {
                   backOff(
                     new PlaybackError(

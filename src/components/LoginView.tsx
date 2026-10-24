@@ -7,6 +7,7 @@ import { ENTER, FADE } from "@/lib/motion";
 import {
   AuthLockedError,
   AuthRejectedError,
+  AuthTooManySignInsError,
   AuthUnreachableError,
 } from "@/lib/api/auth";
 import {
@@ -261,6 +262,17 @@ export function LoginView() {
             hint: "Try again shortly.",
           });
         }
+      } else if (err instanceof AuthTooManySignInsError) {
+        /* ⚠ NOT A CREDENTIAL FAILURE, AND IT MUST NOT READ AS ONE. The
+           password was right. The uniform message would send somebody to
+           check a password that was fine, on a screen that would let them in
+           the moment one of their other screens signed out.
+
+           `rejected` is the right KIND -- it rings the two boxes and is the
+           state a person can act on from here -- and the message is the
+           server's own where it sent one, because it knows the limit and the
+           count and this app knows neither. */
+        setFailure({ kind: "rejected", message: err.message });
       } else if (err instanceof AuthRejectedError) {
         /* ONE message for every credential failure. Unknown organization, wrong
            password and disabled account are indistinguishable here because

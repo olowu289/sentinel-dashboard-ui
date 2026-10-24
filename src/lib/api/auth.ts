@@ -191,6 +191,57 @@ const REACH_MESSAGE = {
  * on sentri.watch. Both are sent now; preferring the body means the countdown
  * is right even against a coordination that does not expose the header.
  */
+/**
+ * The credentials were RIGHT, and this login is signed in too many times.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY THIS IS NOT AN `AuthRejectedError`
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ BECAUSE THE PASSWORD WAS CORRECT, and that is the whole difference.
+ * `AuthRejectedError` is uniform by construction -- an unknown organization, a
+ * wrong password and a disabled account are deliberately indistinguishable so
+ * the endpoint cannot be used to enumerate customers, and it carries no reason
+ * field precisely so the UI has nothing to leak. Putting this on it would
+ * either break that uniformity or hide a fact the person needs.
+ *
+ * This refusal is reachable only by somebody who already typed the right
+ * password, so naming it reveals nothing they did not already know. And they
+ * need it named: "That login and password do not match" sent people to check a
+ * password that was fine, on a screen that would have let them in if one of
+ * their other screens had signed out.
+ *
+ * ⚠ THE SERVER'S OWN SENTENCE WINS WHERE IT SENDS ONE. It knows the limit and
+ * the count; this app knows neither, and a number invented here would be wrong
+ * the first time the limit changed.
+ */
+export class AuthTooManySignInsError extends Error {
+  /** How many screens the server says are signed in, where it said. */
+  readonly screens: number | null;
+  constructor(message?: string, screens?: number | null) {
+    super(message?.trim() || tooManySignInsMessage(screens ?? null));
+    this.name = "AuthTooManySignInsError";
+    this.screens = screens ?? null;
+  }
+}
+
+/**
+ * What to say when the server sent no sentence of its own.
+ *
+ * Two sentences, which rule 6 of the writing rules normally forbids: what
+ * happened, and what to do. They are genuinely two facts here and the second
+ * one is the whole value of the message -- somebody who is told only that they
+ * are signed in elsewhere still does not know that signing out there is what
+ * fixes it.
+ */
+export function tooManySignInsMessage(screens: number | null): string {
+  const where =
+    typeof screens === "number" && Number.isFinite(screens) && screens > 0
+      ? `on ${screens} ${screens === 1 ? "screen" : "screens"}`
+      : "on other screens";
+  return `This login is already in use ${where}. Sign out on one of them, then try again.`;
+}
+
 export class AuthLockedError extends Error {
   /** Whole seconds left on the lock, as the server counted them. */
   readonly retryAfterSec: number;
@@ -284,6 +335,48 @@ export async function login(
     );
   }
 
+  /**
+   * The refusal's own words, read once.
+   *
+   * ⚠ ONCE, BECAUSE A BODY CAN ONLY BE READ ONCE. The lock below needs
+   * `retry_after_sec` out of the same body this reads for a code, and two
+   * `response.json()` calls on one response is the second one throwing.
+   *
+   * Read for ANY refusal rather than on a particular status, because which
+   * status carries `too_many_sign_ins` is coordination's choice and not worth
+   * a guess that silently stops working: a 403 today, a 409 tomorrow, and the
+   * screen would quietly fall back to "that login and password do not match"
+   * on a password that was right.
+   */
+  const refusal: { code: string | null; message: string | null; screens: number | null;
+                   retryAfterSec: number | null } =
+    { code: null, message: null, screens: null, retryAfterSec: null };
+  if (!response.ok) {
+    try {
+      const raw = (await response.json()) as Record<string, unknown>;
+      const envelope = (raw?.["error"] ?? null) as Record<string, unknown> | null;
+      const str = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+      refusal.code = str(raw?.["code"]) ?? str(envelope?.["code"]);
+      refusal.message = str(raw?.["message"]) ?? str(envelope?.["message"]);
+      refusal.screens =
+        num(raw?.["sessions"]) ?? num(envelope?.["sessions"])
+        ?? num(raw?.["count"]) ?? num(envelope?.["count"]);
+      refusal.retryAfterSec = num(raw?.["retry_after_sec"]);
+    } catch {
+      /* A refusal with no JSON body is still a refusal. Every branch below
+         works without one. */
+    }
+  }
+
+  /* ⚠ BEFORE THE CREDENTIAL BRANCH, AND IT IS NOT A CREDENTIAL VERDICT.
+     The password was right; there are simply too many screens signed in on
+     this login. Falling through to the uniform message would send somebody to
+     check a password that was fine. */
+  if (refusal.code === "too_many_sign_ins") {
+    throw new AuthTooManySignInsError(refusal.message ?? undefined, refusal.screens);
+  }
+
   // 401/403 are the ONLY statuses that mean "these credentials are wrong".
   if (response.status === 401 || response.status === 403) {
     throw new AuthRejectedError();
@@ -295,13 +388,9 @@ export async function login(
     /* THE NUMBER, FROM WHEREVER IT CAN BE READ. The body first (no CORS rule
        can hide it), the header second, and 0 if neither arrives — a lock with
        no number still disables the button, it just cannot count. */
-    let seconds = 0;
-    try {
-      const body = (await response.json()) as { retry_after_sec?: unknown };
-      if (typeof body?.retry_after_sec === "number") seconds = body.retry_after_sec;
-    } catch {
-      /* A 429 with no JSON body is still a 429. */
-    }
+    /* Out of the body read above rather than a second `response.json()`,
+       which would throw: a body can only be read once. */
+    let seconds = refusal.retryAfterSec ?? 0;
     if (!seconds) {
       const header = Number(response.headers.get("Retry-After"));
       if (Number.isFinite(header) && header > 0) seconds = header;

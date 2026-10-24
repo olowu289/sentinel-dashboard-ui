@@ -146,19 +146,77 @@ export function reachWord(reach: Reach): string {
  * so. One extra request is the whole cost of being right about this.
  */
 export const ACCESS_ENDED_REASONS: ReadonlySet<string> = new Set([
+  /* ── coordination's own, as it names them ────────────────────────── */
+  "share_ended",
+  "tower_not_permitted",
+  "hub_not_permitted",
+  "tower_revoked",
+  "view_not_permitted",
+  "account_disabled",
+  "account_unknown",
+  /* ── the older and the generic, still answered by some paths ─────── */
   "live_forbidden",
   "grant_permission",
   "grant_scope",
   "share_unknown",
   "share_revoked",
-  "share_ended",
   "forbidden",
   "unauthorized",
-  "account_disabled",
   "account_removed",
   "site_unknown",
   "camera_not_shared",
 ]);
+
+/**
+ * Reasons that mean THE SESSION STOPPED AND MAY BE REOPENED.
+ *
+ * ⚠ LISTED RATHER THAN LEFT TO THE DEFAULT, even though the default already
+ * retries, because these are the ones somebody will be tempted to add to the
+ * set above. Every one of them is a MACHINE: a grant that lapsed, a session
+ * the server no longer holds, a store or a device that was not there, a
+ * forward that failed, a link that dropped, a restart. None is a statement
+ * about a person, and a tile that stopped for any of them should simply come
+ * back.
+ *
+ * `renewal_lapsed` and `session_gone` are the two that used to end views:
+ * they are the ordinary end of a long watch and the ordinary result of a
+ * server restart, and both were being read as "your access was withdrawn".
+ */
+export const RETRYABLE_REASONS: ReadonlySet<string> = new Set([
+  "renewal_lapsed",
+  "session_gone",
+  "no_store",
+  "no_account",
+  "no_device",
+  "viewer_left",
+  "tower_offline",
+  "hub_offline",
+  "forward_failed",
+  "link_lost",
+  "server_restart",
+]);
+
+/**
+ * Reasons that mean THE PERSON'S SIGN-IN ENDED, not their access to a camera.
+ *
+ * ⚠ A THIRD ANSWER, AND NEITHER OF THE OTHER TWO FITS IT. "Viewing ended"
+ * sends somebody looking for a share that was never withdrawn, and retrying
+ * asks a server that has already said who it will not talk to. The honest
+ * move is the one the app already has for an expired sign-in: the sign-in
+ * screen. Every other tile is in the same position, so this is not a per-tile
+ * state at all.
+ */
+export const SIGNED_OUT_REASONS: ReadonlySet<string> = new Set([
+  "login_session_revoked",
+  "login_session_expired",
+  "login_session_unknown",
+]);
+
+/** Has the person's SIGN-IN ended, rather than their access to this camera? */
+export function signedOut(reason: string | null | undefined): boolean {
+  if (typeof reason !== "string") return false;
+  return SIGNED_OUT_REASONS.has(reason.trim().toLowerCase());
+}
 
 /** What to do about a refusal. */
 export type Verdict = "ended" | "retry";
@@ -174,16 +232,38 @@ export type Verdict = "ended" | "retry";
  * Case and surrounding whitespace are forgiven because two services spell
  * their own constants and one of them will eventually shout.
  */
-export function verdictFor(reason: string | null | undefined): Verdict {
+export function verdictFor(
+  reason: string | null | undefined,
+  /**
+   * The server's own answer, where it gave one.
+   *
+   * ⚠ IT OUTRANKS THE LIST, AND THAT IS THE POINT OF THE NEW CONTRACT. The
+   * list is this app's reading of codes it happens to know; `retryable` is
+   * coordination's statement about the session it just ended. When they
+   * disagree the server is right, because it is the one that knows whether a
+   * share was withdrawn or a process restarted. The list stays as the
+   * fallback for every path that does not carry the field yet -- an older
+   * server, a refusal from somewhere else in the stack, no answer at all.
+   */
+  retryable?: boolean | null,
+): Verdict {
+  if (typeof retryable === "boolean") return retryable ? "retry" : "ended";
   if (typeof reason !== "string") return "retry";
   const code = reason.trim().toLowerCase();
   if (code === "") return "retry";
+  /* A sign-in that ended is not a camera that ended. It is handled before
+     this is asked; saying "retry" here keeps it out of the ended screen if
+     anything ever reaches this with one. */
+  if (SIGNED_OUT_REASONS.has(code)) return "retry";
   return ACCESS_ENDED_REASONS.has(code) ? "ended" : "retry";
 }
 
 /** Did access really end? The same decision, read the other way round. */
-export function accessEnded(reason: string | null | undefined): boolean {
-  return verdictFor(reason) === "ended";
+export function accessEnded(
+  reason: string | null | undefined,
+  retryable?: boolean | null,
+): boolean {
+  return verdictFor(reason, retryable) === "ended";
 }
 
 /* ======================================================================

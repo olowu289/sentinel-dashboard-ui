@@ -1374,6 +1374,53 @@ const BOARD_TOWERS: Tower[] = [
   SETTINGS_HUB,
 ];
 
+/**
+ * A fleet, rather than a demo.
+ *
+ * ⚠ THIRTY TOWERS BECAUSE THREE PROVED NOTHING. The Cameras screen read
+ * perfectly well on the three-tower fixture and was unusable on a customer's
+ * hundred: every tower, every camera and every camera's detail block, open,
+ * in one column. A fixture that cannot show that is a fixture that lets it
+ * ship again.
+ *
+ * Mixed on purpose: one offline, some with a camera patrolling, some not, and
+ * one fixed camera per tower so the Patrol value is absent on exactly the
+ * cameras it should be.
+ */
+const FLEET_TOWERS: Tower[] = Array.from({ length: 30 }, (_, i) => ({
+  ...SETTINGS_TOWER,
+  id: `kln_site_${String(i + 1).padStart(6, "0")}`,
+  site: [
+    "NORTH GATE", "SOUTH PIT", "WEST YARD", "EAST QUARRY", "LAB TOWER 1",
+    "MAIN GATE", "FUEL BAY", "WEIGHBRIDGE", "CRUSHER", "WORKSHOP",
+  ][i % 10] + (i >= 10 ? ` ${Math.floor(i / 10) + 1}` : ""),
+  ...(i === 3 ? { status: "offline" as const, online: false } : {}),
+}));
+
+const FLEET_FEEDS: CameraFeed[] = FLEET_TOWERS.flatMap((t, i) => [
+  {
+    ...SETTINGS_FEEDS[0],
+    id: `${t.id}:1`,
+    towerId: t.id,
+    name: "GATE",
+    /* Every third one is patrolling, so the summary line has something to
+       count and something to leave out. */
+    patrol: {
+      ...SETTINGS_FEEDS[0].patrol!,
+      enabled: i % 3 === 0,
+      every: (["4h", "12h", "random"] as const)[i % 3],
+    },
+  },
+  {
+    /* FIXED: no patrol block, so no value on its line and no control in its
+       panel. The one camera that proves the absence is drawn as an absence. */
+    ...SETTINGS_FEEDS[1],
+    id: `${t.id}:2`,
+    towerId: t.id,
+    name: "YARD",
+  },
+]);
+
 function BoardScreen() {
   return (
     <TowersView
@@ -1475,8 +1522,8 @@ function Harness() {
     ) : which === "settings-cameras" ? (
       <SettingsView
         section="cameras"
-        towers={[SETTINGS_TOWER]}
-        feeds={SETTINGS_FEEDS}
+        towers={FLEET_TOWERS}
+        feeds={FLEET_FEEDS}
         onSetPatrol={() => {}}
       />
     ) : which === "hub-settings" ? (

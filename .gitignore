@@ -14,3 +14,7 @@ npm-debug.log*
 tsconfig.tsbuildinfo
 
 .vercel
+
+# The cloud artefact the outside-URL scan builds (test/hubMode.test.mjs).
+# Anchored like /dist, for the reason written beside that rule.
+/dist-cloud-scan

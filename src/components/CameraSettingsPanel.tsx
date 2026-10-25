@@ -818,7 +818,7 @@ export function CameraSettingsPanel({
                       cameraName={f.name ?? f.id}
                       showName={patrolFeeds.length > 1}
                       phase={patrolPhase?.(f.id) ?? { kind: "idle" }}
-                      onChange={(edit) => onSetPatrol?.(f.id, edit)}
+                      onSave={(edit) => onSetPatrol?.(f.id, edit)}
                     />
                   ))}
                 </div>

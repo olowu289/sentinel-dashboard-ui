@@ -13,12 +13,13 @@ import { useSession } from "@/components/AuthProvider";
 import { useCapabilities } from "@/lib/useSites";
 import { isHubMode } from "@/lib/hubMode";
 import { PatrolControl, type PatrolPhase } from "@/components/PatrolControl";
-import type { PatrolEdit } from "@/lib/patrol";
+import { patrolWord, type PatrolEdit } from "@/lib/patrol";
 import { IconRail } from "@/components/IconRail";
 import { SharingPane } from "@/components/sharing/SharingPane";
 import { SiteClock } from "@/components/SiteClock";
 import {
   LabelRejectedError,
+  NoAnswerError,
   TowerUnavailableError,
   renameCamera,
 } from "@/lib/api/fleet";
@@ -258,16 +259,6 @@ function Panel({ children }: { children: ReactNode }) {
   );
 }
 
-/** One read-only fact. A real <dt>/<dd> pair, not two spans. */
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex gap-[6px]">
-      <dt className="text-muted">{label}</dt>
-      <dd className="text-sub">{value}</dd>
-    </div>
-  );
-}
-
 const SECTION_LABEL: Record<SettingsSection, string> = {
   account: "Account",
   security: "Password & security",
@@ -375,13 +366,47 @@ export function SettingsView({
      Keyed because the edit belongs to the CAMERA, not to this panel. One
      shared "editing" value would follow the operator from one camera to the
      next — the same class of bug `useMutation` documents for AlertDetail. */
-  const [camEditing, setCamEditing] = useState<string | null>(null);
   const [camDraft, setCamDraft] = useState<Record<string, string>>({});
   const [camSaving, setCamSaving] = useState<string | null>(null);
   const [camError, setCamError] = useState<{ id: string; message: string } | null>(
     null,
   );
   const [camSaved, setCamSaved] = useState<string | null>(null);
+  /** What the search box holds. Filters towers AND cameras by name. */
+  const [camQuery, setCamQuery] = useState("");
+  /** Which tower is open. One at a time: a hundred open towers is the old screen. */
+  const [camOpenTower, setCamOpenTower] = useState<string | null>(null);
+  /** Which camera's side panel is open, by feed id. */
+  const [camOpen, setCamOpen] = useState<string | null>(null);
+
+  /**
+   * The towers to list, with the cameras that match.
+   *
+   * ⚠ A TOWER MATCHES BY ITS OWN NAME *OR* BY ONE OF ITS CAMERAS', and when
+   * it matched by a camera only that camera is listed. Searching "gate"
+   * should not make you open North Gate and read past its other camera to
+   * find the one called GATE.
+   */
+  const matches = useMemo(() => {
+    const q = camQuery.trim().toLowerCase();
+    const of = (t: Tower) => feeds.filter((f) => f.towerId === t.id);
+    if (q === "") return towers.map((tower) => ({ tower, cameras: of(tower) }));
+    const out: { tower: Tower; cameras: CameraFeed[] }[] = [];
+    for (const tower of towers) {
+      const named = (tower.site || tower.id).toLowerCase().includes(q);
+      const mine = of(tower);
+      const hits = mine.filter((f) => (f.name ?? "").toLowerCase().includes(q));
+      if (named) out.push({ tower, cameras: mine });
+      else if (hits.length > 0) out.push({ tower, cameras: hits });
+    }
+    return out;
+  }, [towers, feeds, camQuery]);
+
+  /** The camera whose side panel is open, if it is still in the fleet. */
+  const openFeed = useMemo(
+    () => feeds.find((f) => f.id === camOpen) ?? null,
+    [feeds, camOpen],
+  );
 
   /* Synchronous latches. `renaming`/`saving` are state, so two clicks in one
      tick both read the same stale `false` and both POST — the exact bug
@@ -539,7 +564,6 @@ export function SettingsView({
            leaving the rest stale is how one camera ends up with two names. */
         if (updated) onCameraRenamed?.(updated, updatedFeeds);
         setCamSaved(feed.id);
-        setCamEditing(null);
         setCamDraft((prev) => {
           const { [feed.id]: _drop, ...rest } = prev;
           return rest;                        // fall back to the server's value
@@ -549,12 +573,17 @@ export function SettingsView({
         /* The SAME two errors the tower rename raises. A 404 means unknown
            tower, somebody else's tower, OR a disabled `settings` feature — the
            server does not distinguish them on purpose, so neither does this. */
+        /* ⚠ EVERY BRANCH IS A SENTENCE WRITTEN HERE, never the error's own
+           text and never anything built from an id. `said` is the backstop
+           for the paths that do pass a message through; this one chooses. */
         const message =
           err instanceof LabelRejectedError
             ? err.message
-            : err instanceof TowerUnavailableError
-              ? "That tower is not available."
-              : "The name could not be saved.";
+            : err instanceof NoAnswerError
+              ? err.message
+              : err instanceof TowerUnavailableError
+                ? "That tower is not available."
+                : "The name could not be saved.";
         setCamError({ id: feed.id, message });
       } finally {
         setCamSaving(null);
@@ -1039,12 +1068,36 @@ export function SettingsView({
     </div>
   );
 
+  /**
+   * Settings → Cameras, built for a fleet rather than for a demo.
+   *
+   * ══════════════════════════════════════════════════════════════════
+   *  WHAT A HUNDRED TOWERS BREAKS
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * It used to render every tower, every camera and every camera's full
+   * detail block, expanded, in one column. On the three-tower fixture that
+   * reads fine. On a real fleet it is two hundred cards, several thousand
+   * words, and the camera somebody came here for is somewhere in the middle
+   * of it. Nothing was wrong with any one card; there were simply too many.
+   *
+   * So: a search box, towers collapsed to one summary line each, and the
+   * detail for ONE camera at a time in a side panel. The page now shows a
+   * hundred lines instead of a hundred cards, and the thing a person came to
+   * change is two clicks away rather than a scroll.
+   *
+   * ⚠ THE SUMMARY LINE IS THE WHOLE POINT OF COLLAPSING. A closed row that
+   * says only a name has made somebody open it to learn anything, which is
+   * the scroll back again. "2 cameras · 1 patrolling" answers the two
+   * questions this screen exists for without opening anything.
+   */
   const camerasSection = (
     <div className="flex flex-col gap-[20px]">
       <SectionHead
         title="Cameras"
         lead="Name each camera so it can be quoted on the radio."
       />
+
       {towers.length === 0 ? (
         /* HONEST ABSENCE, not a spinner and not an invented row. An account
            with no towers is a real state, and this screen is reachable before
@@ -1055,214 +1108,143 @@ export function SettingsView({
           </p>
         </Panel>
       ) : (
-        <div className="flex flex-col gap-[24px]">
-          {towers.map((tower) => {
-            const mine = feeds.filter((f) => f.towerId === tower.id);
-            return (
-              <section key={tower.id} className="flex flex-col gap-[10px]">
-                <h3 className="font-display text-[0.75rem] tracking-[0.12px] text-muted">
-                  {tower.site || tower.id}
-                </h3>
-                {mine.length === 0 ? (
-                  <Panel>
-                    <p className="text-[0.8125rem] leading-[20px] text-muted">
-                      {/* Offline, or never reported an inventory. Both are
-                          facts; neither is "this tower has no cameras". */}
-                      This tower has not reported any cameras.
-                    </p>
-                  </Panel>
-                ) : (
-                  <ul className="flex flex-col gap-[10px]">
-                    {mine.map((feed) => {
-                      const editing = camEditing === feed.id;
-                      const busy = camSaving === feed.id;
-                      const err = camError?.id === feed.id ? camError.message : null;
-                      const draft = camDraft[feed.id] ?? feed.label ?? "";
-                      const resolution = (() => {
-                        /* The DEFAULT profile the tower advertised. Absent
-                           rather than guessed when it advertised none —
-                           inventing 1080p here would be the fake reading this
-                           app refuses everywhere else. */
-                        const prof =
-                          feed.profiles?.find((x) => x.default) ?? feed.profiles?.[0];
-                        return prof?.resolution
-                          ? `${prof.resolution.width} × ${prof.resolution.height}`
-                          : "Not reported";
-                      })();
-                      return (
-                        <li
-                          key={feed.id}
-                          className="flex flex-col gap-[12px] rounded-[12px] border border-line bg-card/40 p-[16px]"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-[12px]">
-                            <div className="flex min-w-0 flex-col gap-[6px]">
-                              <span className="break-words text-[0.9375rem] leading-[22px] text-body-ink">
-                                {feed.name}
-                              </span>
-                              {/* THE DETAILS, read-only. No IP, no password, no
-                                  network, recording or image settings — none are
-                                  in this screen's vocabulary or the route's, so
-                                  there is nothing here to get wrong. */}
-                              <dl className="flex flex-wrap gap-x-[18px] gap-y-[2px] text-[0.75rem] leading-[16px]">
-                                <Detail
-                                  label="Status"
-                                  value={
-                                    feed.state === "live"
+        <>
+          <label className="flex flex-col gap-[6px]">
+            <span className="sr-only">Search towers and cameras</span>
+            <input
+              type="search"
+              value={camQuery}
+              onChange={(e) => setCamQuery(e.target.value)}
+              placeholder="Search towers and cameras"
+              autoComplete="off"
+              className={INPUT}
+            />
+          </label>
+
+          {matches.length === 0 ? (
+            <Panel>
+              <p className="text-[0.8125rem] leading-[20px] text-muted">
+                Nothing matches that.
+              </p>
+            </Panel>
+          ) : (
+            <ul className="flex flex-col gap-[6px]">
+              {matches.map(({ tower, cameras }) => {
+                const open = camOpenTower === tower.id;
+                const patrolling = cameras.filter((f) => f.patrol?.enabled).length;
+                return (
+                  <li
+                    key={tower.id}
+                    className="overflow-hidden rounded-[10px] border border-line bg-card/40"
+                  >
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setCamOpenTower(open ? null : tower.id)}
+                      className="flex w-full items-center justify-between gap-[12px] px-[14px] py-[11px] text-left transition-colors hover:bg-card-hover"
+                    >
+                      <span className="min-w-0 truncate text-[0.875rem] leading-[20px] text-body-ink">
+                        {tower.site || tower.id}
+                      </span>
+                      {/* ⚠ THE SUMMARY, AND NOT A COUNT OF "Not reported".
+                          An offline tower says the one thing worth knowing and
+                          stops: its camera list is whatever it last sent, and
+                          counting that as fact would describe a site nobody
+                          can currently see. */}
+                      <span className="flex shrink-0 items-center gap-[6px] text-[0.75rem] leading-[16px] text-muted">
+                        {tower.online === false ? (
+                          <span className="text-critical">Offline</span>
+                        ) : (
+                          <>
+                            <span>
+                              {cameras.length === 1 ? "1 camera" : `${cameras.length} cameras`}
+                            </span>
+                            {patrolling > 0 && (
+                              <>
+                                <span aria-hidden>·</span>
+                                <span>{patrolling} patrolling</span>
+                              </>
+                            )}
+                          </>
+                        )}
+                        <Chevron open={open} />
+                      </span>
+                    </button>
+
+                    {open && (
+                      <ul className="flex flex-col border-t border-line">
+                        {cameras.length === 0 ? (
+                          <li className="px-[14px] py-[10px] text-[0.75rem] leading-[16px] text-muted">
+                            {/* Offline, or never reported an inventory. Both
+                                are facts; neither is "this tower has no
+                                cameras". */}
+                            This tower has not reported any cameras.
+                          </li>
+                        ) : (
+                          cameras.map((feed) => (
+                            <li key={feed.id}>
+                              <button
+                                type="button"
+                                aria-current={camOpen === feed.id ? "true" : undefined}
+                                onClick={() => setCamOpen(feed.id)}
+                                className={`flex w-full items-center justify-between gap-[12px] px-[14px] py-[9px] text-left transition-colors hover:bg-card-hover ${
+                                  camOpen === feed.id ? "bg-card-hover" : ""
+                                }`}
+                              >
+                                <span className="min-w-0 truncate text-[0.8125rem] leading-[18px] text-body-ink">
+                                  {feed.name}
+                                </span>
+                                <span className="flex shrink-0 items-center gap-[10px] text-[0.75rem] leading-[16px]">
+                                  <span
+                                    className={
+                                      feed.state === "offline" ? "text-critical" : "text-muted"
+                                    }
+                                  >
+                                    {feed.state === "live"
                                       ? "Online"
                                       : feed.state === "offline"
                                         ? "Offline"
-                                        : "Not reported"
-                                  }
-                                />
-                                <Detail label="Resolution" value={resolution} />
-                                <Detail
-                                  label="Lens"
-                                  value={
-                                    feed.lens === "ptz"
-                                      ? "PTZ"
-                                      : feed.lens === "fixed"
-                                        ? "Fixed"
-                                        : "Not reported"
-                                  }
-                                />
-                                <Detail
-                                  label="Control"
-                                  value={feed.ptz ? "Pan, tilt, zoom" : "None"}
-                                />
-                                {/* ⚠ MODEL IS NOT AVAILABLE. No tower reports a
-                                    camera make or model — it is not in
-                                    `tower.hello`, so the projection has no field
-                                    for it. Shown as not reported rather than
-                                    omitted, so the gap is visible instead of
-                                    looking like a field nobody thought of. */}
-                                <Detail label="Model" value="Not reported" />
-                              </dl>
-                            </div>
-                            {!editing && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCamEditing(feed.id);
-                                  setCamDraft((prev) => ({
-                                    ...prev,
-                                    [feed.id]: feed.label ?? "",
-                                  }));
-                                  setCamError(null);
-                                  setCamSaved(null);
-                                }}
-                                className={SECONDARY}
-                              >
-                                Rename
+                                        : "Not reported"}
+                                  </span>
+                                  {/* Absent on a fixed camera: no round to
+                                      sweep, so no value to print. */}
+                                  {feed.patrol && (
+                                    <span className="text-muted">
+                                      {patrolWord(feed.patrol)}
+                                    </span>
+                                  )}
+                                </span>
                               </button>
-                            )}
-                          </div>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
 
-                          {camSaved === feed.id && !editing && !err && (
-                            <p
-                              role="status"
-                              className="text-[0.8125rem] leading-[20px] text-terra"
-                            >
-                              Saved.
-                            </p>
-                          )}
-
-                          {editing && (
-                            <motion.div
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              transition={ENTER}
-                              className="flex flex-col gap-[10px] border-t border-line pt-[12px]"
-                            >
-                              <Field
-                                label="CAMERA NAME"
-                                hint={`Leave it empty to go back to "CAMERA ${feed.index}".`}
-                              >
-                                <input
-                                  value={draft}
-                                  onChange={(e) => {
-                                    setCamDraft((prev) => ({
-                                      ...prev,
-                                      [feed.id]: e.target.value,
-                                    }));
-                                    setCamError(null);
-                                  }}
-                                  onKeyDown={onEnter(() => !busy && void saveCamera(feed))}
-                                  disabled={busy}
-                                  autoFocus
-                                  maxLength={80}
-                                  autoCapitalize="none"
-                                  autoCorrect="off"
-                                  spellCheck={false}
-                                  aria-label={`Name for camera ${feed.index}`}
-                                  placeholder={`CAMERA ${feed.index}`}
-                                  className={`${INPUT} ${err ? "ring-1 ring-critical" : ""}`}
-                                />
-                              </Field>
-                              {err && (
-                                <p
-                                  role="alert"
-                                  className="text-[0.8125rem] leading-[20px] text-critical"
-                                >
-                                  {err}
-                                </p>
-                              )}
-                              <div className="flex gap-[10px]">
-                                <button
-                                  type="button"
-                                  onClick={() => void saveCamera(feed)}
-                                  disabled={busy}
-                                  aria-busy={busy || undefined}
-                                  className={PRIMARY}
-                                >
-                                  {busy ? "SAVING…" : "Save"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setCamEditing(null);
-                                    setCamError(null);
-                                    setCamDraft((prev) => {
-                                      const { [feed.id]: _drop, ...rest } = prev;
-                                      return rest;
-                                    });
-                                  }}
-                                  disabled={busy}
-                                  className={SECONDARY}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </motion.div>
-                          )}
-
-                          {/* ⚠ THE SAME COMPONENT THE TOWER PANEL DRAWS, and
-                              that is the point rather than a convenience. Two
-                              routes to one setting is the arrangement where
-                              one of them eventually offers an interval the
-                              other does not. A camera with no patrol block --
-                              a fixed one, or a build that does not run
-                              patrol -- gets nothing here, exactly as it gets
-                              no row there. */}
-                          {feed.ptz && feed.patrol && onSetPatrol ? (
-                            <div className="border-t border-line pt-[12px]">
-                              <PatrolControl
-                                patrol={feed.patrol}
-                                cameraName={feed.name ?? feed.id}
-                                showName={false}
-                                phase={patrolPhase?.(feed.id) ?? { kind: "idle" }}
-                                onChange={(edit) => onSetPatrol(feed.id, edit)}
-                              />
-                            </div>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
-            );
-          })}
-        </div>
+      {openFeed && (
+        <CameraPanel
+          feed={openFeed}
+          draft={camDraft[openFeed.id] ?? openFeed.label ?? ""}
+          busy={camSaving === openFeed.id}
+          error={camError?.id === openFeed.id ? camError.message : null}
+          saved={camSaved === openFeed.id}
+          onDraft={(v) => setCamDraft((prev) => ({ ...prev, [openFeed.id]: v }))}
+          onRename={() => void saveCamera(openFeed)}
+          onClose={() => setCamOpen(null)}
+          {...(onSetPatrol
+            ? {
+                onSetPatrol: (edit: PatrolEdit) => onSetPatrol(openFeed.id, edit),
+                patrolPhase: patrolPhase?.(openFeed.id) ?? { kind: "idle" as const },
+              }
+            : {})}
+        />
       )}
     </div>
   );
@@ -1380,5 +1362,136 @@ export function SettingsView({
         </div>
       </div>
     </div>
+  );
+}
+
+/** The chevron a collapsed tower row turns. */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <img
+      src="/icons/chevron-right.svg"
+      alt=""
+      width={12}
+      height={12}
+      aria-hidden
+      className={`block shrink-0 opacity-60 transition-transform ${open ? "rotate-90" : ""}`}
+    />
+  );
+}
+
+/**
+ * One camera, opened from the list.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  WHY A PANEL AND NOT AN EXPANDING CARD
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Because the list is the thing a person is navigating. An expanding card
+ * pushes every row below it down, so choosing a second camera means finding
+ * where the first one went; on a fleet that is the scroll this screen was
+ * rebuilt to remove. The panel sits beside the list on a wide screen and over
+ * it on a phone, and the list does not move.
+ *
+ * ⚠ IT CARRIES RENAME AND PATROL AND NOTHING ELSE. The old card also listed
+ * Status, Resolution, Lens, Control and a "Model: Not reported" row -- five
+ * readings, four of them repeated from the line you clicked to get here and
+ * one that has never been reported by anything. The line above carries the
+ * status; this carries what you came to CHANGE.
+ */
+function CameraPanel({
+  feed,
+  draft,
+  busy,
+  error,
+  saved,
+  onDraft,
+  onRename,
+  onClose,
+  onSetPatrol,
+  patrolPhase,
+}: {
+  feed: CameraFeed;
+  draft: string;
+  busy: boolean;
+  error: string | null;
+  saved: boolean;
+  onDraft: (value: string) => void;
+  onRename: () => void;
+  onClose: () => void;
+  onSetPatrol?: (edit: PatrolEdit) => void;
+  patrolPhase?: PatrolPhase;
+}) {
+  return (
+    <motion.aside
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={FADE}
+      aria-label={`${feed.name} settings`}
+      className="fixed inset-x-0 bottom-0 z-30 max-h-[80vh] overflow-y-auto rounded-t-[16px] border-t border-line bg-panel p-[18px] shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[340px] sm:max-h-none sm:rounded-none sm:border-l sm:border-t-0"
+    >
+      <div className="flex items-start justify-between gap-[12px]">
+        <h3 className="min-w-0 break-words text-[1rem] leading-[22px] text-body-ink">
+          {feed.name}
+        </h3>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="shrink-0 rounded-[6px] px-[8px] py-[4px] text-[0.8125rem] text-muted transition-colors hover:bg-card-hover hover:text-body-ink"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="mt-[16px] flex flex-col gap-[6px]">
+        <span className="font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.1px] text-dim">
+          Name
+        </span>
+        <input
+          value={draft}
+          onChange={(e) => onDraft(e.target.value)}
+          disabled={busy}
+          placeholder={feed.name}
+          className={INPUT}
+        />
+        {error && (
+          <p role="alert" className="text-[0.75rem] leading-[16px] text-critical">
+            {error}
+          </p>
+        )}
+        {saved && !error && (
+          <p role="status" className="text-[0.75rem] leading-[16px] text-terra">
+            Saved
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onRename}
+          disabled={busy}
+          aria-busy={busy || undefined}
+          className={`mt-[2px] h-[32px] self-start rounded-[8px] px-[14px] text-[0.8125rem] font-medium transition-colors ${
+            busy
+              ? "cursor-not-allowed bg-card text-body-ink/30"
+              : "bg-action text-action-ink hover:opacity-90"
+          }`}
+        >
+          {busy ? "Saving…" : "Save name"}
+        </button>
+      </div>
+
+      {/* The same control the tower and hub mast panels draw. A fixed camera
+          carries no patrol block and gets nothing here. */}
+      {feed.ptz && feed.patrol && onSetPatrol && (
+        <div className="mt-[18px] border-t border-line pt-[16px]">
+          <PatrolControl
+            patrol={feed.patrol}
+            cameraName={feed.name ?? feed.id}
+            showName={false}
+            phase={patrolPhase ?? { kind: "idle" }}
+            onSave={onSetPatrol}
+          />
+        </div>
+      )}
+    </motion.aside>
   );
 }

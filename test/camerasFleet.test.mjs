@@ -217,7 +217,14 @@ describe("the patrol control sends nothing until Save", () => {
   test("⭐ and the draft is reset by the device's answer", () => {
     /* Every refusal changes nothing, by contract, so a failed save puts the
        controls back rather than leaving them on a request that was refused. */
-    assert.match(control, /\[patrol\.enabled, patrol\.every, patrol\.direction\]/);
+    /* ⚠ TWO EFFECTS NOW, NOT ONE. The ordinary reset is skipped while a
+       save is in flight -- a refresh landing then carries the OLD patrol and
+       would take the operator's choice off the screen under "Saving..." --
+       so a refusal needs its own, because a refused value has not CHANGED
+       and the ordinary effect would never fire for it. */
+    assert.match(control, /if \(pending\) return;/);
+    assert.match(control, /if \(!failed\) return;/);
+    assert.match(control, /patrol\.enabled, patrol\.every, patrol\.direction/);
   });
 
   test("the line beside Save says Patrolling now, or the next time", () => {

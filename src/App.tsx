@@ -34,6 +34,7 @@ import { setPatrol } from "@/lib/api/fleet";
 import type { PatrolEdit } from "@/lib/patrol";
 import type { PatrolPhase } from "@/components/PatrolControl";
 import type { Reach } from "@/lib/liveRecovery";
+import { HeldWrites, holdKey } from "@/lib/heldWrites";
 import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
 import { TowersView } from "@/components/TowersView";
@@ -281,8 +282,7 @@ export function SentinelApp() {
       try {
         const snapshot = await listFleet(controller.signal);
         if (controller.signal.aborted) return;
-        setTowers(snapshot.towers);
-        setFeeds(snapshot.feeds);
+        takeSnapshot(snapshot);
         setCloud(snapshot.cloud);
         setReachProblem(null);
       } catch (err) {
@@ -314,13 +314,71 @@ export function SentinelApp() {
    * things: the banner says what is wrong with the fleet, the mutation says
    * what the button is doing about it.
    */
+  /**
+   * What the server has just confirmed, until a refresh agrees.
+   *
+   * ⚠ A REF, NOT STATE. Nothing renders from it: what renders is the array
+   * it corrects on the way into state. Holding it in state would re-render
+   * the whole app twice per poll to change nothing anybody can see.
+   */
+  const held = useRef(new HeldWrites());
+
+  /**
+   * THE ONE DOOR EVERY SERVER ANSWER COMES THROUGH.
+   *
+   * ⚠ FOUR PLACES READ THE FLEET -- the first load, the operator's reload,
+   * the quiet refresh after a share, and the reload after a camera is added
+   * -- and every one of them used to call `setFeeds(snapshot.feeds)`
+   * directly. That is four chances to overwrite a value somebody had just
+   * saved, and it only took one: a save showed "2 hours", then "1 hour"
+   * again, then "2 hours", because a `listFleet` already in flight carried
+   * the old patrol and replaced every feed wholesale.
+   *
+   * Narrow on purpose. Only the fields somebody has just changed are held;
+   * link state, battery, cameras coming back and a tower going dark all come
+   * through untouched, because freezing the fleet view to steady one row
+   * would be the worse trade.
+   */
+  const takeSnapshot = useCallback(
+    (snapshot: { towers: Tower[]; feeds: CameraFeed[] }) => {
+      setTowers(
+        held.current.apply(
+          snapshot.towers,
+          "tower",
+          "site",
+          (t) => t.id,
+          (t) => t.site,
+          (t, v) => ({ ...t, site: v as string }),
+        ) as Tower[],
+      );
+      const withPatrol = held.current.apply(
+        snapshot.feeds,
+        "camera",
+        "patrol",
+        (f) => f.id,
+        (f) => f.patrol,
+        (f, v) => ({ ...f, patrol: v as CameraFeed["patrol"] }),
+      );
+      setFeeds(
+        held.current.apply(
+          withPatrol,
+          "camera",
+          "label",
+          (f) => f.id,
+          (f) => f.label,
+          (f, v) => ({ ...f, label: v as string }),
+        ) as CameraFeed[],
+      );
+    },
+    [],
+  );
+
   const reloadFleet = useCallback(
     () =>
       fleetReload.run("fleet", async () => {
         try {
           const snapshot = await listFleet();
-          setTowers(snapshot.towers);
-          setFeeds(snapshot.feeds);
+          takeSnapshot(snapshot);
           setCloud(snapshot.cloud);
           setReachProblem(null);
         } catch (err) {
@@ -348,8 +406,7 @@ export function SentinelApp() {
   const refreshFleetQuietly = useCallback(async () => {
     try {
       const snapshot = await listFleet();
-      setTowers(snapshot.towers);
-      setFeeds(snapshot.feeds);
+      takeSnapshot(snapshot);
       setCloud(snapshot.cloud);
     } catch {
       /* Deliberately silent. See above. */
@@ -886,10 +943,21 @@ export function SentinelApp() {
         if (!feed || feed.index === undefined) {
           throw new Error("that camera is no longer on this site");
         }
-        const patrol = await setPatrol(feed.towerId, feed.index, edit);
-        setFeeds((prev) =>
-          prev.map((f) => (f.id === feedId ? { ...f, patrol } : f)),
-        );
+        try {
+          const patrol = await setPatrol(feed.towerId, feed.index, edit);
+          /* ⚠ CONFIRMED BEFORE IT IS DRAWN. The hold is what stops the next
+             fleet refresh -- possibly one already in flight -- putting the
+             old patrol back over it. */
+          held.current.confirm(holdKey("camera", feedId, "patrol"), patrol);
+          setFeeds((prev) =>
+            prev.map((f) => (f.id === feedId ? { ...f, patrol } : f)),
+          );
+        } catch (err) {
+          /* Nothing was changed, by contract, so there is nothing to hold:
+             the last confirmed value is whatever is already on screen. */
+          held.current.release(holdKey("camera", feedId, "patrol"));
+          throw err;
+        }
       }),
     [deliberate, feeds],
   );
@@ -917,6 +985,8 @@ export function SentinelApp() {
       renameMutation.run(towerId, async () => {
         const { towers: [renamed] } = await renameTowerOnServer(towerId, to);
         if (!renamed) return;
+        /* The third field edited this way, and the third that flickered. */
+        held.current.confirm(holdKey("tower", towerId, "site"), renamed.site);
         setTowers((prev) =>
           prev.map((t) =>
             t.id === towerId
@@ -1411,8 +1481,7 @@ export function SentinelApp() {
         if (consumed) {
           const snapshot = await listFleet(controller.signal);
           if (!controller.signal.aborted && !stopped) {
-            setTowers(snapshot.towers);
-            setFeeds(snapshot.feeds);
+            takeSnapshot(snapshot);
             setCloud(snapshot.cloud);
           }
         }
@@ -1834,6 +1903,13 @@ export function SentinelApp() {
              than patched — patching one field is how the wall ends up showing
              the old name while the settings screen shows the new one. */
           onCameraRenamed={(tower, renamedFeeds) => {
+            /* ⚠ HELD LIKE A PATROL, AND FOR THE SAME REASON. The server
+               answers with the re-projected tower, and a `listFleet` already
+               in flight carries the OLD name -- so a rename flickered back
+               exactly the way a patrol did. */
+            for (const f of renamedFeeds) {
+              held.current.confirm(holdKey("camera", f.id, "label"), f.label);
+            }
             setTowers((prev) =>
               prev.map((t) => (t.id === tower.id ? tower : t)),
             );

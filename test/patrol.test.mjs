@@ -317,8 +317,14 @@ describe("one component, in both places", () => {
   test("⭐ what is drawn is the device's state, not the request", () => {
     /* Every refusal changes nothing, by contract, so a failed save has to put
        the controls back rather than leave them on what was asked for. */
-    assert.match(control, /useEffect\(\(\) => \{\s*setDraft\(/);
-    assert.match(control, /\[patrol\.enabled, patrol\.every, patrol\.direction\]/);
+    /* ⚠ TWO EFFECTS NOW, NOT ONE. The ordinary reset is skipped while a
+       save is in flight -- a refresh landing then carries the OLD patrol and
+       would take the operator's choice off the screen under "Saving..." --
+       so a refusal needs its own, because a refused value has not CHANGED
+       and the ordinary effect would never fire for it. */
+    assert.match(control, /if \(pending\) return;/);
+    assert.match(control, /if \(!failed\) return;/);
+    assert.match(control, /patrol\.enabled, patrol\.every, patrol\.direction/);
   });
 
   test("the shell holds the write and replaces the camera's block", () => {

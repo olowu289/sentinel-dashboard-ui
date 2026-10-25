@@ -57,6 +57,35 @@ const WHY_REFUSED: Readonly<Record<string, string>> = {
 
 type Names = Readonly<Record<string, string>>;
 
+/**
+ * "Camera 1", from whatever the ledger recorded as the camera.
+ *
+ * The number is what the operator reads on the tile and quotes on the radio.
+ * An entry with no camera on it says "a camera" rather than "Camera
+ * undefined", which is the one answer that looks like a bug in the log.
+ */
+function cameraName(camera: unknown): string {
+  const n = typeof camera === "number" && Number.isFinite(camera) ? camera : null;
+  return n === null ? "a camera" : `Camera ${n}`;
+}
+
+/**
+ * How often a patrol runs, as the middle of a sentence.
+ *
+ * ⚠ LOWER CASE AND MID-SENTENCE, which is why it is not `everyWord` from
+ * `lib/patrol.ts`. That one is a row VALUE and is capitalised for a column of
+ * values; this one is read inside "set Camera 1 to patrol every 4 hours", and
+ * "to patrol Every 4 hours" is the kind of seam that makes a log read as
+ * generated rather than written.
+ */
+function everyPhrase(every: unknown): string {
+  const code = typeof every === "string" ? every.trim().toLowerCase() : "";
+  if (code === "random") return "at random times";
+  if (code === "1h") return "every hour";
+  const hours = /^(\d+)h$/.exec(code);
+  return hours ? `every ${hours[1]} hours` : "on a schedule";
+}
+
 interface Detail {
   readonly [key: string]: unknown;
 }
@@ -256,6 +285,28 @@ export function sentenceFor(entry: AuditEntry, names: Names = {}): string | null
     case "device.replaced":
       return `${actor} replaced ${nameOf(entry.device_id, names, "a tower")}`;
 
+    /* ── PATROL ───────────────────────────────────────────────────
+       ⚠ TWO SENTENCES, BECAUSE TURNING IT OFF HAS NO SCHEDULE TO READ
+       OUT. "Dave set Camera 1 on Tower 1 to patrol every never, nowhere" is
+       what one sentence with holes in it produces; the reader of an audit log
+       wants to know what somebody did, and turning patrol off is a different
+       act from scheduling it. */
+    case "patrol.set": {
+      const where = `${cameraName(d.camera)} on ${nameOf(
+        entry.device_id ?? d.device_id,
+        names,
+        str(d.name) || "a tower",
+      )}`;
+      if (d.enabled !== true) return `${actor} turned off patrol on ${where}`;
+      const every = everyPhrase(d.every);
+      const direction = str(d.direction);
+      const way = direction === "random" ? "in a random direction"
+        : direction === "anticlockwise" ? "anticlockwise"
+        : direction === "clockwise" ? "clockwise"
+        : null;
+      return `${actor} set ${where} to patrol ${every}${way ? `, ${way}` : ""}`;
+    }
+
     /* ── EVERYTHING ELSE ─────────────────────────────────────────── */
     default:
       /* ptz.command, grant.issue, session.open, renewal.*, enrolment
@@ -272,5 +323,7 @@ export function groupOf(entry: AuditEntry): string | null {
   if (a.startsWith("person.") || a.startsWith("site.member_")) return "people";
   if (a.startsWith("share.")) return "sharing";
   if (a.startsWith("site.") || a.startsWith("device.")) return "places";
+  /* A tower setting, changed by a person, belongs with the towers. */
+  if (a.startsWith("patrol.")) return "places";
   return null;
 }

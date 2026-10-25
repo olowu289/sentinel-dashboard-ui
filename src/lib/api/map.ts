@@ -14,6 +14,7 @@
  * the projection; if a field is not in `TowerInfo`, it does not exist here.
  */
 
+import { parsePatrol } from "@/lib/patrol";
 import type { CameraInfo, TowerDetail, TowerInfo } from "@kallon/sentry-sdk";
 import type {
   CameraFeed,
@@ -412,6 +413,12 @@ export function toFeed(
             : {}),
         })) }
       : {}),
+    /* Straight through, and ABSENT when the camera carried none -- a fixed
+       dome has no round to sweep and must not gain a switch here. */
+    ...(() => {
+      const patrol = parsePatrol((cam as { patrol?: unknown }).patrol);
+      return patrol ? { patrol } : {};
+    })(),
     poster: "",
     lastSeenAt: asOf,
     /* No `latencyMs`. Coordination reports none, and `FeedChip` omits the

@@ -706,6 +706,9 @@ const SCREENS = [
   { id: "hub-signin", label: "Hub: sign in (login filled)", mode: "hub" },
   { id: "hub-signin-bare", label: "Hub: sign in (no organization)", mode: "hub" },
   { id: "cloud-signin", label: "Sign in (Kallon Cloud)", mode: "full" },
+  /* The OTHER route to patrol. Same component, different screen -- which is
+     the thing worth photographing side by side. */
+  { id: "settings-cameras", label: "Settings · Cameras (patrol)", mode: "full" },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -1276,6 +1279,16 @@ const SETTINGS_FEEDS: CameraFeed[] = [
     name: "GATE",
     state: "live",
     ptz: true,
+    /* ⚠ ONLY THE MOVABLE CAMERA CARRIES ONE, which is what the Patrol row
+       and the Cameras screen are drawn against: YARD below is fixed, has no
+       block, and must show no patrol anywhere. */
+    patrol: {
+      enabled: true,
+      every: "4h",
+      direction: "clockwise",
+      nextAt: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
+      running: false,
+    },
     profiles: [
       { id: "sub", resolution: { width: 704, height: 576 }, default: true },
       { id: "main", resolution: { width: 2560, height: 1440 } },
@@ -1401,6 +1414,10 @@ function SettingsScreen({ which }: { which: string }) {
         settings={DEFAULT_CAMERA_SETTINGS}
         onChange={() => {}}
         onRename={() => {}}
+        /* The row is drawn only where the shell can actually write, so the
+           harness supplies a no-op: a screenshot of a control nobody wired
+           would be a screenshot of a control that is not in the product. */
+        onSetPatrol={() => {}}
         onClose={() => {}}
         className="w-[420px] max-w-full"
       />
@@ -1455,6 +1472,13 @@ function Harness() {
       <BoardScreen />
     ) : which.endsWith("-signin") || which === "hub-signin-bare" ? (
       <LoginView />
+    ) : which === "settings-cameras" ? (
+      <SettingsView
+        section="cameras"
+        towers={[SETTINGS_TOWER]}
+        feeds={SETTINGS_FEEDS}
+        onSetPatrol={() => {}}
+      />
     ) : which === "hub-settings" ? (
       <SettingsView />
     ) : which === "hub-tower-settings" ? (

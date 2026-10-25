@@ -862,6 +862,35 @@ export interface CameraResolution {
  * are the §A.6 SHOULD-omit tier — tolerated silently if present, but not typed
  * here, because a field with no consumer is a field that ossifies (§A.3.3).
  */
+/** How often a patrol runs. A closed set; `random` is a choice, not a gap. */
+export type PatrolEvery = "1h" | "2h" | "4h" | "6h" | "12h" | "24h" | "random";
+
+/** Which way round. A closed set. */
+export type PatrolDirection = "clockwise" | "anticlockwise" | "random";
+
+/**
+ * One movable camera's patrol, as the projection whitelists it.
+ *
+ * Five fields, each validated field by field rather than wholesale: a device
+ * reporting one value this build does not know about must not cost the screen
+ * the other four.
+ */
+export interface CameraPatrol {
+  enabled: boolean;
+  every: PatrolEvery;
+  direction: PatrolDirection;
+  /**
+   * When the next round starts, as the DEVICE'S OWN CLOCK sent it.
+   *
+   * Carried as the string it reported and never recomputed: a cloud guessing
+   * a next time from an interval would drift away from the box that is
+   * actually going to turn. `null` while off, and before the device has said.
+   */
+  next_at: Timestamp | null;
+  /** It is sweeping right now. */
+  running: boolean;
+}
+
 export interface CameraInfo {
   /**
    * §A.2 — the protocol address, integer ≥ 1, unique within a tower. **The only
@@ -889,6 +918,21 @@ export interface CameraInfo {
   enclosure?: string;
   /** §A.5 — main view vs swappable inset within a tile. Absent → primary. */
   role?: CameraRole;
+  /**
+   * The scheduled sweep of a camera's preset round.
+   *
+   * ⚠ PRESENT ON EVERY MOVABLE CAMERA AND ON NO FIXED ONE, and that absence
+   * is the field's whole signal rather than an omission. `projection.py`
+   * gates it on `ptz_capable` and DEFAULTS it there — off, every 4h,
+   * clockwise, never — because "nobody has configured this camera" is a real
+   * state with a real answer, and a missing block would make every screen
+   * invent that answer for itself. A fixed camera has no round to sweep, so
+   * it carries nothing and a client draws nothing.
+   *
+   * A consumer must therefore treat `undefined` as "this camera cannot
+   * patrol" and NEVER as "patrol is off".
+   */
+  patrol?: CameraPatrol;
   /**
    * §3.1 — the stream profiles this camera can be opened at, default first.
    *

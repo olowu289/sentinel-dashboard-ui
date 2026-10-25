@@ -152,22 +152,6 @@ export declare function parseSweepStatus(raw: unknown, ctx?: ValidateContext): S
  * numbers drive a progress indicator.
  */
 export declare function sweepOf(result: PtzResult | undefined | null): SweepStatus | undefined;
-/**
- * Validate one camera of the **projected** inventory (§A.2).
- *
- * Required: `index`, `lens`, `ptz_capable`, `status`. Optional: `resolution`
- * (an object — a `"WIDTHxHEIGHT"` string is rejected, §A.12 #1), `enclosure`,
- * `role`.
- *
- * **`path` is not read and not required.** 0.1.0 required it, because it needed
- * it to join `health.feeds[]` for liveness. §A.2 serves `status` directly and
- * §A.6 puts `path` in the MUST-NOT tier, so the field is gone from both ends of
- * that join: not consumed here, and rejected by {@link assertNoProjectionLeak}
- * if coordination sends it anyway.
- *
- * `resolution` stays per-camera — §3.1 warns cam1 is 1080p and cam2 1440p on
- * the same tower, and "consumers MUST NOT assume uniformity".
- */
 export declare function parseCameraInfo(c: Check, path: string, raw: unknown): CameraInfo;
 /**
  * Validate a health block (§3.1 `health`, §3.4 `tower.state.health`).

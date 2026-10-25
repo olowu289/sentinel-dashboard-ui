@@ -518,6 +518,10 @@ export function sweepOf(result: PtzResult | undefined | null): SweepStatus | und
  * `resolution` stays per-camera — §3.1 warns cam1 is 1080p and cam2 1440p on
  * the same tower, and "consumers MUST NOT assume uniformity".
  */
+/** The closed sets `projection.py` validates against. Named once, used once. */
+const PATROL_EVERY = ["1h", "2h", "4h", "6h", "12h", "24h", "random"] as const;
+const PATROL_DIRECTIONS = ["clockwise", "anticlockwise", "random"] as const;
+
 export function parseCameraInfo(c: Check, path: string, raw: unknown): CameraInfo {
   const o = c.obj(path, raw);
   if (!o) return { index: 0, lens: "fixed", ptz_capable: false, status: "unknown" };
@@ -540,6 +544,43 @@ export function parseCameraInfo(c: Check, path: string, raw: unknown): CameraInf
         height: c.num(`${path}.resolution.height`, r["height"]),
       };
     }
+  }
+  /* PATROL, on a movable camera only.
+
+     ⚠ WHITELISTED LIKE EVERYTHING ELSE HERE, AND THAT IS WHY IT HAD TO BE
+     ADDED. This function builds a NEW object from the fields it names, so a
+     block it does not name is not merely unvalidated -- it is DROPPED. The
+     dashboard's Patrol row read `camera.patrol`, coordination sent it on all
+     four cameras of the lab fleet, and it never arrived: the field was
+     whitelisted out one layer above the code looking for it.
+
+     ⚠ AND IT IS TOLERANT WHERE `lens` AND `status` ARE STRICT, deliberately.
+     Those two are PROTOCOL: a tower reporting an unknown lens has said
+     something this version cannot act on, and the loud answer is right.
+     Patrol is a SETTING on a device that gets firmware updates, so a seventh
+     direction or an eighth interval is a thing to expect rather than a
+     malformed tower -- and `c.enum` records an issue, which `done` throws on,
+     which would take the WHOLE FLEET off the screen over one camera's
+     schedule. Unknown values fall back here and nothing is recorded.
+
+     Absent stays absent: a fixed camera has no round to sweep, and a block
+     defaulted in here would hand it a schedule it cannot keep. */
+  const rawPatrol = o["patrol"];
+  if (rawPatrol !== null && typeof rawPatrol === "object" && !Array.isArray(rawPatrol)) {
+    const p = rawPatrol as Record<string, unknown>;
+    const oneOf = <T extends string>(v: unknown, set: readonly T[], fallback: T): T =>
+      typeof v === "string" && (set as readonly string[]).includes(v) ? (v as T) : fallback;
+    const nextAt = p["next_at"];
+    out.patrol = {
+      enabled: p["enabled"] === true,
+      every: oneOf(p["every"], PATROL_EVERY, "4h"),
+      direction: oneOf(p["direction"], PATROL_DIRECTIONS, "clockwise"),
+      /* `null` is the documented value for "not scheduled", so it is not an
+         error and must not become one: the projection sends it for every
+         camera whose patrol is off. */
+      next_at: typeof nextAt === "string" && nextAt.trim() !== "" ? nextAt : null,
+      running: p["running"] === true,
+    };
   }
   if (o["profiles"] !== undefined && o["profiles"] !== null) {
     // §3.1 — default first, but order is the tower's business and not asserted

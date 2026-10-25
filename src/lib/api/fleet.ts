@@ -74,9 +74,32 @@ export interface CloudReading {
 export class TowerUnavailableError extends Error {
   readonly deviceId: string;
   constructor(deviceId: string) {
-    super(`${deviceId} is unavailable`);
+    /* ⚠ THE MESSAGE CARRIES NO ID, AND IT USED TO BE THE ID. This read
+       "kln_lab_000002 is unavailable", which `said` passed through verbatim
+       because it has spaces and no code-shaped punctuation -- so a failed
+       patrol save put a machine name on a customer's screen. The id is kept
+       as a FIELD for the code that needs it; nothing builds a sentence from
+       it. See `lib/said.ts`, which now refuses one as a backstop. */
+    super("That tower is not available.");
     this.name = "TowerUnavailableError";
     this.deviceId = deviceId;
+  }
+}
+
+/**
+ * The request never got an answer.
+ *
+ * ⚠ NOT THE SAME AS A TOWER BEING UNAVAILABLE, and it was being reported as
+ * one. A refused connection, a blocked preflight, a dropped uplink and an
+ * aborted fetch all mean NOBODY SAID ANYTHING -- which is a statement about
+ * the path, not about the tower, and the person's next move is their
+ * connection rather than their fleet. Telling them a tower is unavailable
+ * sends them to look at a mast that is fine.
+ */
+export class NoAnswerError extends Error {
+  constructor() {
+    super("That change was not saved. Check your connection and try again.");
+    this.name = "NoAnswerError";
   }
 }
 
@@ -308,7 +331,10 @@ export async function renameCamera(
     );
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw err;
-    throw new TowerUnavailableError(deviceId);
+    /* Nothing answered. Same rule as the patrol write below: that is the
+       connection, not the tower, and sending somebody to look at a mast that
+       is fine is the wrong next move. */
+    throw new NoAnswerError();
   }
 
   if (response.status === 401) {
@@ -416,7 +442,9 @@ export async function setPatrol(
     );
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw err;
-    throw new TowerUnavailableError(deviceId);
+    /* Nothing answered -- including a preflight the browser refused to send.
+       That is the connection, not the tower. */
+    throw new NoAnswerError();
   }
 
   if (response.status === 401) {

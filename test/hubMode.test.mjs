@@ -348,3 +348,72 @@ describe("the production build asks the internet for nothing", () => {
     }
   });
 });
+
+/* ======================================================================
+ *  THE CLOUD BUILD, WHICH IS A DIFFERENT ARTEFACT
+ * ====================================================================== */
+
+/**
+ * ⚠ THE HUB BUILD AND THE CLOUD BUILD ARE NOT THE SAME FILES, and the scan
+ * above only ever looked at whichever one happened to be in `dist/`.
+ *
+ * They differ by `VITE_COORDINATION_URL`: the hub build leaves it unset so
+ * the page talks to whatever served it, and the cloud build bakes
+ * sentri.watch's coordination origin in. That one variable reaches
+ * `vite.config.ts`, which narrows the CSP's `connect-src` and `media-src` at
+ * build time -- so the two artefacts genuinely differ, and "the hub build is
+ * clean" is not a statement about the one customers load.
+ *
+ * sentri.watch was requesting a Google Fonts stylesheet (blocked by the
+ * edge CSP, red in DevTools) long after the fonts were self-hosted here, and
+ * nothing in this suite could have said so.
+ */
+describe("the CLOUD build asks the internet for nothing either", () => {
+  let files = [];
+
+  before(async () => {
+    const out = join(ROOT, "dist-cloud-scan");
+    await run(
+      "npx",
+      ["vite", "build", "--outDir", "dist-cloud-scan", "--emptyOutDir"],
+      {
+        cwd: ROOT,
+        shell: process.platform === "win32",
+        /* The one thing that makes it the cloud artefact. */
+        env: { ...process.env, VITE_COORDINATION_URL: "https://coord.example.com" },
+      },
+    );
+    files = await walk(out, [".html", ".js", ".css", ".json", ".svg", ".txt", ".webmanifest"]);
+  });
+
+  test("⭐ no font, and no other outside host", async () => {
+    const hits = [];
+    for (const f of files) {
+      const text = await readFile(f, "utf8");
+      for (const m of text.matchAll(/https?:\/\/[a-zA-Z0-9._~:/?#@!$&'()*+,;=%-]+/g)) {
+        if (ALLOWED_REFERENCE.some((re) => re.test(m[0]))) continue;
+        /* The coordination origin IS baked into this one, on purpose: it is
+           what the page is configured to talk to, not something it fetches
+           from a third party. */
+        if (m[0].startsWith("https://coord.example.com")) continue;
+        hits.push(`${relative(ROOT, f)}: ${m[0].slice(0, 90)}`);
+      }
+    }
+    assert.deepEqual(hits, [], `the cloud build reaches outside:\n  ${hits.join("\n  ")}`);
+  });
+
+  test("⭐ specifically: nothing asks fonts.googleapis.com", async () => {
+    /* The exact request seen on sentri.watch. */
+    const loaded = files.filter((f) => [".html", ".js", ".css"].includes(extname(f)));
+    for (const f of loaded) {
+      const text = await readFile(f, "utf8");
+      assert.ok(!/fonts\.(googleapis|gstatic)\.com/.test(text), relative(ROOT, f));
+      assert.ok(!/Inter\+?\s?Tight/i.test(text), `${relative(ROOT, f)} still names Inter Tight`);
+    }
+  });
+
+  test("and its typefaces still ship as files", async () => {
+    const woff = await walk(join(ROOT, "dist-cloud-scan"), [".woff2"]);
+    assert.ok(woff.length >= 2, `only ${woff.length} woff2 in the cloud build`);
+  });
+});

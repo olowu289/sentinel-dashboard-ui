@@ -107,12 +107,34 @@ const BARE_STATUS = new RegExp(String.raw`\b[45]\d{2}\b(?!\s*(?:${UNIT})\b)`, "i
  * Exported for the tests, which is the only reason it is not inlined: the
  * rules above are the whole of the judgement and they should be visible.
  */
+/**
+ * The shapes of a machine name, which no person may be shown.
+ *
+ * ⚠ A SENTENCE WITH AN ID IN IT STILL READS LIKE A SENTENCE, which is how
+ * "kln_lab_000002 is unavailable" reached a customer: it has spaces, it has
+ * no code punctuation, and every other test here passed it. The id is the
+ * thing that makes it useless -- nobody outside this office can act on a
+ * device id, and the person who can is not looking at that screen.
+ *
+ * Device ids, hub ids, account ids and session references. Matched loosely on
+ * purpose: a message carrying one of these is wrong whatever the rest of it
+ * says, and the fallback sentence is always better.
+ */
+const MACHINE_NAME = /\b(kln[_-][a-z0-9_-]+|hub[_-][a-z0-9]{3,}|acct[_-][a-z0-9]+|ses[_-][a-z0-9]+|vwr[_-][a-z0-9]+|shr[_-][a-z0-9]+)\b/i;
+
+/** Does this text name a machine rather than describe a situation? */
+export function namesAMachine(text: string): boolean {
+  return MACHINE_NAME.test(text);
+}
+
 export function readsLikeASentence(text: string): boolean {
   const t = text.trim();
   if (t.length < 4 || t.length > 400) return false;
   // A bare identifier with no spaces is a code, not a sentence.
   if (!t.includes(" ")) return false;
   if (BARE_STATUS.test(t)) return false;
+  /* ⚠ AND NOT ONE WITH AN ID IN IT, however well it reads. */
+  if (MACHINE_NAME.test(t)) return false;
   for (const pattern of NOT_FOR_A_PERSON) {
     if (pattern.test(t)) return false;
   }

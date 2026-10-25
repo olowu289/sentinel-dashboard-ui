@@ -87,9 +87,27 @@ export function PatrolControl({
     direction: patrol.direction,
   };
   const [draft, setDraft] = useState<PatrolEdit>(current);
+
+  /* ⚠ NOT WHILE A SAVE IS IN FLIGHT. A fleet refresh landing mid-save
+     carries the OLD patrol -- that is the whole reason `heldWrites` exists --
+     and this effect would take the operator's chosen values off the screen
+     and put the old ones back under a "Saving…" label. The device's answer is
+     what resets these, and until it arrives the choice stands. */
   useEffect(() => {
+    if (pending) return;
     setDraft({ enabled: patrol.enabled, every: patrol.every, direction: patrol.direction });
-  }, [patrol.enabled, patrol.every, patrol.direction]);
+  }, [pending, patrol.enabled, patrol.every, patrol.direction]);
+
+  /* ⚠ AND A REFUSAL PUTS THEM BACK. Nothing was changed, by contract, so the
+     last confirmed values are what `patrol` already holds -- but they have
+     not CHANGED, so the effect above would never fire for them. Leaving the
+     controls on a rejected choice beside the refusal reads as a change that
+     half happened. */
+  const failed = phase.kind === "failed";
+  useEffect(() => {
+    if (!failed) return;
+    setDraft({ enabled: patrol.enabled, every: patrol.every, direction: patrol.direction });
+  }, [failed, patrol.enabled, patrol.every, patrol.direction]);
 
   const changed = !same(draft, current);
 

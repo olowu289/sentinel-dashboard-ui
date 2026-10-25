@@ -1,3 +1,5 @@
+import type { Patrol } from "./patrol";
+
 /**
  * Feed state grammar — `state • duration`, one chip per tile.
  *
@@ -563,6 +565,16 @@ export interface CameraFeed {
   ptz?: boolean;
   /** Optical class, straight from the projection. */
   lens?: "ptz" | "fixed";
+  /**
+   * This camera's patrol, where it has one.
+   *
+   * ⚠ ABSENT ON A FIXED CAMERA, AND THAT ABSENCE IS THE SIGNAL. A camera
+   * with no round to sweep has no patrol block on the wire, so it gets no
+   * Patrol row -- not a row that says "Off", and not one explaining why it
+   * cannot. Defaulting this to a disabled patrol would give a fixed dome a
+   * switch offering to turn it. See `lib/patrol.ts`.
+   */
+  patrol?: Patrol;
   /**
    * The customer's own name for this camera, when they have set one.
    *

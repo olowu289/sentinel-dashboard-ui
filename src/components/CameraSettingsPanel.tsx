@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { QuickShare } from "@/components/sharing/QuickShare";
+import { useBorrowedShare } from "@/lib/useShareFeed";
 import { useCapabilities } from "@/lib/useSites";
 import {
   useEffect,
@@ -14,6 +15,8 @@ import { batteryFill, batteryTone, TowerBattery } from "./TowerBattery";
 import { ENTER, FADE } from "@/lib/motion";
 import { formatConnectedSince } from "@/lib/time";
 import { uplinkDisplay, type UplinkDisplay } from "@/lib/uplinkDisplay";
+import { PatrolControl, type PatrolPhase } from "@/components/PatrolControl";
+import { patrolSummary, type PatrolEdit } from "@/lib/patrol";
 import { UplinkBars } from "@/components/UplinkBars";
 import {
   connectedSinceAt,
@@ -184,6 +187,8 @@ export function CameraSettingsPanel({
   onChooseProfile,
   onSetHome,
   onGoHome,
+  onSetPatrol,
+  patrolPhase,
   homePhase,
   onRetryHome,
   onDismissHome,
@@ -239,6 +244,16 @@ export function CameraSettingsPanel({
    * panel does not hold.
    */
   onGoHome?: (feedId: string) => void;
+  /**
+   * Change one camera's patrol.
+   *
+   * Owned by the shell like every other real write on this panel: it goes to
+   * coordination, and what comes back replaces the camera's own block, so the
+   * panel shows the device's answer rather than the operator's request.
+   */
+  onSetPatrol?: (feedId: string, edit: PatrolEdit) => void;
+  /** What each camera's patrol save is doing. Keyed by feed id. */
+  patrolPhase?: (feedId: string) => PatrolPhase;
   /** What each camera's set-home is doing. Keyed by feed id. */
   homePhase?: (feedId: string) => MutationPhase;
   onRetryHome?: (feedId: string) => void;
@@ -324,6 +339,32 @@ export function CameraSettingsPanel({
 
   /* The cameras a home position can mean anything for. */
   const movableFeeds = feeds.filter((f) => f.ptz);
+
+  /**
+   * The cameras that can patrol.
+   *
+   * ⚠ THE PATROL BLOCK, NOT `ptz`, AND THEY ARE NOT THE SAME TEST. `ptz` is
+   * what the camera's lens can do; the block is what the DEVICE says it is
+   * willing to run. A movable camera on a build that does not do patrol yet
+   * carries no block, and a row offering to schedule one would be a switch
+   * with nothing behind it -- which is the fake control this app refuses
+   * everywhere else. A fixed camera never carries one.
+   */
+  const patrolFeeds = feeds.filter((f) => f.ptz && f.patrol !== undefined);
+
+  /**
+   * Is this whole device lent to us by somebody else?
+   *
+   * ⚠ A SHARE LENDS A PICTURE, NOT THE RIGHT TO DRIVE. Patrol sends a dome
+   * round its preset circuit on a timer, on a mast at somebody else's site,
+   * all night. The row is absent for a share holder rather than present and
+   * refusing: a control that exists only to say no is worse than no control,
+   * and the server refuses it anyway with `patrol_forbidden`.
+   *
+   * Asked for the DEVICE, with no camera index, which is what makes "lend
+   * this tower" cover the camera added to it next week too.
+   */
+  const borrowed = useBorrowedShare(tower.id, undefined) !== null;
 
   /* WHERE THE FOOTAGE IS WRITTEN, in the words a customer uses.
 
@@ -754,6 +795,30 @@ export function CameraSettingsPanel({
                       onGo={onGoHome ? () => onGoHome(f.id) : undefined}
                       onRetry={() => onRetryHome?.(f.id)}
                       onDismiss={() => onDismissHome?.(f.id)}
+                    />
+                  ))}
+                </div>
+              </Row>
+            ) : null}
+            {/* ⚠ MOVABLE CAMERAS ONLY, AND BY THE SAME TEST AS HOME POSITION.
+                A camera with no round to sweep carries no patrol block at
+                all, so there is nothing to draw and nothing to explain. */}
+            {patrolFeeds.length > 0 && !borrowed && onSetPatrol ? (
+              <Row
+                label="Patrol"
+                value={patrolSummary(patrolFeeds.map((f) => f.patrol))}
+                expanded={open === "patrol"}
+                onToggle={() => toggle("patrol")}
+              >
+                <div className="flex flex-col gap-[16px]">
+                  {patrolFeeds.map((f) => (
+                    <PatrolControl
+                      key={f.id}
+                      patrol={f.patrol!}
+                      cameraName={f.name ?? f.id}
+                      showName={patrolFeeds.length > 1}
+                      phase={patrolPhase?.(f.id) ?? { kind: "idle" }}
+                      onChange={(edit) => onSetPatrol?.(f.id, edit)}
                     />
                   ))}
                 </div>

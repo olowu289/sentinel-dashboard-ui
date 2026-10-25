@@ -11,6 +11,7 @@ import type { TowerDetail } from "@kallon/sentry-sdk";
 import type { CameraFeed, Tower } from "@/lib/types";
 import { endSessionIfUnauthorized, getSession } from "./auth";
 import { getClient, getCoordinationBaseUrl, webFetch } from "./client";
+import { parsePatrol, patrolRefusal, type Patrol, type PatrolEdit } from "@/lib/patrol";
 import { toTower } from "./map";
 import { withDemoCabinetReadings } from "./demoCabinet";
 
@@ -339,4 +340,125 @@ export async function renameCamera(
     towers: [withDemoCabinetReadings(mapped.tower)],
     feeds: mapped.feeds,
   };
+}
+
+/**
+ * A patrol refused, with the server's own code and sentence.
+ *
+ * ⚠ IT CARRIES BOTH, because only one of them is for a person. The code is
+ * how this app picks a fallback sentence when the server sent none; the
+ * message is what it shows when it did, and the server's is better -- it
+ * knows which tower and which share, and this app knows neither.
+ *
+ * ⚠ AND "NOTHING WAS CHANGED" IS PART OF THE CONTRACT. Every refusal leaves
+ * the camera exactly as it was, so the screen puts its controls back where
+ * they were rather than leaving them on what the operator asked for. A
+ * half-applied patrol would be the worst of the three states available here.
+ */
+export class PatrolRefusedError extends Error {
+  readonly code: string | null;
+  constructor(code: string | null, message?: string | null) {
+    super(patrolRefusal(code, message));
+    this.name = "PatrolRefusedError";
+    this.code = code;
+  }
+}
+
+/**
+ * Set one camera's patrol -- `PUT /v1/viewer/towers/{id}/cameras/{n}/patrol`.
+ *
+ * ⚠ HAND-ROLLED `fetch`, THE SAME DOCUMENTED EXCEPTION `renameCamera` ABOVE
+ * CARRIES, and for the same reason: this route is newer than the vendored
+ * SDK, so there is no method to call. Kept beside it so the exception stays
+ * countable rather than becoming a habit.
+ * TODO(sdk): add `setPatrol` and delete the fetch below.
+ *
+ * Answers with the WHOLE patrol object, which is what the caller shows. The
+ * screen never renders what it asked for: a save that came back with a
+ * different `next_at` -- or with `enabled` still false because the tower
+ * refused quietly -- must read as what the device actually holds.
+ */
+export async function setPatrol(
+  deviceId: string,
+  cameraIndex: number,
+  edit: PatrolEdit,
+  signal?: AbortSignal,
+): Promise<Patrol> {
+  const base = getCoordinationBaseUrl();
+  if (!base) throw new TowerUnavailableError(deviceId);
+  const session = getSession();
+  if (!session?.ref) {
+    /* Tagged 401 so `isUnauthorized` ends the session, exactly as a real 401
+       from any other call would. */
+    throw Object.assign(new Error("not signed in"), { status: 401 });
+  }
+
+  let response: Response;
+  try {
+    response = await webFetch(
+      `${base}/v1/viewer/towers/${encodeURIComponent(deviceId)}/cameras/${cameraIndex}/patrol`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.ref}`,
+        },
+        /* EXACTLY THE THREE FIELDS THE CONTRACT NAMES. Not `next_at`, not
+           `running`: those are the device's to report and not ours to ask
+           for, and sending them would invite a server to believe one. */
+        body: JSON.stringify({
+          enabled: edit.enabled,
+          every: edit.every,
+          direction: edit.direction,
+        }),
+        ...(signal ? { signal } : {}),
+      },
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new TowerUnavailableError(deviceId);
+  }
+
+  if (response.status === 401) {
+    const dead = Object.assign(new Error("session is no longer valid"), { status: 401 });
+    endSessionIfUnauthorized(dead);
+    throw dead;
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: { code?: unknown; message?: unknown };
+      code?: unknown;
+      message?: unknown;
+    };
+    const str = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+    const code = str(body?.error?.code) ?? str(body?.code);
+    const message = str(body?.error?.message) ?? str(body?.message);
+    /* ⚠ A 404 IS NOT A PATROL REFUSAL. Unknown tower, somebody else's tower
+       and an account without the feature all answer 404 -- deliberately, so
+       the route cannot be used to enumerate a fleet -- and "that tower is not
+       available" is true of all three. */
+    if (response.status === 404 && code === null) throw new TowerUnavailableError(deviceId);
+    throw new PatrolRefusedError(code, message);
+  }
+
+  const body = (await response.json().catch(() => null)) as unknown;
+  /* The server answers with the patrol object. The contract puts it at the
+     top level; a body carrying it under `patrol` is the same answer wrapped,
+     and reading both costs one line.
+
+     ⚠ THE NESTED ONE IS TRIED FIRST, and the order is not cosmetic:
+     `parsePatrol` accepts ANY object and fills the gaps with defaults, so a
+     wrapper `{patrol: {...}}` parses perfectly well as a patrol of its own --
+     enabled false, every 4h -- and would quietly replace the real answer with
+     a default one. */
+  const wrapped = (body as { patrol?: unknown } | null)?.patrol;
+  const patrol = (wrapped !== undefined ? parsePatrol(wrapped) : undefined)
+    ?? parsePatrol(body);
+  if (!patrol) {
+    /* A 200 with nothing readable in it is not a success we can act on: the
+       point of the answer is the state that replaces what was on screen. */
+    throw new PatrolRefusedError(null, null);
+  }
+  return patrol;
 }

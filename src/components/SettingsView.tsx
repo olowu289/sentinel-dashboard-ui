@@ -12,6 +12,8 @@ import {
 import { useSession } from "@/components/AuthProvider";
 import { useCapabilities } from "@/lib/useSites";
 import { isHubMode } from "@/lib/hubMode";
+import { PatrolControl, type PatrolPhase } from "@/components/PatrolControl";
+import type { PatrolEdit } from "@/lib/patrol";
 import { IconRail } from "@/components/IconRail";
 import { SharingPane } from "@/components/sharing/SharingPane";
 import { SiteClock } from "@/components/SiteClock";
@@ -295,6 +297,8 @@ export function SettingsView({
   towers = [],
   feeds = [],
   onCameraRenamed,
+  onSetPatrol,
+  patrolPhase,
 }: {
   onNavigate?: (id: string) => void;
   onBack?: () => void;
@@ -306,6 +310,16 @@ export function SettingsView({
   towers?: Tower[];
   feeds?: CameraFeed[];
   onCameraRenamed?: (tower: Tower, feeds: CameraFeed[]) => void;
+  /**
+   * Change one camera's patrol, and what that save is doing.
+   *
+   * Owned by the shell, like the tower panel's copy, because the write goes
+   * to coordination and the answer replaces the camera's own block. Absent
+   * means no patrol controls on this screen at all -- which is what a share
+   * holder gets, and what a caller that has not wired it yet gets.
+   */
+  onSetPatrol?: (feedId: string, edit: PatrolEdit) => void;
+  patrolPhase?: (feedId: string) => PatrolPhase;
 }) {
   const { account } = useSession();
   const caps = useCapabilities();
@@ -1220,6 +1234,26 @@ export function SettingsView({
                               </div>
                             </motion.div>
                           )}
+
+                          {/* ⚠ THE SAME COMPONENT THE TOWER PANEL DRAWS, and
+                              that is the point rather than a convenience. Two
+                              routes to one setting is the arrangement where
+                              one of them eventually offers an interval the
+                              other does not. A camera with no patrol block --
+                              a fixed one, or a build that does not run
+                              patrol -- gets nothing here, exactly as it gets
+                              no row there. */}
+                          {feed.ptz && feed.patrol && onSetPatrol ? (
+                            <div className="border-t border-line pt-[12px]">
+                              <PatrolControl
+                                patrol={feed.patrol}
+                                cameraName={feed.name ?? feed.id}
+                                showName={false}
+                                phase={patrolPhase?.(feed.id) ?? { kind: "idle" }}
+                                onChange={(edit) => onSetPatrol(feed.id, edit)}
+                              />
+                            </div>
+                          ) : null}
                         </li>
                       );
                     })}

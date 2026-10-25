@@ -30,6 +30,9 @@ import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
 import { useCapabilities } from "@/lib/useSites";
 import { hasSites, isHubMode } from "@/lib/hubMode";
+import { setPatrol } from "@/lib/api/fleet";
+import type { PatrolEdit } from "@/lib/patrol";
+import type { PatrolPhase } from "@/components/PatrolControl";
 import type { Reach } from "@/lib/liveRecovery";
 import { isAdminRole } from "@kallon/sentry-sdk";
 import { TowerView } from "@/components/TowerView";
@@ -862,6 +865,51 @@ export function SentinelApp() {
         await stopOrHome(feed, sessionFor(feedId), true);
       }),
     [deliberate, feeds, sessionFor],
+  );
+
+  /**
+   * Change one camera's patrol.
+   *
+   * ⚠ THE DEVICE'S ANSWER REPLACES THE CAMERA'S BLOCK, never the request.
+   * Every refusal in the contract changes nothing, and the 200 carries the
+   * whole patrol object -- including a `next_at` only the device can compute.
+   * Writing the operator's choice into state and hoping would show a patrol
+   * running at a time nobody scheduled.
+   *
+   * Keyed per camera like the home save beside it, so one camera's refusal is
+   * reported on that camera and the other keeps working.
+   */
+  const setCameraPatrol = useCallback(
+    (feedId: string, edit: PatrolEdit) =>
+      deliberate.run(`patrol:${feedId}`, async () => {
+        const feed = feeds.find((f) => f.id === feedId);
+        if (!feed || feed.index === undefined) {
+          throw new Error("that camera is no longer on this site");
+        }
+        const patrol = await setPatrol(feed.towerId, feed.index, edit);
+        setFeeds((prev) =>
+          prev.map((f) => (f.id === feedId ? { ...f, patrol } : f)),
+        );
+      }),
+    [deliberate, feeds],
+  );
+
+  /**
+   * What a camera's patrol save is doing, in the control's own vocabulary.
+   *
+   * ⚠ THE SERVER'S SENTENCE, ALREADY CHOSEN. `PatrolRefusedError` builds its
+   * message from the code and the server's own words in `lib/patrol.ts`, so
+   * this hands over what the mutation recorded rather than mapping a code a
+   * second time here.
+   */
+  const patrolPhaseFor = useCallback(
+    (feedId: string): PatrolPhase => {
+      const phase = deliberate.phase(`patrol:${feedId}`);
+      if (phase.kind === "pending") return { kind: "pending" };
+      if (phase.kind === "error") return { kind: "failed", message: phase.message };
+      return { kind: "idle" };
+    },
+    [deliberate],
   );
 
   const changeTowerName = useCallback(
@@ -1779,6 +1827,8 @@ export function SentinelApp() {
           onSectionChange={setSettingsSection}
           towers={towers}
           feeds={feeds}
+          onSetPatrol={setCameraPatrol}
+          patrolPhase={patrolPhaseFor}
           /* A renamed camera comes straight back up here. The server returns
              the whole re-projected tower, so both lists are replaced rather
              than patched — patching one field is how the wall ends up showing
@@ -1935,6 +1985,8 @@ export function SentinelApp() {
           onRenameTower={changeTowerName}
           onSetHome={setCameraHome}
           onGoHome={goCameraHome}
+          onSetPatrol={setCameraPatrol}
+          patrolPhase={patrolPhaseFor}
           homeMutation={deliberate}
           renameMutation={renameMutation}
           settingsOpen={settingsOpen}

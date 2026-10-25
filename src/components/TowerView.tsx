@@ -1,3 +1,5 @@
+import type { PatrolEdit } from "@/lib/patrol";
+import type { PatrolPhase } from "@/components/PatrolControl";
 import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/AuthProvider";
@@ -48,6 +50,8 @@ export function TowerView({
   onChooseProfile,
   onRenameTower,
   onSetHome,
+  onSetPatrol,
+  patrolPhase,
   onGoHome,
   homeMutation,
   settingsOpen,
@@ -106,6 +110,11 @@ export function TowerView({
   onRenameTower: (from: string, to: string) => void;
   /** Save a camera's current pan/tilt as its home. Owned by the shell. */
   onSetHome?: (feedId: string) => void;
+  /* Straight through to the settings panel, which owns the row.
+     The shell holds the write because it is the thing that keeps
+     the fleet, and the panel must show the device's answer. */
+  onSetPatrol?: (feedId: string, edit: PatrolEdit) => void;
+  patrolPhase?: (feedId: string) => PatrolPhase;
   /** Send a camera back to its home position. Same session as a move. */
   onGoHome?: (feedId: string) => void;
   /** Keyed `home:<feedId>`. Deliberate — a saved home changes nothing on
@@ -386,6 +395,8 @@ export function TowerView({
              pad does rather than holding one of its own. */
           sessionFor={sessionFor}
           onSetHome={onSetHome}
+          onSetPatrol={onSetPatrol}
+          patrolPhase={patrolPhase}
           onGoHome={onGoHome}
           homePhase={(feedId) => homeMutation?.phase(`home:${feedId}`) ?? { kind: "idle" }}
           onRetryHome={(feedId) => void homeMutation?.retry(`home:${feedId}`)}

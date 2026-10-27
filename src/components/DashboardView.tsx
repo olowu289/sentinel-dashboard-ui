@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useMemo, useState } from "react";
 import { IconRail } from "@/components/IconRail";
 import { MaskIcon } from "@/components/Icon";
 import { MonitorTile } from "@/components/MonitorTile";
@@ -6,6 +6,7 @@ import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { ViewerSession } from "@kallon/sentry-sdk";
 import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
+import { wallBands } from "@/lib/fleetOrder";
 import type { Alert, CameraFeed, Tower } from "@/lib/types";
 import type { Claim } from "@/lib/api/claim";
 
@@ -21,17 +22,16 @@ import type { Claim } from "@/lib/api/claim";
  * for itself, which is what the old per-tile tower label was for; a band header
  * answers it once for the row beneath it and gives the picture back its corner.
  *
- * Rearranging is a band gesture and only a band gesture. Tiles used to carry
- * their own handles too, which meant two grammars for one job and a handle in
- * the corner of every picture; the wall is arranged by site, and the cameras
- * under a site keep the order the site lists them in.
+ * ⚠ THE BANDS ARE IN THE ORDER THE LIST BESIDE THEM IS IN, and the wall has no
+ * order of its own to be in instead. Both panels read `lib/fleetOrder.ts`; the
+ * note at the top of that file is why. It used to be arrangeable, by dragging a
+ * band header, and that is what is gone: an arrangement only one of the two
+ * panels could hold is exactly the disagreement this screen was reported for.
  */
 export function DashboardView({
   towers,
   feeds,
   alerts,
-  order,
-  onReorder,
   pendingClaim,
   onNavigate,
   onResumeSetup,
@@ -51,15 +51,6 @@ export function DashboardView({
   towers: Tower[];
   feeds: CameraFeed[];
   alerts: Alert[];
-  /** The wall's arrangement as feed ids. Owned by the shell, not here: this
-   *  view unmounts every time an operator drills into a tower, and an
-   *  arrangement that resets on the way back is worse than no arrangement —
-   *  they would have to redo it, or learn not to bother. */
-  order: string[];
-  /** Commit a whole arrangement at once. A band move relocates every tile in
-   *  it, and stepping through that one tile at a time would walk the wall
-   *  through arrangements nobody asked for. */
-  onReorder: (next: string[]) => void;
   /** An open registration from the server, if there is one. */
   pendingClaim: Claim | null;
   /** Every rail destination, routed by the shell. Deliberately not wired here:
@@ -93,66 +84,26 @@ export function DashboardView({
   seededFleet?: boolean;
 }) {
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
-  const [draggingBand, setDraggingBand] = useState<string | null>(null);
-  /* Held under the pointer, not yet moving. The fill answers "have I got hold
-     of it", so it lives exactly as long as the grip does: it appears the
-     instant the handle is pressed and goes the instant the finger comes off.
-     Not a toggle — a band that stayed lit after the release would be claiming
-     a state the operator is no longer in, and on a wall of live pictures a
-     standing blue block is a thing to explain rather than a thing to ignore. */
-  const [heldBand, setHeldBand] = useState<string | null>(null);
 
-  const byId = new Map(feeds.map((f) => [f.id, f]));
-  const tiles = order
-    .map((id) => byId.get(id))
-    .filter((f): f is CameraFeed => Boolean(f));
+  /* The wall, in the list's order. Derived on every render from the same two
+     arrays the panel beside it reads, so there is no second arrangement to
+     fall out of step and nothing to reconcile when a tower arrives or goes. */
+  const bands = useMemo(() => wallBands(towers, feeds), [towers, feeds]);
 
-  /* Bands are read out of the arrangement rather than kept beside it: a tower
-     appears where its first camera does, and its cameras keep their relative
-     order. One source of truth for both, so a tile drag and a band drag can
-     never leave the wall describing two different arrangements. */
-  const bands = useMemo(() => {
-    const out: { towerId: string; feeds: CameraFeed[] }[] = [];
-    for (const feed of tiles) {
-      const band = out.find((b) => b.towerId === feed.towerId);
-      if (band) band.feeds.push(feed);
-      else out.push({ towerId: feed.towerId, feeds: [feed] });
-    }
-    return out;
-  }, [order.join(">"), feeds]);
+  /* What the wall currently looks like, as one string. Tiles animate between
+     arrangements rather than snapping, and `MonitorTile` gates that on this —
+     so it has to change whenever a tile's box does: a band moving, a site
+     appearing or leaving, a camera joining a row. See the note on `layoutKey`
+     below and the one in `MonitorTile`. */
+  const arrangement = bands
+    .map((band) => band.feeds.map((f) => f.id).join(","))
+    .join(">");
 
   /* ⚠ NEVER THE ID AS A FALLBACK. A tower the fleet does not have is still a
      tower, and "kln_lab_000002" on a band heading is a serial in front of a
      customer. */
   const towerName = (towerId: string) =>
     towers.find((t) => t.id === towerId)?.site ?? "This tower";
-
-  const moveBand = (from: number, to: number) => {
-    if (from === to || to < 0 || to >= bands.length) return;
-    const next = bands.slice();
-    const [band] = next.splice(from, 1);
-    next.splice(to, 0, band);
-    onReorder(next.flatMap((b) => b.feeds.map((f) => f.id)));
-  };
-
-  /* Landed, or let go of. Clears both sources of the fill together, because
-     which of them was carrying it depends on how far the gesture got. */
-  const release = () => {
-    setDraggingBand(null);
-    setHeldBand(null);
-  };
-
-  const onBandKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const delta =
-      e.key === "ArrowUp" || e.key === "ArrowLeft"
-        ? -1
-        : e.key === "ArrowDown" || e.key === "ArrowRight"
-          ? 1
-          : 0;
-    if (!delta) return;
-    e.preventDefault();
-    moveBand(index, index + delta);
-  };
 
   /* The header bell goes to whatever is actually waiting — the newest alert
      nobody has claimed. A fleet screen has no alerts feed of its own; every
@@ -241,37 +192,20 @@ export function DashboardView({
             are capped at two because a wall that keeps subdividing stops being
             legible. */}
         <main className="flex min-h-0 flex-1 flex-col gap-[10px] pb-[11px] pl-[17px] pr-[16px] pt-[11px]">
-          {bands.map((band, bandIndex) => (
+          {bands.map((band) => (
             <section
               key={band.towerId}
               aria-label={towerName(band.towerId)}
-              onDragOver={(e: DragEvent<HTMLElement>) => {
-                if (!draggingBand || draggingBand === band.towerId) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                moveBand(
-                  bands.findIndex((b) => b.towerId === draggingBand),
-                  bandIndex,
-                );
-              }}
-              onDrop={(e: DragEvent<HTMLElement>) => {
-                if (!draggingBand) return;
-                e.preventDefault();
-                release();
-              }}
-              /* Held bands fill blue rather than fading. A fade says "this is
-                 not really here", which is wrong — it is the one thing the
-                 operator is holding, and on a wall of live pictures the faded
-                 copy reads as a stream fault. The fill shows through the 8px
-                 seams and behind the header, which is exactly the band's own
-                 outline, and it is gone the moment the band lands. */
-              className={`flex min-h-0 flex-1 flex-col gap-[8px] ${
-                heldBand === band.towerId || draggingBand === band.towerId
-                  ? "bg-drag"
-                  : ""
-              }`}
+              /* ⚠ KEYED ON THE TOWER, AND THE KEY IS WHY THE VIDEO SURVIVES.
+                 When the fleet comes back in a different order — a site going
+                 offline, a mast added — React matches these sections by key
+                 and MOVES them, so the `<video>` elements inside carry on
+                 playing where they are. Keying on the index instead would
+                 re-point every band at a different tower's cameras and tear
+                 down every stream on the wall to rebuild it. */
+              className="flex min-h-0 flex-1 flex-col gap-[8px]"
             >
-              <header className="flex h-[24px] shrink-0 items-center justify-between">
+              <header className="flex h-[24px] shrink-0 items-center">
                 {/* The band's name opens the band's tower. It has always been
                     the only label on this screen naming a place you can go and
                     not going there — the card in the panel beside it does, and
@@ -290,51 +224,6 @@ export function DashboardView({
                     {towerName(band.towerId)}
                   </button>
                 </h2>
-
-                {/* The 3×3 glyph is the band's handle, the same gesture the
-                    tiles carry one level down: press and drag to move the whole
-                    site, arrows to step it. It is always visible because a band
-                    header is chrome already — there is no picture underneath
-                    for it to sit on top of. */}
-                {bands.length > 1 && (
-                  <button
-                    type="button"
-                    draggable
-                    /* On press and only while pressed. Waiting for the click
-                       would put the fill after the operator has already started
-                       moving, which is exactly when it stops being useful; and
-                       a click that latched it would leave a band lit with
-                       nothing holding it. `pointercancel` is in here because it
-                       is what fires when a press turns into a native drag —
-                       `draggingBand` has the fill from that point on. */
-                    onPointerDown={() => setHeldBand(band.towerId)}
-                    onPointerUp={() => setHeldBand(null)}
-                    onPointerLeave={() => setHeldBand(null)}
-                    onPointerCancel={() => setHeldBand(null)}
-                    onDragStart={(e: DragEvent<HTMLButtonElement>) => {
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", band.towerId);
-                      setDraggingBand(band.towerId);
-                    }}
-                    onDragEnd={release}
-                    onKeyDown={(e) => onBandKey(e, bandIndex)}
-                    aria-label={`Rearrange ${towerName(band.towerId)}, band ${bandIndex + 1} of ${bands.length}. Use the arrow keys to move it.`}
-                    title="Drag to rearrange, or use the arrow keys"
-                    className={`flex size-[24px] shrink-0 cursor-grab items-center justify-center rounded-[4px] transition-colors active:cursor-grabbing ${
-                      heldBand === band.towerId
-                        ? "text-body-ink"
-                        : "text-muted hover:text-body-ink"
-                    }`}
-                  >
-                    {/* Rotated a quarter turn, as the frame draws it: the
-                        glyph's own artwork is two columns of three dots. */}
-                    <MaskIcon
-                      src="/icons/group-grid.svg"
-                      size={24}
-                      className="-rotate-90"
-                    />
-                  </button>
-                )}
               </header>
 
               <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-[8px]">
@@ -349,12 +238,12 @@ export function DashboardView({
                     onScreen={onScreenTiles?.has(feed.id) ?? false}
                     observeRef={observeTile?.(feed.id)}
                     fullscreen={fullscreenId === feed.id}
-                    /* The takeover reflows every sibling, and so does a band
-                       reorder, so the gate is shared rather than per-tile — see
-                       the README. Anything else added here that changes a
-                       tile's box belongs in this key, or the wall snaps instead
-                       of animating. */
-                    layoutKey={`${fullscreenId ?? ""}|${order.join(">")}`}
+                    /* The takeover reflows every sibling, and so does the fleet
+                       coming back in a different order, so the gate is shared
+                       rather than per-tile — see the README. Anything else
+                       added here that changes a tile's box belongs in this key,
+                       or the wall snaps instead of animating. */
+                    layoutKey={`${fullscreenId ?? ""}|${arrangement}`}
                     onToggleFullscreen={() =>
                       setFullscreenId((id) => (id === feed.id ? null : feed.id))
                     }

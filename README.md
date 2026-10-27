@@ -54,9 +54,10 @@ Camera and alert state live in `App.tsx` rather than in either screen. The
 recording tick and the latency walk are live, so a copy each would have the
 fleet wall and the tower wall disagreeing about the same camera within a second
 — and an operator drilling in to check a figure would find it had changed on the
-way. The wall's *arrangement* is up there for a different reason: the dashboard
-unmounts on every drill-in, and an arrangement that resets on the way back
-teaches operators not to arrange it.
+way. The wall's *order* is not up there at all any more: it is the TOWERS
+list's, derived on render from `towers` and `feeds`, so the dashboard unmounting
+on a drill-in has nothing to lose. It used to be a stored arrangement, and
+that is what let the two panels disagree — see **Bands** below.
 
 `TowerView` is keyed on `${id}|${showAlerts}`, so arriving at a tower is always
 a fresh entry. Carrying one site's selected alert, filter or collapse state into
@@ -292,54 +293,48 @@ Four tiles in an anonymous grid made "whose north gate?" a question every tile
 had to answer for itself, which is what the old per-tile tower label was for; a
 band header answers it once and gives the picture its corner back.
 
-Bands are *read out of* the arrangement rather than stored beside it — a tower
-appears where its first camera does, and its cameras keep their relative order.
-One source of truth for both, so a tile drag and a band drag can never leave the
-wall describing two different arrangements.
+Bands are in the TOWERS list's order, because they ARE the TOWERS list. One
+function decides it — `fleetOrder` / `wallBands` in `src/lib/fleetOrder.ts` —
+and both panels call it. A tower with no cameras gets no band: it is in the
+list, with its status on its card, and a band header over an empty row would
+promise a picture and deliver a gap.
 
-The 3×3 glyph on a band header is that band's handle: drag it to move the whole
-site, arrows to step it. Unlike the tile handle it is always visible, because a
-band header is chrome already — there is no picture underneath for it to sit on
-top of. Moving a band moves every tile in it at once, which is why the shell
-exposes `onReorder` alongside `onMove`: walking a band into place one tile at a
-time would animate the wall through arrangements nobody asked for.
+Inside a band the cameras are in camera-number order, which is the number the
+tower gives them and the one an operator says out loud.
 
-A band fills `--color-drag`, the app's only blue, for exactly as long as its
-handle is held. It appears on `pointerdown` — not once a drag is under way,
-which would put it after the operator has already started moving, and not on
-click, which would latch it — and it goes on the release. The fill answers "have
-I got hold of it", so it lives as long as the grip and no longer; a band left
-lit with nothing holding it is a thing to explain rather than a thing to ignore.
+### The order used to be the wall's own, and that was the bug
 
-`pointercancel` is handled alongside `pointerup` because that is what fires when
-a press turns into a native drag. From that point `draggingBand` carries the
-fill, and both clear together when the band lands.
+Until 2026-10-27 the wall held a separate flat arrangement of feed ids: seeded
+from the fixtures, reconciled by dropping what had left and appending what was
+new, and saved per account. So it carried the order of every fleet the browser
+had read. On the lab fleet the list showed Terra Factory Tower 2, West tower,
+Lab hub mast and the wall beside it showed Lab hub mast, then West tower. At
+three sites that is an irritation. At thirty, finding on the wall the site you
+just read about in the list is no longer something you can do at a glance,
+which is the entire reason the wall is banded by site.
 
-Blue is allowed here precisely because it is outside the status set: green,
-amber and red all mean something about a site, so none of them could say "you
-are holding this" without also seeming to report on the tower. A tile drag still
-fades instead — a wash of colour over live video is a different thing from a wash
-in the seams around it.
+Band drag went with it, and that is the part worth defending rather than
+explaining away. The gesture was good: a 3×3 handle on each band header, always
+visible because a band header is chrome, arrow keys for the same job because
+dragging has no keyboard equivalent, and the band filling `--color-drag` for
+exactly as long as the grip lasted. What it could not be was *shared*. An
+arrangement only the wall can hold is the disagreement above, deliberately
+re-introduced, and a wall that follows the list cannot also be arranged against
+it. The app's only blue went with the gesture, since the whole argument for
+allowing a hue outside green/amber/red was that it lived for the length of one.
 
-### Rearranging
+The reorder itself is free: bands are keyed on `towerId` and tiles on the feed
+id, so a fleet that comes back in a new order has its sections MOVED by React
+rather than rebuilt, and the `<video>` inside each one carries on playing.
+`test/activeCamerasOrder.test.mjs` renders the real wall in a browser, stamps
+each tile's DOM node, reorders the fleet and checks every stamp is still there.
 
-Rearranging is a band gesture and only a band gesture: the 3×3 glyph on a band
-header moves a whole site. Tiles carried their own handles for a while too,
-which meant two grammars for one job and a handle parked in the corner of every
-picture. The wall is arranged by site now, and the cameras under a site keep the
-order the site lists them in.
-
-**Arrow keys on a focused handle do the same job**, one band up or down.
-Dragging is a pointer gesture with no keyboard equivalent, and this wall is
-desktop-only, so without that the arrangement would simply be unavailable to
-anyone not using a mouse.
-
-The drag plumbing sits on the band `<section>`, which is plain rather than a
-`motion.*` element — motion replaces the native `onDragStart`/`onDragEnd` with
-its own pan handlers, which know nothing about `dataTransfer`. Each tile still
-sits inside a plain wrapper of its own, which holds the grid cell open during a
-fullscreen takeover so the wall does not reflow underneath it and the exit lands
-back in its own slot.
+Each tile still sits inside a plain wrapper of its own, which holds the grid
+cell open during a fullscreen takeover so the wall does not reflow underneath it
+and the exit lands back in its own slot. It is also the shape to copy if
+anything here ever needs HTML5 drag again: motion replaces the native
+`onDragStart`/`onDragEnd` with its own pan handlers, which know nothing about
+`dataTransfer`.
 
 ### Below 1024px
 
@@ -1163,7 +1158,6 @@ be square, since `maskSize` is `100% 100%` and the exports carry
 - The fleet cards show no cameras-online-over-total. The count the view control
   displaced still has nowhere to live; a card is the obvious home for it, but
   the Figma frame does not draw one and it was not invented here.
-- The wall arrangement is not persisted. It survives navigation, not a reload.
 - Nothing on a fleet card says how fresh its readings are, so a tower whose
   telemetry died looks identical to one reporting every second.
 - Tower status is authored in the seed rather than derived from the readings,

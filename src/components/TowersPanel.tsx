@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { fleetOrder } from "@/lib/fleetOrder";
 import type { Alert, Tower } from "@/lib/types";
 import type { Claim } from "@/lib/api/claim";
 import { PendingTowerCard } from "./PendingTowerCard";
@@ -8,6 +9,11 @@ import { TowerCard } from "./TowerCard";
  * The fleet list. Sits left of the wall, where the alerts feed sits right of it
  * in the tower view — this panel is the thing you navigate *from*, and reading
  * order puts the index before the content.
+ *
+ * The order is `fleetOrder`'s, which is the fleet as served — and it is called
+ * rather than assumed because the wall beside this panel bands itself with the
+ * same function. The two orders were allowed to differ once; see the note at
+ * the top of `lib/fleetOrder.ts` for what that looked like.
  */
 export function TowersPanel({
   towers,
@@ -122,7 +128,7 @@ export function TowersPanel({
           </p>
         )}
 
-        {towers.map((tower) => (
+        {fleetOrder(towers).map((tower) => (
           <TowerCard
             key={tower.id}
             tower={tower}

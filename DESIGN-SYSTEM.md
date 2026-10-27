@@ -177,7 +177,6 @@ Supporting members of the same families, each with a stated reason to exist:
 
 | Token | Hex | Rule |
 |---|---|---|
-| `--color-drag` | `#0f263f` | The fill a row takes **while being dragged**. Allowed precisely *because* it is outside the status set — it can say "you are holding this" without seeming to report on the site. It exists for the length of a gesture. Never spend it on anything that persists |
 
 **Clip-player specifics** (a scrubber with detection bands):
 
@@ -980,8 +979,9 @@ than size — the largest text in the app is 20px and appears twice.
 
 Colour is rationed to the point of austerity. Green means live, amber means
 degraded, red means fault, and *nothing else in the interface gets a hue* —
-selection is white-on-black, primary actions are white-on-black, and the single
-blue in the system exists only for the length of a drag gesture. On a wall of
+selection is white-on-black and primary actions are white-on-black. There is no
+blue: one existed, for the length of a drag gesture, and went when the gesture
+did. On a wall of
 twenty camera feeds, every extra colour costs scannability, so a coloured pixel
 is always a reading.
 

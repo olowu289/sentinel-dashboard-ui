@@ -52,8 +52,12 @@ const VERSION = "v1";
 const PREFIX = "sentinel.prefs";
 
 export interface ViewPrefs {
-  /** The fleet wall's arrangement, as feed ids. */
-  wallOrder: string[];
+  /* ⚠ `wallOrder` USED TO LIVE HERE and is deliberately not replaced. The
+     fleet wall had an arrangement of its own, saved per account; it is now
+     the TOWERS list's order, derived on render, and a remembered one would
+     be the second arrangement that made the two panels disagree in the first
+     place. See `lib/fleetOrder.ts`. A key left in a browser from before this
+     is simply not read: this object is rebuilt field by field below. */
   /** Towers whose alert notice this operator has read. */
   dismissedNotices: string[];
   /**
@@ -105,7 +109,6 @@ export interface ViewPrefs {
 }
 
 export const EMPTY_PREFS: ViewPrefs = {
-  wallOrder: [],
   dismissedNotices: [],
   cameraSettings: {},
   cameraProfiles: {},
@@ -157,7 +160,6 @@ export function loadPrefs(accountId: string | null | undefined): ViewPrefs {
     if (!parsed || typeof parsed !== "object") return EMPTY_PREFS;
 
     return {
-      wallOrder: stringArray(parsed.wallOrder) ?? [],
       dismissedNotices: stringArray(parsed.dismissedNotices) ?? [],
       footageClips: parsed.footageClips === true,
       cameraSettings:

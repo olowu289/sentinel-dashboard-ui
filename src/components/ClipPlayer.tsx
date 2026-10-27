@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
 import { formatClock } from "@/lib/time";
+import { deviceName } from "@/lib/deviceName";
 import type { Alert, AlertAttachment } from "@/lib/types";
 import { useExportPhase } from "@/lib/useExportPhase";
 import { MaskIcon } from "./Icon";
@@ -311,7 +312,7 @@ export function ClipPlayer({
               onClick={onClose}
               className="min-w-0 truncate font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-muted transition-colors hover:text-body-ink"
             >
-              {towerName}
+              {deviceName(towerName)}
             </button>
             <img src="/icons/chevron-right.svg" alt="" width={16} height={16} />
             <span className="flex min-w-0 items-center gap-[6px]">

@@ -14,6 +14,7 @@ import { getClient, getCoordinationBaseUrl, webFetch } from "./client";
 import { parsePatrol, patrolRefusal, type Patrol, type PatrolEdit } from "@/lib/patrol";
 import { toTower } from "./map";
 import { withDemoCabinetReadings } from "./demoCabinet";
+import { deviceName } from "@/lib/deviceName";
 
 export interface FleetSnapshot {
   towers: Tower[];
@@ -239,10 +240,19 @@ export async function getTower(
  * which is worth knowing — it is the one write on the whole fleet screen that
  * does not depend on the site being reachable.
  *
- * ⚠ THE LABEL GOES UP VERBATIM. No trim, no case-folding, no emptiness check.
- * `set_label` is the only validator, its `422` says why it refused, and a
- * client-side rule would be a second copy of that policy — free to drift, and
- * silently mangling what somebody typed instead of telling them it was wrong.
+ * ⚠ THE LABEL GOES UP AS TYPED, EXCEPT FOR ITS CAPITALS. No trim and no
+ * emptiness check: `set_label` is the only validator, its `422` says why it
+ * refused, and a client-side rule would be a second copy of that policy — free
+ * to drift, and silently mangling what somebody typed instead of telling them
+ * it was wrong.
+ *
+ * Capitals are a different kind of thing and belong here. They are not
+ * validation, they are what a tower's name IS in this product — see
+ * `lib/deviceName.ts` — and putting them on the wire rather than only in the
+ * boxes is what makes that true rather than drawn. Every box already
+ * capitalises as somebody types; this is the backstop for a value that
+ * arrived some other way, and the one place a test can prove the registry
+ * gets capitals whoever called.
  *
  * Returns the updated **projection**, not an acknowledgement, so the caller
  * re-renders from the server's answer rather than the string it just sent.
@@ -254,7 +264,7 @@ export async function renameTower(
 ): Promise<FleetSnapshot> {
   let raw;
   try {
-    raw = await getClient().renameTower(deviceId, label, signal ? { signal } : {});
+    raw = await getClient().renameTower(deviceId, deviceName(label), signal ? { signal } : {});
   } catch (err) {
     endSessionIfUnauthorized(err);
     /* Order matters: 404 before 422. Both are "the server said no", but only
@@ -296,6 +306,8 @@ export async function renameTower(
  *
  * An EMPTY or whitespace label CLEARS the name rather than storing a blank one,
  * which is the server's behaviour; the caller does not need a second function.
+ * Capitals go up with it, for the reason on `renameTower` above: a camera's
+ * name is capitals, and the wire is where that stops being a drawing.
  *
  * Returns the whole re-projected tower, so the caller replaces its copy rather
  * than patching one field and hoping the rest still matches.
@@ -325,7 +337,7 @@ export async function renameCamera(
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.ref}`,
         },
-        body: JSON.stringify({ label }),
+        body: JSON.stringify({ label: deviceName(label) }),
         ...(signal ? { signal } : {}),
       },
     );

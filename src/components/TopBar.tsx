@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { ENTER, FADE } from "@/lib/motion";
+import { deviceName } from "@/lib/deviceName";
 import { MaskIcon } from "./Icon";
 import { ActingSiteChip } from "./ActingSiteChip";
 import { batteryFill, batteryTone } from "./TowerBattery";
@@ -70,7 +71,7 @@ export function TopBar({
             aria-current="page"
             className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink"
           >
-            {towerName}
+            {deviceName(towerName)}
           </span>
           {/* The glyph carries the reading and the number stays out of the
               way until asked for. A percentage sitting permanently in the bar

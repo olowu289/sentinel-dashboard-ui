@@ -7,6 +7,7 @@ import type { ViewerSession } from "@kallon/sentry-sdk";
 import { SiteClock } from "@/components/SiteClock";
 import { TowersPanel } from "@/components/TowersPanel";
 import { wallBands } from "@/lib/fleetOrder";
+import { deviceName } from "@/lib/deviceName";
 import type { Alert, CameraFeed, Tower } from "@/lib/types";
 import type { Claim } from "@/lib/api/claim";
 
@@ -101,9 +102,13 @@ export function DashboardView({
 
   /* ⚠ NEVER THE ID AS A FALLBACK. A tower the fleet does not have is still a
      tower, and "kln_lab_000002" on a band heading is a serial in front of a
-     customer. */
+     customer.
+
+     In capitals, like every other place a tower is named — and in ONE place,
+     so the band heading, its `title`, the section's `aria-label` and the name
+     each tile carries cannot drift apart. */
   const towerName = (towerId: string) =>
-    towers.find((t) => t.id === towerId)?.site ?? "This tower";
+    deviceName(towers.find((t) => t.id === towerId)?.site) || "This tower";
 
   /* The header bell goes to whatever is actually waiting — the newest alert
      nobody has claimed. A fleet screen has no alerts feed of its own; every
@@ -113,7 +118,7 @@ export function DashboardView({
   /* Its tower's NAME, with a word for the one case where there is nothing
      better to say: a tower the fleet does not have. Never its serial. */
   const newestTowerName = newest
-    ? (towers.find((t) => t.id === newest.towerId)?.site ?? "a tower")
+    ? deviceName(towers.find((t) => t.id === newest.towerId)?.site) || "a tower"
     : "";
 
   return (

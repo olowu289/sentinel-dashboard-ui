@@ -258,8 +258,11 @@ describe("Settings → Cameras, for a hundred towers", () => {
 
   test("⭐ there is a search box, and it filters towers AND cameras", () => {
     assert.match(view, /placeholder="Search towers and cameras"/);
-    assert.match(view, /\(tower\.site \|\| tower\.id\)\.toLowerCase\(\)\.includes\(q\)/);
-    assert.match(view, /\(f\.name \?\? ""\)\.toLowerCase\(\)\.includes\(q\)/);
+    /* Through `nameMatches`, which folds BOTH sides the way the screen draws
+       them. It used to lower-case here, which was a third opinion about what
+       a camera is called -- see `lib/deviceName.ts`. */
+    assert.match(view, /nameMatches\(tower\.site \|\| tower\.id, q\)/);
+    assert.match(view, /nameMatches\(f\.name, q\)/);
   });
 
   test("⭐ a tower matched by one camera lists only that camera", () => {

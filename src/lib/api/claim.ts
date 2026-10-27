@@ -1,4 +1,5 @@
 import { getCoordinationBaseUrl, webFetch } from "./client";
+import { deviceName } from "@/lib/deviceName";
 import { markSessionEnded } from "./auth";
 import { getSessionRef } from "./session";
 
@@ -251,7 +252,10 @@ export async function createClaim(
     response = await webFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeader() },
-      body: JSON.stringify({ pairing_code: pairingCode, label }),
+      /* The name goes up in capitals, which is what a tower's name is in
+         this product. The wizard's box capitalises as it is typed; this is
+         the backstop, and the line a test can point at. */
+      body: JSON.stringify({ pairing_code: pairingCode, label: deviceName(label) }),
       ...(signal ? { signal } : {}),
     });
   } catch (err) {

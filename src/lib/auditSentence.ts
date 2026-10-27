@@ -34,6 +34,7 @@
  */
 
 import type { AuditEntry } from "@kallon/sentry-sdk";
+import { deviceName } from "@/lib/deviceName";
 
 /** The four groups the page offers, in the order they are shown. */
 export const AUDIT_GROUPS: readonly {
@@ -66,7 +67,10 @@ type Names = Readonly<Record<string, string>>;
  */
 function cameraName(camera: unknown): string {
   const n = typeof camera === "number" && Number.isFinite(camera) ? camera : null;
-  return n === null ? "a camera" : `Camera ${n}`;
+  /* `CAMERA 2`, the same words the tile, the wall and the settings list use
+     for a camera with no name of its own. The fallback stays lower case: it
+     is a noun phrase, not a name. */
+  return n === null ? "a camera" : deviceName(`Camera ${n}`);
 }
 
 /**
@@ -129,11 +133,28 @@ function nameOf(id: unknown, names: Names, fallback: string): string {
   return found && found.trim() ? found : fallback;
 }
 
-/** A list of tower names: "Lab Hub Mast and Tower 1". */
+/**
+ * The same, for a DEVICE: a tower, a hub mast or a cell.
+ *
+ * ⚠ THE FALLBACK IS NOT CAPITALISED, and that is the whole reason this is a
+ * second function rather than `deviceName(nameOf(...))`. The fallbacks here
+ * are noun phrases written to read inside a sentence — "a tower", "a cell" —
+ * and "Dave replaced A TOWER" is a sentence shouting about a thing it could
+ * not name. Only a real name is a name.
+ *
+ * Sites, organizations and people keep `nameOf` above. A person's name is
+ * theirs; a device's name is a label on a mast.
+ */
+function deviceNameOf(id: unknown, names: Names, fallback: string): string {
+  const found = nameOf(id, names, "");
+  return found ? deviceName(found) : fallback;
+}
+
+/** A list of tower names: "LAB HUB MAST and TOWER 1". */
 function towerList(detail: Detail, names: Names): string {
   const raw = Array.isArray(detail.towers) ? detail.towers : [];
   const got = raw
-    .map((t) => nameOf(t, names, ""))
+    .map((t) => deviceNameOf(t, names, ""))
     .filter((t) => t.length > 0);
   if (got.length === 0) return "some cameras";
   if (got.length === 1) return got[0];
@@ -255,35 +276,35 @@ export function sentenceFor(entry: AuditEntry, names: Names = {}): string | null
     case "site.delete":
       return `${actor} deleted the site ${str(d.name) || nameOf(d.site_id, names, "")}`.trim();
     case "site.hub_assign":
-      return `${actor} put ${nameOf(d.hub_id, names, "a cell")} in ${nameOf(d.site_id, names, "a site")}`;
+      return `${actor} put ${deviceNameOf(d.hub_id, names, "a cell")} in ${nameOf(d.site_id, names, "a site")}`;
     case "site.hub_unassign":
-      return `${actor} took ${nameOf(d.hub_id, names, "a cell")} out of ${nameOf(d.site_id, names, "a site")}`;
+      return `${actor} took ${deviceNameOf(d.hub_id, names, "a cell")} out of ${nameOf(d.site_id, names, "a site")}`;
     case "device.added": {
       const what = str(d.what) === "tower" ? "tower" : "cell";
-      const name = str(d.name);
+      const name = deviceName(str(d.name));
       const where =
         what === "tower"
-          ? nameOf(d.hub_id, names, "a cell")
+          ? deviceNameOf(d.hub_id, names, "a cell")
           : nameOf(d.site_id, names, "a site");
       return `${actor} added ${name ? `the ${what} ${name}` : `a ${what}`} to ${where}`;
     }
     case "device.renamed": {
-      const was = str(d.previous_name);
-      const now = str(d.name) || nameOf(entry.device_id ?? d.hub_id, names, "it");
+      const was = deviceName(str(d.previous_name));
+      const now = deviceName(str(d.name)) || deviceNameOf(entry.device_id ?? d.hub_id, names, "it");
       return was ? `${actor} renamed ${was} to ${now}` : `${actor} renamed ${now}`;
     }
     case "device.moved":
-      return `${actor} moved ${nameOf(d.hub_id ?? entry.device_id, names, "a cell")} to ${nameOf(
+      return `${actor} moved ${deviceNameOf(d.hub_id ?? entry.device_id, names, "a cell")} to ${nameOf(
         d.to_site_id ?? d.site_id,
         names,
         "another site",
       )}`;
     case "device.removed":
       return `${actor} removed ${
-        str(d.name) || nameOf(entry.device_id ?? d.hub_id, names, "a tower")
+        deviceName(str(d.name)) || deviceNameOf(entry.device_id ?? d.hub_id, names, "a tower")
       }`;
     case "device.replaced":
-      return `${actor} replaced ${nameOf(entry.device_id, names, "a tower")}`;
+      return `${actor} replaced ${deviceNameOf(entry.device_id, names, "a tower")}`;
 
     /* ── PATROL ───────────────────────────────────────────────────
        ⚠ TWO SENTENCES, BECAUSE TURNING IT OFF HAS NO SCHEDULE TO READ
@@ -292,10 +313,10 @@ export function sentenceFor(entry: AuditEntry, names: Names = {}): string | null
        wants to know what somebody did, and turning patrol off is a different
        act from scheduling it. */
     case "patrol.set": {
-      const where = `${cameraName(d.camera)} on ${nameOf(
+      const where = `${cameraName(d.camera)} on ${deviceNameOf(
         entry.device_id ?? d.device_id,
         names,
-        str(d.name) || "a tower",
+        deviceName(str(d.name)) || "a tower",
       )}`;
       if (d.enabled !== true) return `${actor} turned off patrol on ${where}`;
       const every = everyPhrase(d.every);

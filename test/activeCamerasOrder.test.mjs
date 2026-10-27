@@ -400,14 +400,16 @@ describe("the rendered wall, and what survives a reorder", () => {
     const names = await banded();
     const expected = listOrder()
       .filter((id) => FEEDS.some((f) => f.towerId === id))
-      .map((id) => TOWERS.find((t) => t.id === id).site);
+      /* In capitals: a tower's name is capitals everywhere it is drawn, and
+         the band heading is one of those places. See `lib/deviceName.ts`. */
+      .map((id) => TOWERS.find((t) => t.id === id).site.toUpperCase());
     assert.deepEqual(names, expected);
   });
 
   test("⭐ the offline tower is in the list and not on the wall", async () => {
     await show(TOWERS);
     assert.ok((await listed()).includes("kln_lab_000004"));
-    assert.ok(!(await banded()).includes("Terra Factory Tower 2"));
+    assert.ok(!(await banded()).includes("TERRA FACTORY TOWER 2"));
   });
 
   test("⭐ A REORDER MOVES THE TILES AND DOES NOT REBUILD THEM", async () => {
@@ -437,7 +439,7 @@ describe("the rendered wall, and what survives a reorder", () => {
 
     assert.deepEqual(
       await banded(),
-      ["Lab hub mast", "North gate", "Weighbridge", "West tower"],
+      ["LAB HUB MAST", "NORTH GATE", "WEIGHBRIDGE", "WEST TOWER"],
       "the wall did not follow the list",
     );
     const lost = after.filter((t) => t.stamp === null).map((t) => t.label);
@@ -458,7 +460,7 @@ describe("the rendered wall, and what survives a reorder", () => {
     const feeds = FEEDS.filter((f) => f.towerId !== "kln_hub_000001");
     await show(withoutHub, feeds);
 
-    assert.ok(!(await banded()).includes("Lab hub mast"), "the band outlived the tower");
+    assert.ok(!(await banded()).includes("LAB HUB MAST"), "the band outlived the tower");
     const after = await page.$$eval("main section[aria-label*='camera,']", (els) =>
       els.map((e) => ({ label: e.getAttribute("aria-label"), stamp: e.__stamp ?? null })),
     );
@@ -480,7 +482,7 @@ describe("the rendered wall, and what survives a reorder", () => {
     );
     await show(renamed);
 
-    assert.ok((await banded()).includes("West gate"), "the band kept the old name");
+    assert.ok((await banded()).includes("WEST GATE"), "the band kept the old name");
     const after = await page.$$eval("main section[aria-label*='camera,']", (els) =>
       els.map((e) => e.__stamp ?? null),
     );

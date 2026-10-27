@@ -2,6 +2,7 @@ import { motion, useIsPresent } from "motion/react";
 import type { ReactNode } from "react";
 import type { Alert, TimelineEvent } from "@/lib/types";
 import { ALERT_BADGE } from "@/lib/data";
+import { deviceName } from "@/lib/deviceName";
 import { ENTER, EXIT } from "@/lib/motion";
 import {
   siteNow,
@@ -363,7 +364,7 @@ export function AlertDetail({
               label={alert.cameras?.length === 1 ? "Camera" : "Cameras"}
               value={
                 alert.cameras?.length ? (
-                  alert.cameras.join(", ")
+                  alert.cameras.map(deviceName).join(", ")
                 ) : (
                   <span className="text-body-ink/30">None</span>
                 )

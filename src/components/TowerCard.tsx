@@ -1,6 +1,7 @@
 import type { Alert, Tower, TowerStatus } from "@/lib/types";
 import { solarState } from "@/lib/data";
 import { formatRelative } from "@/lib/time";
+import { deviceName } from "@/lib/deviceName";
 import { MaskIcon } from "./Icon";
 import { batteryFill, TowerBattery } from "./TowerBattery";
 import { batteryCurrentLabel, batteryCurrentValue, batteryFlow } from "@/lib/battery";
@@ -207,7 +208,7 @@ export function TowerCard({
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`${tower.id}, ${tower.site}. ${status.label}. ${telemetry}.`}
+        aria-label={`${tower.id}, ${deviceName(tower.site)}. ${status.label}. ${telemetry}.`}
         className="absolute inset-0 rounded-[12px]"
       />
 
@@ -218,7 +219,7 @@ export function TowerCard({
         className="pointer-events-none absolute left-[15px] right-[80px] top-[13px] flex flex-col gap-[4px]"
       >
         <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-body-ink">
-          {tower.site}
+          {deviceName(tower.site)}
         </span>
         <span className="flex items-center gap-[4px]">
           <span className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">

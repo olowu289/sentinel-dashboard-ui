@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
+import { deviceName } from "@/lib/deviceName";
 import type { CameraFeed } from "@/lib/types";
 import type { PlaybackPhase } from "@/lib/usePlayback";
 import type { ViewerSession } from "@kallon/sentry-sdk";
@@ -254,7 +255,7 @@ export function MonitorTile({
         layoutDependency={layoutKey}
         transition={transition}
         onLayoutAnimationComplete={() => setExiting(false)}
-        aria-label={`${feed.name} camera, ${towerId}`}
+        aria-label={`${deviceName(feed.name)} camera, ${towerId}`}
         aria-modal={fullscreen || undefined}
         role={fullscreen ? "dialog" : undefined}
         className={`group overflow-hidden ${

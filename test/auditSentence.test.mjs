@@ -229,7 +229,7 @@ describe("sharing", () => {
       row("share.accept", { towers: ["kln_lab_000002", "kln_lab_000003"] }),
       NAMES,
     );
-    assert.equal(s, "Terra Industries shared Lab Mast and Back Mast");
+    assert.equal(s, "Terra Industries shared LAB MAST and BACK MAST");
     assertReadable(s, "share.accept");
   });
 
@@ -268,7 +268,7 @@ describe("sites and towers", () => {
       row("site.hub_assign", { hub_id: "hub-lab", site_id: "site_north" }),
       NAMES,
     );
-    assert.equal(s, "Terra Industries put Lab Hub in North Gate");
+    assert.equal(s, "Terra Industries put LAB HUB in North Gate");
     assertReadable(s, "site.hub_assign");
   });
 
@@ -277,7 +277,7 @@ describe("sites and towers", () => {
       row("device.added", { what: "tower", name: "Lab Mast", hub_id: "hub-lab" }),
       NAMES,
     );
-    assert.equal(s, "Terra Industries added the tower Lab Mast to Lab Hub");
+    assert.equal(s, "Terra Industries added the tower LAB MAST to LAB HUB");
     assertReadable(s, "device.added");
   });
 
@@ -286,7 +286,7 @@ describe("sites and towers", () => {
       row("device.removed", { name: "Lab Mast" }, { device_id: "kln_lab_000002" }),
       NAMES,
     );
-    assert.equal(s, "Terra Industries removed Lab Mast");
+    assert.equal(s, "Terra Industries removed LAB MAST");
     assertReadable(s, "device.removed");
   });
 });

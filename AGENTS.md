@@ -60,6 +60,18 @@ order and has no arrangement of its own, so the gesture is gone and the token
 went with it rather than waiting to be spent on something that persists. A blue
 that outlives a gesture is the thing this rule was written against.
 
+**A tower's or a camera's name is in CAPITALS.** Typed, saved and shown.
+`deviceName` in `src/lib/deviceName.ts` is the only place that decides, and
+`useCapitalName` capitalises a rename box as somebody types without moving the
+caret. Never an `uppercase` CSS class on a name — a text-transform changes the
+glyphs and nothing else, so it never reaches the server, never reaches an
+`aria-label`, a search or a string like `FeedChip`'s `LIVE: ${name}`, and has
+to be remembered at every one of the thirty places a name appears. It was not:
+the claim wizard drew capitals and registered what was typed. A tower, a hub
+mast, a cell and a camera are devices and all follow this. Organizations,
+people and evidence filenames are NOT device names and are left exactly as
+they are.
+
 **Times are wall-clock, in site time, labelled.** `formatEventTime` /
 `formatClock`, never the viewer's timezone and never a relative age. There are
 exactly two documented exceptions, both `formatRelative`: the new-alert banner

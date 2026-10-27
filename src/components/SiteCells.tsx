@@ -38,6 +38,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, useCallback, useState } from "react";
 import type { ManagedCell, Site } from "@kallon/sentry-sdk";
+import { deviceName } from "@/lib/deviceName";
+import { useCapitalName } from "@/lib/useCapitalName";
 
 import {
   adminMoveCell,
@@ -230,13 +232,17 @@ function CellTowers({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const capitals = useCapitalName(setRenameTo);
+
   const rename = useCallback(
     async (deviceId: string) => {
       if (!renameTo.trim()) return;
       setBusy(true);
       setError(null);
       try {
-        await adminRenameTower(deviceId, renameTo.trim());
+        /* Capitals, like every other name a tower is given. The box
+           already shows them; this is what makes them true. */
+        await adminRenameTower(deviceId, deviceName(renameTo).trim());
         setRenaming(null);
         detail.reload();
         onChanged();
@@ -267,7 +273,7 @@ function CellTowers({
     [detail, onChanged],
   );
 
-  if (detail.loading) return <Loading rows={2} label={`Loading ${cell.name}`} />;
+  if (detail.loading) return <Loading rows={2} label={`Loading ${deviceName(cell.name)}`} />;
   if (detail.error) {
     return <Failed message={detail.error} onRetry={detail.reload} />;
   }
@@ -293,9 +299,13 @@ function CellTowers({
                 {renaming === t.device_id ? (
                   <div className="flex flex-wrap items-center gap-[8px]">
                     <input
+                      ref={capitals.ref}
                       value={renameTo}
-                      onChange={(e) => setRenameTo(e.target.value)}
-                      aria-label={`New name for ${t.name}`}
+                      onChange={capitals.onChange}
+                      aria-label={`New name for ${deviceName(t.name)}`}
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
                       className={inputClass + " max-w-[220px]"}
                     />
                     <PrimaryButton
@@ -311,7 +321,7 @@ function CellTowers({
                 ) : (
                   <span className="flex flex-col">
                     <span className="text-[0.875rem] text-body-ink">
-                      {t.name}
+                      {deviceName(t.name)}
                     </span>
                     {/* The device id, small and muted. It is what an engineer
                         needs in a log and what nobody at a site says out
@@ -326,7 +336,7 @@ function CellTowers({
                     <QuietButton
                       onClick={() => {
                         setRenaming(t.device_id);
-                        setRenameTo(t.name);
+                        setRenameTo(deviceName(t.name));
                       }}
                     >
                       Rename
@@ -340,7 +350,7 @@ function CellTowers({
               <AnimatePresence>
                 {removing === t.device_id ? (
                   <Confirm
-                    question={`Remove ${t.name}?`}
+                    question={`Remove ${deviceName(t.name)}?`}
                     /* ⚠ THE SENTENCE THAT MUST COME BEFORE THE CLICK. */
                     consequence={
                       "It is unpaired and its keys are revoked, so it cannot "
@@ -385,12 +395,14 @@ function CellRow({
 }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [renameTo, setRenameTo] = useState(cell.name);
+  const [renameTo, setRenameTo] = useState(deviceName(cell.name));
   const [moving, setMoving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ended, setEnded] = useState<readonly string[]>([]);
+
+  const capitals = useCapitalName(setRenameTo);
 
   const rename = useCallback(async () => {
     if (!renameTo.trim()) return;
@@ -453,9 +465,13 @@ function CellRow({
         {renaming ? (
           <div className="flex flex-wrap items-center gap-[8px]">
             <input
+              ref={capitals.ref}
               value={renameTo}
-              onChange={(e) => setRenameTo(e.target.value)}
-              aria-label={`New name for ${cell.name}`}
+              onChange={capitals.onChange}
+              aria-label={`New name for ${deviceName(cell.name)}`}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
               className={inputClass + " max-w-[240px]"}
             />
             <PrimaryButton disabled={busy} onClick={() => void rename()}>
@@ -471,7 +487,7 @@ function CellRow({
             className="flex flex-col items-start text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
           >
             <span className="font-display text-[0.9375rem] text-body-ink">
-              {cell.name}
+              {deviceName(cell.name)}
             </span>
             <span className="flex flex-wrap items-center gap-[8px] text-[0.75rem] text-muted">
               <span>{capacityLine}</span>
@@ -504,13 +520,13 @@ function CellRow({
               Add a tower
             </QuietButton>
             <OverflowMenu
-              label={`Actions for ${cell.name}`}
+              label={`Actions for ${deviceName(cell.name)}`}
               items={[
                 {
                   label: "Rename",
                   onSelect: () => {
                     setRenaming(true);
-                    setRenameTo(cell.name);
+                    setRenameTo(deviceName(cell.name));
                   },
                 },
                 {
@@ -539,7 +555,7 @@ function CellRow({
             className="flex flex-col gap-[8px] rounded-[8px] border border-detect/40 bg-detect-bg p-[12px]"
           >
             <p className="font-display text-[0.8125rem] text-detect">
-              Move {cell.name} to another site
+              Move {deviceName(cell.name)} to another site
             </p>
             {/* ⚠ WARNED BEFORE, NAMED AFTER. */}
             <p className="text-[0.75rem] leading-[16px] text-sub/90">
@@ -566,7 +582,7 @@ function CellRow({
       <AnimatePresence>
         {removing ? (
           <Confirm
-            question={`Remove ${cell.name}?`}
+            question={`Remove ${deviceName(cell.name)}?`}
             consequence={
               cell.towers > 0
                 ? `It still has ${capacityLine}. This will be refused: take the `

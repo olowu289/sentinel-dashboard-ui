@@ -286,6 +286,36 @@ the way out, and a way out that has to be found by hovering is not one.
 The design draws a capture button at the bottom-right of the video, parked
 outside its clipped parent — it is invisible in the frame and is not built.
 
+### Names are capitals
+
+A tower, a hub mast, a cell and a camera are all *devices*, and a device's
+name is in capitals wherever it appears: the fleet list, the band headings,
+the tiles and their feed chips, Settings, Sharing, the audit log's sentences,
+the claim wizard's card. One function decides it — `deviceName` in
+`src/lib/deviceName.ts` — and `useCapitalName` applies it to a rename box on
+every keystroke, catching the caret before React rewrites the value and
+putting it back after.
+
+The rule used to be an `uppercase` class, and all three of its failure modes
+were live at once. It never reached the server, so the claim wizard drew
+capitals over a box and registered "north gate mast". It had to be remembered
+at every site, and was not, so one camera read GATE TEST on the wall and
+"Gate test" in Settings. And it is invisible to anything that is not a
+browser: `FeedChip` builds `LIVE: ${name}` as a string, and no class on the
+wall could ever have reached inside it.
+
+Three things are deliberately outside it. An ORGANIZATION's name is a legal
+thing somebody chose the capitalisation of. A PERSON's name is theirs.
+And an EVIDENCE FILENAME keeps what it always had — `safeSegment` in
+`lib/snapshot.ts` preserves rather than prettifies, so the camera name drawn
+on the Footage screen goes through `deviceName` and the one in the downloaded
+clip's filename does not. Those two lines sit next to each other in
+`FootageView`, with a comment saying why.
+
+Search is case-blind on both sides, through `nameMatches`, which folds the
+query the same way the screen folds the name: a third opinion about what a
+camera is called is how the first disagreement gets in.
+
 ### Bands
 
 The wall is banded by tower, one header per site over the row of its cameras.

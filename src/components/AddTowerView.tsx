@@ -12,6 +12,8 @@ import { MaskIcon } from "@/components/Icon";
 import { MutationError } from "@/components/MutationFeedback";
 import { ENTER, FADE } from "@/lib/motion";
 import { useMutation } from "@/lib/useMutation";
+import { deviceName } from "@/lib/deviceName";
+import { useCapitalName } from "@/lib/useCapitalName";
 import {
   CODE_CHARS,
   createClaim,
@@ -350,6 +352,12 @@ function EnterCode({
 }) {
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
+  /* Capitalised as it is typed, caret where the operator left it. The box
+     used to carry an `uppercase` CLASS, which drew capitals over whatever was
+     typed and sent the typing — so the one place in the app that NAMES a
+     tower for the first time was the one place most likely to register it in
+     lower case. */
+  const capitals = useCapitalName(setLabel);
   const [codeProblem, setCodeProblem] = useState<string | null>(null);
   const codeRef = useRef<HTMLInputElement>(null);
   const register = useMutation({ quiet: true });
@@ -374,7 +382,7 @@ function EnterCode({
       setCodeProblem(null);
 
       void register.run("claim", async () => {
-        const claim = await createClaim(normalised, label.trim().toUpperCase());
+        const claim = await createClaim(normalised, deviceName(label).trim());
         /* The code leaves component state the moment it is no longer needed.
            It is a live secret until the tower consumes it. */
         setCode("");
@@ -446,13 +454,17 @@ function EnterCode({
             TOWER NAME
           </span>
           <input
+            ref={capitals.ref}
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={capitals.onChange}
             onKeyDown={onKey}
             disabled={phase.kind === "pending"}
             placeholder="NORTH GATE MAST"
             autoComplete="off"
-            className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink uppercase outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-[52px] rounded-[8px] bg-card px-[14px] text-[1rem] text-body-ink outline-none placeholder:text-body-ink/25 focus-visible:outline-1 focus-visible:outline-terra"
           />
           <span className="text-[0.75rem] leading-[16px] text-muted">
             What to call this tower, not the site it stands on.
@@ -532,7 +544,7 @@ function Waiting({
         <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
           <dt className="sr-only">Site name</dt>
           <dd className="truncate font-display text-[0.875rem] tracking-[0.14px] text-body-ink">
-            {claim.label}
+            {deviceName(claim.label)}
           </dd>
           <dt className="sr-only">Status</dt>
           <dd className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">

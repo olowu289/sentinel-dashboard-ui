@@ -13,6 +13,8 @@ import { useSession } from "@/components/AuthProvider";
 import { useCapabilities } from "@/lib/useSites";
 import { isHubMode } from "@/lib/hubMode";
 import { PatrolControl, type PatrolPhase } from "@/components/PatrolControl";
+import { deviceName, nameMatches } from "@/lib/deviceName";
+import { useCapitalName } from "@/lib/useCapitalName";
 import { patrolWord, type PatrolEdit } from "@/lib/patrol";
 import { IconRail } from "@/components/IconRail";
 import { SharingPane } from "@/components/sharing/SharingPane";
@@ -388,14 +390,19 @@ export function SettingsView({
    * find the one called GATE.
    */
   const matches = useMemo(() => {
-    const q = camQuery.trim().toLowerCase();
+    const q = camQuery.trim();
     const of = (t: Tower) => feeds.filter((f) => f.towerId === t.id);
     if (q === "") return towers.map((tower) => ({ tower, cameras: of(tower) }));
     const out: { tower: Tower; cameras: CameraFeed[] }[] = [];
     for (const tower of towers) {
-      const named = (tower.site || tower.id).toLowerCase().includes(q);
+      /* ⚠ BOTH SIDES THROUGH THE SAME FUNCTION THE SCREEN DRAWS WITH, rather
+         than lower-casing here. The names are shown in capitals; a search that
+         folded them a third way would be a third opinion about what this
+         camera is called, and the first one to disagree would be the one
+         nobody could see. */
+      const named = nameMatches(tower.site || tower.id, q);
       const mine = of(tower);
-      const hits = mine.filter((f) => (f.name ?? "").toLowerCase().includes(q));
+      const hits = mine.filter((f) => nameMatches(f.name, q));
       if (named) out.push({ tower, cameras: mine });
       else if (hits.length > 0) out.push({ tower, cameras: hits });
     }
@@ -549,7 +556,12 @@ export function SettingsView({
   const saveCamera = useCallback(
     async (feed: CameraFeed) => {
       if (camSaving) return;
-      const next = (camDraft[feed.id] ?? "").trim();
+      /* ⚠ CAPITALS GO UP THE WIRE, not just onto the screen. The box
+         capitalises every keystroke, so this is belt and braces for a draft
+         that arrived some other way — a paste, an autofill, a restored
+         value. A name that displays in capitals and is stored in lower case
+         is the bug this whole change exists to remove. */
+      const next = deviceName(camDraft[feed.id] ?? "").trim();
       setCamSaving(feed.id);
       setCamError(null);
       setCamSaved(null);
@@ -1144,7 +1156,7 @@ export function SettingsView({
                       className="flex w-full items-center justify-between gap-[12px] px-[14px] py-[11px] text-left transition-colors hover:bg-card-hover"
                     >
                       <span className="min-w-0 truncate text-[0.875rem] leading-[20px] text-body-ink">
-                        {tower.site || tower.id}
+                        {deviceName(tower.site || tower.id)}
                       </span>
                       {/* ⚠ THE SUMMARY, AND NOT A COUNT OF "Not reported".
                           An offline tower says the one thing worth knowing and
@@ -1192,7 +1204,7 @@ export function SettingsView({
                                 }`}
                               >
                                 <span className="min-w-0 truncate text-[0.8125rem] leading-[18px] text-body-ink">
-                                  {feed.name}
+                                  {deviceName(feed.name)}
                                 </span>
                                 <span className="flex shrink-0 items-center gap-[10px] text-[0.75rem] leading-[16px]">
                                   <span
@@ -1421,17 +1433,18 @@ function CameraPanel({
   onSetPatrol?: (edit: PatrolEdit) => void;
   patrolPhase?: PatrolPhase;
 }) {
+  const capitals = useCapitalName(onDraft);
   return (
     <motion.aside
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={FADE}
-      aria-label={`${feed.name} settings`}
+      aria-label={`${deviceName(feed.name)} settings`}
       className="fixed inset-x-0 bottom-0 z-30 max-h-[80vh] overflow-y-auto rounded-t-[16px] border-t border-line bg-panel p-[18px] shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[340px] sm:max-h-none sm:rounded-none sm:border-l sm:border-t-0"
     >
       <div className="flex items-start justify-between gap-[12px]">
         <h3 className="min-w-0 break-words text-[1rem] leading-[22px] text-body-ink">
-          {feed.name}
+          {deviceName(feed.name)}
         </h3>
         <button
           type="button"
@@ -1447,11 +1460,23 @@ function CameraPanel({
         <span className="font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.1px] text-dim">
           Name
         </span>
+        {/* ⚠ THE VALUE IS THE NAME, AND THE PLACEHOLDER IS THE FALLBACK.
+            `draft` is the camera's own label, so a named camera shows its name
+            here and an unnamed one shows `CAMERA 2` greyed out behind an empty
+            box — the two are different facts and the box says which.
+            `useCapitalName` capitalises as it is typed and puts the caret
+            back where it was; there is no `uppercase` class, because a
+            transform drawn over a lower-case value is exactly how the claim
+            wizard came to register towers in lower case. */}
         <input
+          ref={capitals.ref}
           value={draft}
-          onChange={(e) => onDraft(e.target.value)}
+          onChange={capitals.onChange}
           disabled={busy}
-          placeholder={feed.name}
+          placeholder={deviceName(feed.name)}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
           className={INPUT}
         />
         {error && (
@@ -1485,7 +1510,7 @@ function CameraPanel({
         <div className="mt-[18px] border-t border-line pt-[16px]">
           <PatrolControl
             patrol={feed.patrol}
-            cameraName={feed.name ?? feed.id}
+            cameraName={deviceName(feed.name ?? feed.id)}
             showName={false}
             phase={patrolPhase ?? { kind: "idle" }}
             onSave={onSetPatrol}

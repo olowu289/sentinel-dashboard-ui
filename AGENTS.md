@@ -52,10 +52,13 @@ mean "selected", "primary" or "success" — selection and primary actions are
 white-on-black. A green pill on a monitoring screen reads as a signal, not a
 setting. The one extension is `PendingTowerCard`, which the design washes in
 20% detect amber for a tower whose setup is unfinished — not a reading, but the
-same claim amber always makes: *this needs you*. `--color-drag` is the one blue,
-and it is allowed *because* it is outside that set: a held band has to say "you have this" without also seeming to
-report on the site. It exists for the length of a gesture. Do not spend it on
-anything that persists.
+same claim amber always makes: *this needs you*. There is now no blue at all.
+`--color-drag` was the one exception, allowed *because* it was outside that set
+and only for the length of a drag: a held band had to say "you have this"
+without also seeming to report on the site. The wall takes the TOWERS list's
+order and has no arrangement of its own, so the gesture is gone and the token
+went with it rather than waiting to be spent on something that persists. A blue
+that outlives a gesture is the thing this rule was written against.
 
 **Times are wall-clock, in site time, labelled.** `formatEventTime` /
 `formatClock`, never the viewer's timezone and never a relative age. There are
@@ -81,16 +84,27 @@ the hardware, and the fleet wall is built on it — a band is one site's header
 over one row of two tiles, which is what the design draws and why the wall caps
 its columns at two. Seed a third camera and the wall stops being a row per site.
 
-**The wall's bands are derived, never stored.** `DashboardView` groups the flat
-`order` by `towerId` — a tower sits where its first camera does. Adding a second
-piece of state for band order gives you two arrangements that drift apart the
-first time a tile is dragged across a band boundary.
+**The wall's bands are the TOWERS list, in the TOWERS list's order.** One
+function decides it — `fleetOrder` / `wallBands` in `src/lib/fleetOrder.ts` —
+and `TowersPanel` and `DashboardView` both call it. Nothing stores an
+arrangement anywhere: not in the shell, not in `ViewPrefs`, not in the view.
+
+This reversed on 2026-10-27, and the reason is worth keeping. The wall used to
+hold its own flat `order` of feed ids, seeded from the fixtures and reconciled
+by appending whatever the fleet had gained to the end — so it accumulated the
+order of every fleet the browser had ever read, and the two panels showed the
+same three sites in two different orders. Band drag went with it: an
+arrangement only one of the two panels can hold is exactly that disagreement,
+re-introduced deliberately. A second source for band order gives you two
+arrangements that drift apart, and the first thing that drifts is the operator's
+ability to find on the wall the site they just read about in the list.
 
 **Camera, alert and tower state belong to `App.tsx`, not to a screen.** Both screens
 render the same feeds, and the recording tick and latency walk are live — give
 either one a copy and the two walls disagree about the same camera within a
-second. The wall arrangement is up there too, because `DashboardView` unmounts
-on every drill-in and would otherwise hand the operator back a reset wall.
+second. The wall's ORDER is no longer among them: it is derived from `towers`
+and `feeds` on render (see above), so there is nothing for `DashboardView`
+unmounting on a drill-in to lose.
 `towers` is up there for the same reason once the batteries started filling —
 both screens read a tower, and two copies of a moving number disagree. The
 live-viewing clock behind the battery banner is up there too, and that one is
@@ -142,9 +156,9 @@ fixed values for heights and gaps only.
 
 **`layoutKey` applies to the fleet wall too.** `MonitorTile` gates motion the
 same way `CameraTile` does, and its key already carries the takeover *and* the
-wall order — a band reorder reflows every sibling. Anything else you add there
-that changes a tile's box goes in that key or the wall snaps instead of
-animating.
+wall's current arrangement — the fleet coming back with a site added, gone or
+moved reflows every sibling. Anything else you add there that changes a tile's
+box goes in that key or the wall snaps instead of animating.
 
 **Two `transition-*` utilities on one element is one property list, not two.**
 `ControlStack`'s buttons carried `transition-colors` for the hover chip and
@@ -188,9 +202,10 @@ how a tile is laid out.
 
 **Native drag handlers cannot go on a `motion.*` element.** Motion replaces
 `onDragStart`/`onDragEnd` with its own pan handlers, which have no
-`dataTransfer`. The band `<section>` in `DashboardView` carries them and is
-deliberately not a motion element; `MonitorTile`'s own plain wrapper is what
-holds the grid cell open during a takeover.
+`dataTransfer`. The fleet wall's band drag was the case this was written for and
+that gesture is gone, but the trap is not: anything in here that wants HTML5
+drag needs a plain element to carry it. `MonitorTile`'s own plain wrapper, which
+holds the grid cell open during a takeover, is the shape to copy.
 
 **Tower battery is live state.** `towers` is state in `App.tsx`, not the module
 constant — a charging tower gains 1% a second. `TowerBattery` reads

@@ -1,5 +1,5 @@
 import { AnimatePresence, MotionConfig } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
 import { FootageView } from "@/components/FootageView";
@@ -46,6 +46,7 @@ import { setHome, stopOrHome } from "@/lib/api/ptz";
 import { classifyReach, type ReachProblem } from "@/lib/api/reach";
 import { listClaims, type Claim } from "@/lib/api/claim";
 import { loadPrefs, savePrefs } from "@/lib/prefs";
+import { wallOrder } from "@/lib/fleetOrder";
 import { CoordinationBanner } from "@/components/CoordinationBanner";
 import { cameraKey, usePlayback, type PlaybackTarget } from "@/lib/usePlayback";
 import { useVisibleTiles } from "@/lib/useVisibleTiles";
@@ -486,19 +487,19 @@ export function SentinelApp() {
     null,
   );
 
-  /* The fleet wall's arrangement, as feed ids. Up here rather than in the
-     dashboard because that view unmounts on every drill-in — arranging a wall
-     is work, and handing it back reset would teach operators not to arrange it.
-     Ids rather than a reordered copy of the feeds: `feeds` is rebuilt on every
-     latency tick, so anything holding the objects would go stale immediately.
+  /* THE WALL'S ORDER IS THE LIST'S, AND IT IS NOT STATE ANY MORE.
+     It used to be: a flat arrangement of feed ids, held up here so it survived
+     the dashboard unmounting on every drill-in, seeded from the fixtures and
+     reconciled by appending whatever the fleet had gained to the end. That is
+     precisely how the two panels came to disagree — the wall accumulated the
+     order of every fleet this browser had read while the list showed the one
+     it was serving now. Derived from `towers` and `feeds`, there is nothing to
+     hold, nothing to reconcile and nothing to survive: see `lib/fleetOrder.ts`.
 
-     ⚠ DECLARED BEFORE THE PLAYBACK BLOCK, not beside the other view state. The
-     fleet wall's session cap is applied in wall order, so what an operator sees
-     first is what streams — which means the arrangement has to exist before the
-     targets are computed. */
-  const [wallOrder, setWallOrder] = useState<string[]>(() =>
-    FEEDS.map((f) => f.id),
-  );
+     ⚠ STILL COMPUTED BEFORE THE PLAYBACK BLOCK. The session cap is applied in
+     wall order, so what an operator sees first is what streams — which means
+     the order has to exist before the targets below are built. */
+  const wallIds = useMemo(() => wallOrder(towers, feeds), [towers, feeds]);
 
   /**
    * Which profile each camera is being watched at, by feed id.
@@ -668,7 +669,7 @@ export function SentinelApp() {
   /* Wall order, not feed order, so the cap is decided by where a tile sits on
      the screen rather than by whatever order the fleet came back in. Two
      operators looking at the same wall drop the same tiles. */
-  const fleetTargets: PlaybackTarget[] = wallOrder
+  const fleetTargets: PlaybackTarget[] = wallIds
     .map((id) => feeds.find((f) => f.id === id))
     .filter(
       (f): f is CameraFeed =>
@@ -1422,7 +1423,6 @@ export function SentinelApp() {
     prefsLoaded.current = true;
     const stored = loadPrefs(accountId);
     setDismissedNotices(new Set(stored.dismissedNotices));
-    if (stored.wallOrder.length > 0) setWallOrder(stored.wallOrder);
     if (Object.keys(stored.cameraSettings).length > 0) {
       setSettings(stored.cameraSettings);
     }
@@ -1437,7 +1437,6 @@ export function SentinelApp() {
   useEffect(() => {
     if (!accountId || !prefsLoaded.current) return;
     savePrefs(accountId, {
-      wallOrder,
       dismissedNotices: [...dismissedNotices],
       cameraSettings: settings,
       cameraProfiles,
@@ -1446,31 +1445,19 @@ export function SentinelApp() {
     /* Deliberately no mirrored `prefs` state. It would be a second copy of
        what the three sources already say, and the first time it drifted the
        stale one would be what got written to disk. */
-  }, [accountId, wallOrder, dismissedNotices, settings, cameraProfiles, footageClips]);
+  }, [accountId, dismissedNotices, settings, cameraProfiles, footageClips]);
 
   const dismissNotice = useCallback((towerId: string) => {
     setDismissedNotices((prev) => new Set(prev).add(towerId));
   }, []);
 
-  /* Committing a whole arrangement, for the band drag: moving a site moves
-     every tile in it, and doing that through `moveTile` would walk the wall
-     through intermediate arrangements nobody asked for. */
-  const reorderWall = useCallback((next: string[]) => setWallOrder(next), []);
-
-  /* Reconcile if the fleet ever gains or loses a camera. New ones land at the
-     end rather than resetting the order, for the same reason. */
-  const fleet = feeds.map((f) => f.id).join("|");
-  useEffect(() => {
-    setWallOrder((prev) => {
-      const ids = fleet.split("|");
-      const live = new Set(ids);
-      const kept = prev.filter((id) => live.has(id));
-      const added = ids.filter((id) => !prev.includes(id));
-      return kept.length === prev.length && added.length === 0
-        ? prev
-        : [...kept, ...added];
-    });
-  }, [fleet]);
+  /* ⚠ THE RECONCILE THAT USED TO BE HERE IS GONE WITH THE ARRANGEMENT IT
+     RECONCILED. It kept a stored wall order in step with the fleet by dropping
+     ids that had left and appending ids that were new — which is how a tower
+     that arrived late ended up last on the wall and third in the list, for
+     ever. A derived order has nothing to keep in step: a tower appearing or
+     going dark changes the wall on the next render, in the same place the
+     list puts it. */
 
   /**
    * Poll while a registration is open.
@@ -2018,8 +2005,6 @@ export function SentinelApp() {
           towers={towers}
           feeds={feeds}
           alerts={alerts}
-          order={wallOrder}
-          onReorder={reorderWall}
           pendingClaim={openClaim}
           onNavigate={navigate}
           onResumeSetup={() => setAdding(true)}

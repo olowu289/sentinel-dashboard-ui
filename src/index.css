@@ -214,13 +214,13 @@
   --color-mark-key: #d0eb76;
   --color-mark-key-line: #4a5527;
 
-  /* The only blue in the app, and the reason it is allowed: it is the fill a
-     band takes while it is being dragged. Status is green/amber/red and nothing
-     else, so a hue from outside that set cannot be mistaken for a reading — it
-     is the one colour that can say "you are holding this" without also seeming
-     to say something about the site. It exists for the length of a gesture and
-     is gone the moment the band lands. */
-  --color-drag: #0f263f;
+  /* ⚠ `--color-drag` STOOD HERE, and nothing replaces it. It was the app's
+     only blue, allowed because a band being dragged had to say "you are
+     holding this" without seeming to report on the site, and allowed only for
+     the length of that gesture. The gesture is gone — the wall takes the
+     TOWERS list's order and has none of its own to arrange — so the exception
+     goes with it rather than waiting to be spent on something that persists.
+     Green, amber and red, and nothing else has a hue. */
 
   /* ── THE THREE THEME-AWARE TOKENS THAT REPLACED 571 HARDCODED WHITES ──
 
@@ -376,8 +376,6 @@
   --color-mark-key: #4a6b00;
   --color-mark-key-line: #9fb86a;
 
-  /* The drag highlight: a tint rather than the dark navy. */
-  --color-drag: #dbeafe;
 }
 
 @layer base {

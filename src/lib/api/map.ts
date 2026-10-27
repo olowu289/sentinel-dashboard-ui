@@ -360,16 +360,17 @@ export function toFeed(
 ): CameraFeed {
   const { state } = feedStateFor(link, cam.status, asOf, now);
 
-  /* ⚠ READ THROUGH A NARROWING, BECAUSE THE VENDORED SDK DOES NOT DECLARE IT.
-     Coordination adds `label` to each camera in the projection (the account's
-     own name for it, merged per request), and `@kallon/sentry-sdk`'s
-     `CameraInfo` is a version behind. Narrowing here rather than editing
-     `vendor/sentry-sdk`: the SDK is a separate repo, and a hand-edited vendored
-     type is a change that vanishes on the next SDK update with nothing to say
-     it was ever needed.
-     TODO(sdk): add `label?: string` to CameraInfo and delete this cast. */
-  const rawLabel = (cam as { label?: unknown }).label;
-  const named = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel : "";
+  /* ⚠ THE CAST THAT USED TO BE HERE READ A FIELD THAT WAS ALREADY GONE, and
+     that is the whole of why every screen said CAMERA 1 while the server sent
+     "Gate test". It narrowed `cam` to reach `label` on the reasoning that the
+     SDK's `CameraInfo` was "a version behind" -- true, and beside the point.
+     `parseCameraInfo` is a WHITELIST: it builds a new camera from the fields
+     it names, so the cast was reading a property the validator had already
+     dropped. A type is not what carries a field across a parse.
+
+     The SDK names it now (0.12.0), so this is an ordinary read. The lesson is
+     in `vendor/sentry-sdk/src/validate.ts`, beside the line that fixed it. */
+  const named = typeof cam.label === "string" && cam.label.trim() ? cam.label : "";
 
   return {
     id: feedId(deviceId, cam.index),

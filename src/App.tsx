@@ -366,7 +366,22 @@ export function SentinelApp() {
           "label",
           (f) => f.id,
           (f) => f.label,
-          (f, v) => ({ ...f, label: v as string }),
+          /* ⚠ `name` IS DERIVED FROM `label`, SO IT HAS TO MOVE WITH IT.
+             Restoring the label alone leaves `name` as whatever the stale
+             answer computed -- "CAMERA 1" -- and `name` is what every tile
+             caption, the wall, the playback picker and the evidence file name
+             actually print. The held camera would read "Gate test" in the
+             settings box and CAMERA 1 everywhere else, which is worse than
+             the flicker this whole mechanism removes. The fallback is the
+             mapper's, repeated here because it is the same rule. */
+          (f, v) => {
+            const label = typeof v === "string" && v.trim() ? v : undefined;
+            return {
+              ...f,
+              ...(label ? { label } : { label: undefined }),
+              name: label ?? `CAMERA ${f.index ?? ""}`.trim(),
+            };
+          },
         ) as CameraFeed[],
       );
     },

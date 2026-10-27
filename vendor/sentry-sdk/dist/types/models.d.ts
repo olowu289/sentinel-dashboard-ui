@@ -843,6 +843,27 @@ export interface CameraInfo {
      * in any session, PTZ or grant call** (§A.7).
      */
     enclosure?: string;
+    /**
+     * The account's own name for this camera, merged into the projection.
+     *
+     * ⚠ ABSENT MEANS UNNAMED, NOT UNKNOWN, and a client must say so in its own
+     * words rather than printing an empty string: the dashboard falls back to
+     * `CAMERA <index>`. Clearing a name removes the field, so absence is also
+     * what an erased name looks like.
+     *
+     * Names live on the HUB now, one per camera, so every viewer of a site sees
+     * the same one. `name_rev` below is how two writers are ordered.
+     */
+    label?: string;
+    /**
+     * Which revision of the name and of the patrol this is.
+     *
+     * ⚠ MACHINE FIELDS, CARRIED AND NEVER RENDERED. They exist so a writer can
+     * tell its own echo from somebody else's change, and so a late answer
+     * cannot overwrite a newer one. Nothing a person reads is built from them.
+     */
+    name_rev?: number;
+    patrol_rev?: number;
     /** §A.5 — main view vs swappable inset within a tile. Absent → primary. */
     role?: CameraRole;
     /**
@@ -944,6 +965,11 @@ export interface TowerInfo {
     cameras: CameraInfo[];
     /** §A.9 — reserved. MAY be empty, but is **present even when empty**. */
     sensors: SensorInfo[];
+    /**
+     * Which revision of this tower's own name this is. A machine field; see
+     * `CameraInfo.name_rev`.
+     */
+    name_rev?: number;
     /**
      * §A.3.3 — narrowed out of the required set, **not forbidden**. §4.2.3 still
      * serves these; the dashboard has no use for them today, and a required field

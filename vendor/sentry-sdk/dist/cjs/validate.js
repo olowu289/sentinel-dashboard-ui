@@ -500,6 +500,34 @@ function parseCameraInfo(c, path, raw) {
         // never an error here; §A.3.2 forbids only *rendering* it as good.
         status: c.enum(`${path}.status`, o["status"], ["live", "down", "unknown"], "unknown"),
     };
+    /* THE CAMERA'S OWN NAME.
+  
+       ⚠ THE SECOND FIELD THIS WHITELIST HAS SWALLOWED, and the comment the
+       dashboard left at its own read site is why it took so long to find:
+       "`CameraInfo` is a version behind ... narrowing here rather than editing
+       the vendored type". The reasoning was about the TYPE. The problem is the
+       VALIDATOR -- `parseCameraInfo` builds a new object from the fields it
+       names, so a cast that reads `label` off the parsed camera reads a field
+       that is no longer there. Coordination sent "Gate test", the hub stored
+       it, every GET carried it, and every screen said CAMERA 1.
+  
+       ⚠ AND AN EMPTY LABEL IS LEFT OFF rather than carried as "". Clearing a
+       name is a real act, and the absence IS the cleared state -- a client
+       printing an empty string where it falls back to `CAMERA 1` would show a
+       blank tile caption instead. */
+    const label = o["label"];
+    if (typeof label === "string" && label.trim() !== "")
+        out.label = label;
+    /* MACHINE FIELDS, carried for whoever orders two writers and rendered by
+       nobody. Tolerant like `patrol`: these arrived in a release this build did
+       not know about, and a strict reading would have taken the whole fleet off
+       the screen rather than ignoring a number it had no use for. */
+    if (typeof o["name_rev"] === "number" && Number.isFinite(o["name_rev"])) {
+        out.name_rev = o["name_rev"];
+    }
+    if (typeof o["patrol_rev"] === "number" && Number.isFinite(o["patrol_rev"])) {
+        out.patrol_rev = o["patrol_rev"];
+    }
     if (o["resolution"] !== undefined && o["resolution"] !== null) {
         // §A.12 #1 — the object form won. A string reaches c.obj and fails as
         // "expected object, got string", which is exactly the message we want.
@@ -910,6 +938,11 @@ function towerInfo(c, path, raw) {
         const at = c.isoOrNull(`${p}connected_at`, true, o["connected_at"]);
         if (at !== null)
             value.connected_at = at;
+    }
+    /* Which revision of the tower's own name this is. A machine field, carried
+       and never rendered, tolerant for the reason `patrol` is. */
+    if (typeof o["name_rev"] === "number" && Number.isFinite(o["name_rev"])) {
+        value.name_rev = o["name_rev"];
     }
     const agent = c.optStr(`${p}agent_version`, o["agent_version"]);
     if (agent !== undefined)

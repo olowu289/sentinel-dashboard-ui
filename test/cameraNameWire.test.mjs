@@ -328,6 +328,6 @@ describe("one name, every screen", () => {
        called now, and edit that. The placeholder is for the unnamed case. */
     assert.match(settings, /value=\{draft\}/);
     assert.match(settings, /camDraft\[openFeed\.id\] \?\? openFeed\.label \?\? ""/);
-    assert.match(settings, /placeholder=\{feed\.name\}/);
+    assert.match(settings, /placeholder=\{deviceName\(feed\.name\)\}/);
   });
 });

@@ -382,7 +382,7 @@ describe("patrol.set, as one sentence", () => {
   test("⭐ switched on, with the schedule and the direction", () => {
     assert.equal(
       say({ camera: 1, enabled: true, every: "4h", direction: "clockwise" }),
-      "Dave set Camera 1 on Tower 1 to patrol every 4 hours, clockwise",
+      "Dave set CAMERA 1 on TOWER 1 to patrol every 4 hours, clockwise",
     );
   });
 
@@ -391,7 +391,7 @@ describe("patrol.set, as one sentence", () => {
        produces. Turning patrol off is a different act. */
     assert.equal(
       say({ camera: 1, enabled: false, every: "4h", direction: "clockwise" }),
-      "Dave turned off patrol on Camera 1 on Tower 1",
+      "Dave turned off patrol on CAMERA 1 on TOWER 1",
     );
   });
 
@@ -416,7 +416,7 @@ describe("patrol.set, as one sentence", () => {
   });
 
   test("a row with no camera number says \"a camera\", not \"Camera undefined\"", () => {
-    assert.match(say({ enabled: true, every: "4h", direction: "clockwise" }), /a camera on Tower 1/);
+    assert.match(say({ enabled: true, every: "4h", direction: "clockwise" }), /a camera on TOWER 1/);
   });
 
   test("it is grouped with the towers", () => {

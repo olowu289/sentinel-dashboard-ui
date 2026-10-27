@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { alertsForTower, feedsForTower, solarState } from "@/lib/data";
 import { sectorReading, type SectorReading } from "@/lib/api/map";
+import { deviceName } from "@/lib/deviceName";
 import { uplinkDisplay, uplinkHint, type UplinkDisplay } from "@/lib/uplinkDisplay";
 import type { CloudReading } from "@/lib/api/fleet";
 import { UplinkBars } from "@/components/UplinkBars";
@@ -801,7 +802,7 @@ function TowerRow({
       <div role="rowheader" className="sticky left-0 z-[1] flex h-full min-w-0 items-center rounded-l-[10px] bg-inherit pl-[16px] pr-[10px]">
         <button
           type="button"
-          aria-label={`Open ${tower.id}, ${tower.site}. ${status.label}`}
+          aria-label={`Open ${tower.id}, ${deviceName(tower.site)}. ${status.label}`}
           className="flex min-w-0 flex-col items-start gap-[4px] text-left"
         >
           <span className="flex min-w-0 max-w-full items-center gap-[8px]">
@@ -809,10 +810,10 @@ function TowerRow({
             {/* Titled, because the column truncates a long site name and the
                 rest of it is the part that says which yard. */}
             <span
-              title={tower.site}
+              title={deviceName(tower.site)}
               className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-body-ink"
             >
-              {tower.site}
+              {deviceName(tower.site)}
             </span>
           </span>
           {/* The status word and the id, quietly. Two sites can share a name;

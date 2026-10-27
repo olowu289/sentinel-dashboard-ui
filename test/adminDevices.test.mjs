@@ -131,14 +131,14 @@ describe("destructive actions say what they will do", () => {
   test("removing a tower says the recordings stay", () => {
     /* THE ONLY DELETION IN THIS PRODUCT THAT LEAVES DATA BEHIND. They may be
        evidence, and the sentence belongs in front of the click. */
-    const confirm = cells.slice(cells.indexOf("Remove ${t.name}?"));
+    const confirm = cells.slice(cells.indexOf("Remove ${deviceName(t.name)}?"));
     assert.match(confirm, /recordings stay until normal retention/i);
     assert.match(confirm, /evidence/i);
     assert.match(confirm, /keys are revoked/i);
   });
 
   test("removing a cell says why a cell with towers is refused", () => {
-    const confirm = cells.slice(cells.indexOf("Remove ${cell.name}?"));
+    const confirm = cells.slice(cells.indexOf("Remove ${deviceName(cell.name)}?"));
     assert.match(confirm, /revokes its/i);
     /* MATCHED INSIDE ONE STRING LITERAL. The sentence is built by
        concatenation across three lines, so a regex spanning the join fails on
@@ -162,7 +162,8 @@ describe("destructive actions say what they will do", () => {
     /* The device id is present and quiet on every tower row: it is what an
        engineer needs in a log and what nobody at a site says out loud. */
     assert.match(cells, /\{t\.device_id\}/);
-    assert.match(cells, /\{t\.name\}/);
+    /* In capitals, like every other device name — see `lib/deviceName.ts`. */
+    assert.match(cells, /\{deviceName\(t\.name\)\}/);
   });
 });
 

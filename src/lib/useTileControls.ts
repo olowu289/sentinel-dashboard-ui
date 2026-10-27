@@ -42,6 +42,7 @@ import { SweepRadar } from "@/components/SweepRadar";
 import { QuickShare } from "@/components/sharing/QuickShare";
 import { useNotifications } from "@/lib/notifications";
 import { useCapabilities } from "@/lib/useSites";
+import { deviceName } from "@/lib/deviceName";
 
 /**
  * The device's own countdown to an auto-resume, as `m:ss`.
@@ -882,6 +883,10 @@ export function useTileControls({
         blob,
         snapshotFilename({
           towerName: towerName ?? feed.towerId,
+          /* ⚠ THE RAW NAME, NOT THE CAPITALISED ONE. This is the evidence
+             filename, and `safeSegment` preserves rather than prettifies —
+             see the note there. Everything on this screen that DRAWS the name
+             puts it through `deviceName`; the file keeps what it always had. */
           cameraName: feed.name,
         }),
       );
@@ -1050,7 +1055,7 @@ export function useTileControls({
           /* Persistent: it is a form somebody is filling in, and a form that
              fades while you are choosing is worse than no form. */
           persistent: true,
-          title: `Share ${feed.name}`,
+          title: `Share ${deviceName(feed.name)}`,
           render: ({ dismiss }) => (
             createElement(QuickShare, {
               compact: true,

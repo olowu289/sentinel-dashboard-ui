@@ -18,6 +18,8 @@ import { uplinkDisplay, type UplinkDisplay } from "@/lib/uplinkDisplay";
 import { PatrolControl, type PatrolPhase } from "@/components/PatrolControl";
 import { patrolSummary, type PatrolEdit } from "@/lib/patrol";
 import { UplinkBars } from "@/components/UplinkBars";
+import { deviceName } from "@/lib/deviceName";
+import { useCapitalName } from "@/lib/useCapitalName";
 import {
   connectedSinceAt,
   internetRow,
@@ -815,7 +817,7 @@ export function CameraSettingsPanel({
                     <PatrolControl
                       key={f.id}
                       patrol={f.patrol!}
-                      cameraName={f.name ?? f.id}
+                      cameraName={deviceName(f.name ?? f.id)}
                       showName={patrolFeeds.length > 1}
                       phase={patrolPhase?.(f.id) ?? { kind: "idle" }}
                       onSave={(edit) => onSetPatrol?.(f.id, edit)}
@@ -859,7 +861,7 @@ export function CameraSettingsPanel({
                      falling back to "CAMERA 1" -- the same string the tile,
                      the wall and `QuickShare`'s own heading use, so all four
                      agree about what is being lent. */
-                  label={`Share ${f.name}`}
+                  label={`Share ${deviceName(f.name)}`}
                   value=""
                   expanded={open === `share:${f.id}`}
                   onToggle={() => toggle(`share:${f.id}`)}
@@ -868,7 +870,7 @@ export function CameraSettingsPanel({
                   <QuickShare
                     deviceId={f.towerId}
                     camera={f.index}
-                    cameraLabel={f.name}
+                    cameraLabel={deviceName(f.name)}
                     onDone={() => toggle(`share:${f.id}`)}
                   />
                 </Row>
@@ -1087,13 +1089,21 @@ export function CameraSettingsPanel({
  * loses its cameras. The name is what the fleet card, the band header and the
  * breadcrumb already show, so editing it here changes all four.
  *
- * ⚠ WHAT WAS TYPED IS WHAT IS SENT. This used to `.trim().toUpperCase()` before
- * committing and drop an empty result on the floor. Both had to go once the
- * write became real: `set_label` on the server is the only validator, it
- * refuses an empty, over-long or control-character label and its `422` says
- * which — so trimming here would silently repair some labels and the emptiness
- * check would swallow the one error the operator most needs to see. The field
- * still *displays* uppercase; that is CSS, and it does not touch the value.
+ * ⚠ WHAT WAS TYPED IS WHAT IS SENT, EXCEPT FOR ITS CAPITALS. This used to
+ * `.trim().toUpperCase()` before committing and drop an empty result on the
+ * floor. The trim and the emptiness check had to go once the write became
+ * real: `set_label` on the server is the only validator, it refuses an empty,
+ * over-long or control-character label and its `422` says which — so trimming
+ * here would silently repair some labels and the emptiness check would swallow
+ * the one error the operator most needs to see.
+ *
+ * The capitals came back, and came back DIFFERENTLY. They used to be applied
+ * at the commit, which meant the box showed one thing and the registry stored
+ * another; and the `uppercase` class under them was CSS, which drew capitals
+ * over a value that never had any. Now `useCapitalName` capitalises each
+ * keystroke, so what the box shows IS the draft and the draft is what is sent.
+ * A trim is still not done and an empty string is still the server's to
+ * refuse.
  *
  * The name shown is always the prop, never the draft, so a failed rename leaves
  * the old name standing — a field that keeps showing what you typed after the
@@ -1110,12 +1120,14 @@ function TowerName({
   onRename: (next: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
-  const ref = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(deviceName(name));
+  /* One ref for both jobs: the hook needs the node to put the caret back, and
+     opening the editor selects what is in it. */
+  const { ref, onChange } = useCapitalName(setDraft);
 
   useEffect(() => {
     if (editing) ref.current?.select();
-  }, [editing]);
+  }, [editing, ref]);
 
   const saving = phase.kind === "pending";
 
@@ -1123,8 +1135,13 @@ function TowerName({
     setEditing(false);
     /* Identical is the only thing worth not sending: it is not a change, and a
        round trip to be told so would be a spinner for nothing. Everything else
-       — including the empty string — is the server's to judge. */
-    if (draft !== name) onRename(draft);
+       — including the empty string — is the server's to judge.
+
+       ⚠ COMPARED IN CAPITALS, so a name stored in lower case before capitals
+       were the rule is not rewritten by somebody clicking the field and
+       clicking away. The screen already shows it in capitals; a write nobody
+       asked for, with a spinner on it, is not an improvement on that. */
+    if (deviceName(draft) !== deviceName(name)) onRename(draft);
   };
 
   if (editing) {
@@ -1133,19 +1150,23 @@ function TowerName({
         ref={ref}
         value={draft}
         disabled={saving}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={onChange}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit();
           if (e.key === "Escape") {
-            setDraft(name);
+            setDraft(deviceName(name));
             setEditing(false);
           }
         }}
         aria-label="Tower name"
-        /* The failed field wears the ring, as the serial and pairing-code step
-           already does — the error text below says why, and this says which. */
-        className={`w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-body-ink uppercase outline-none focus-visible:outline-1 focus-visible:outline-terra ${errorRing(phase)}`}
+        autoCapitalize="characters"
+        /* ⚠ NO `uppercase` CLASS. The value in this box is already capitals —
+           `useCapitalName` did it on the way in — and a text-transform over the
+           top would hide the day it stops being. The failed field wears the
+           ring, as the serial and pairing-code step already does: the error
+           text below says why, and this says which. */
+        className={`w-full min-w-0 rounded-[4px] bg-card px-[6px] py-0 text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-body-ink outline-none focus-visible:outline-1 focus-visible:outline-terra ${errorRing(phase)}`}
       />
     );
   }
@@ -1155,7 +1176,7 @@ function TowerName({
       <button
         type="button"
         onClick={() => {
-          setDraft(name);
+          setDraft(deviceName(name));
           setEditing(true);
         }}
         disabled={saving}
@@ -1164,7 +1185,7 @@ function TowerName({
            The default arrow says "this does something"; the caret says what. */
         className="-mx-[6px] cursor-text truncate rounded-[4px] px-[6px] text-left text-[0.875rem] leading-[20px] font-medium tracking-[0.14px] text-body-ink transition-colors hover:bg-card disabled:cursor-wait disabled:text-muted"
       >
-        {name}
+        {deviceName(name)}
       </button>
       {/* The one place this panel shows a spinner. Everywhere else a change
           confirms itself by displaying its own new value — but a rename now
@@ -1326,9 +1347,12 @@ function SetHomeRow({
 
   return (
     <div className="flex flex-col gap-[6px]">
+      {/* No `uppercase` class on the name: it arrives in capitals from
+          `deviceName`, and a transform over the top would hide the day it
+          stops doing so. */}
       {multiple && (
-        <span className="text-[11px] uppercase tracking-[0.08em] text-muted">
-          {feed.name ?? feed.id}
+        <span className="text-[11px] tracking-[0.08em] text-muted">
+          {deviceName(feed.name ?? feed.id)}
         </span>
       )}
       <div className="flex gap-[6px]">
@@ -1828,7 +1852,7 @@ function StreamChoice({
     <div className="flex flex-col gap-[4px]">
       {multiple && (
         <span className="px-[10px] font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.1px] text-dim">
-          {feed.name}
+          {deviceName(feed.name)}
         </span>
       )}
       {list.length < 2 ? (
@@ -1840,7 +1864,7 @@ function StreamChoice({
           {list.length === 1 ? profileLabel(list[0], list) : "Standard"}
         </p>
       ) : (
-        <div role="radiogroup" aria-label={`${feed.name} quality`} className="flex flex-col">
+        <div role="radiogroup" aria-label={`${deviceName(feed.name)} quality`} className="flex flex-col">
           {list.map((p) => {
             const picked = p.id === current?.id;
             return (
@@ -2038,7 +2062,7 @@ function ZoneEditor({
                   : "bg-card text-body-ink hover:bg-card-hover"
               }`}
             >
-              {f.name}
+              {deviceName(f.name)}
             </button>
           ))}
         </div>

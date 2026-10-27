@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatCountdown, msUntilExpiry, type Claim } from "@/lib/api/claim";
+import { deviceName } from "@/lib/deviceName";
 
 /**
  * A tower that has been registered but has not connected yet.
@@ -48,8 +49,8 @@ export function PendingTowerCard({
         onClick={onResume}
         aria-label={
           dead
-            ? `${claim.label}, registration expired, register again`
-            : `${claim.label}, registered, waiting for the tower to connect, ${formatCountdown(left)} left`
+            ? `${deviceName(claim.label)}, registration expired, register again`
+            : `${deviceName(claim.label)}, registered, waiting for the tower to connect, ${formatCountdown(left)} left`
         }
         className="absolute inset-0 rounded-[12px]"
       />
@@ -59,7 +60,7 @@ export function PendingTowerCard({
         className="pointer-events-none absolute left-[15px] right-[90px] top-[13px] flex flex-col gap-[4px]"
       >
         <span className="truncate text-[0.875rem] leading-[18px] font-medium tracking-[0.14px] text-body-ink">
-          {claim.label}
+          {deviceName(claim.label)}
         </span>
         <span className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-detect">
           {dead ? "Registration expired" : "Waiting for the tower to connect"}

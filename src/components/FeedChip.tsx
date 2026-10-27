@@ -1,4 +1,5 @@
 import type { FeedState } from "@/lib/types";
+import { deviceName } from "@/lib/deviceName";
 
 /** mm:ss, tabular — a jittering timer in a control room is unacceptable. */
 export function formatElapsed(totalSec: number) {
@@ -54,7 +55,12 @@ const DOT: Record<FeedState, string> = {
  * DO NOT add a `default` case. It would satisfy the annotation and silently
  * reintroduce exactly the hole this annotation closes.
  */
-function stateLabel(state: FeedState, name: string, elapsedSec?: number): string {
+/* ⚠ CAPITALISED HERE, where the grammar lives, and therefore in both walls
+   at once. `FeedChip` is the one home for what a feed state is called (see
+   the README); the camera's name travels in the same sentence, so it is the
+   one home for how that name is written too. */
+function stateLabel(state: FeedState, raw: string, elapsedSec?: number): string {
+  const name = deviceName(raw);
   switch (state) {
     case "recording":
       return `RECORDING ${formatElapsed(elapsedSec ?? 0)}: ${name}`;
@@ -107,7 +113,7 @@ export function FeedChip({
           className="size-[8px] shrink-0 rounded-full bg-critical"
         />
         <p className="font-display text-[0.875rem] tracking-[0.14px] whitespace-nowrap text-critical">
-          ERROR: {name}
+          ERROR: {deviceName(name)}
         </p>
       </div>
     );

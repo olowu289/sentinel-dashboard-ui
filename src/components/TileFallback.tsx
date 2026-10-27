@@ -8,6 +8,7 @@
  */
 
 import { formatClockShort } from "@/lib/time";
+import { deviceName } from "@/lib/deviceName";
 
 /**
  * How old the bad news is.
@@ -316,7 +317,8 @@ export function NotStreamingFallback({
   );
 }
 
-export function AwaitingMediaFallback({ name }: { name: string }) {
+export function AwaitingMediaFallback({ name: raw }: { name: string }) {
+  const name = deviceName(raw);
   return (
     <div className="flex flex-col items-center gap-[12px]">
       <span className="text-body-ink/50">
@@ -451,7 +453,7 @@ export function ConnectingFallback({
             <span className="text-warn/70">
               <Spinner size={12} />
             </span>
-            Reconnecting to {name}
+            Reconnecting to {deviceName(name)}
           </p>
         </>
       ) : (
@@ -460,7 +462,7 @@ export function ConnectingFallback({
             Connecting…
           </p>
           <p className="-mt-[6px] text-[0.75rem] text-body-ink/35">
-            Establishing secure stream · {name}
+            Establishing secure stream · {deviceName(name)}
           </p>
         </>
       )}

@@ -2,6 +2,7 @@ import { AnimatePresence, LayoutGroup } from "motion/react";
 import { useEffect, useState } from "react";
 import { AlertDetail } from "@/components/AlertDetail";
 import { AlertRow } from "@/components/AlertRow";
+import { deviceName } from "@/lib/deviceName";
 import { AlertsEmpty } from "@/components/AlertsEmpty";
 import { ClipPlayer } from "@/components/ClipPlayer";
 import { DateFilterPopover } from "@/components/DateFilterPopover";
@@ -109,7 +110,7 @@ export function AlertsView({
   }, [visible, selectedId]);
 
   const siteOf = (towerId: string) =>
-    towers.find((t) => t.id === towerId)?.site ?? towerId;
+    deviceName(towers.find((t) => t.id === towerId)?.site) || towerId;
 
   /* Unclaimed is the count that means anything on a fleet feed. The total is
      every alert these towers have ever raised, which on a wall that has been

@@ -29,6 +29,7 @@
  */
 
 import { getClient } from "@/lib/api/client";
+import { deviceName } from "@/lib/deviceName";
 import type {
   AddDeviceResponse,
   AuditResponse,
@@ -264,7 +265,7 @@ export function addTower(req: {
 }
 
 export function adminRenameCell(hubId: string, name: string) {
-  return getClient().adminRenameCell(hubId, name);
+  return getClient().adminRenameCell(hubId, deviceName(name));
 }
 
 /**
@@ -281,8 +282,11 @@ export function adminRemoveCell(hubId: string) {
   return getClient().adminRemoveCell(hubId);
 }
 
+/* Capitals, like every other device name. See `lib/deviceName.ts`; the box
+   in Administration does the same thing as somebody types, and this is what
+   makes it true of the record rather than of the screen. */
 export function adminRenameTower(deviceId: string, name: string) {
-  return getClient().adminRenameTower(deviceId, name);
+  return getClient().adminRenameTower(deviceId, deviceName(name));
 }
 
 export function adminMoveTower(deviceId: string, hubId: string) {

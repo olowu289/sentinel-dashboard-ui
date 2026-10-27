@@ -589,7 +589,9 @@ describe("the Shares screen asks for names, never identifiers", () => {
   test("and a tower nothing can name is a word, not its serial", () => {
     /* The picker's own last resort. An offline mast is still lendable, and it
        used to be offered by device id. */
-    assert.match(hook, /labels\.get\(id\) \?\? "An unnamed tower"/);
+    /* The name in capitals, like every device name; the FALLBACK in sentence
+       case, because it is a phrase standing in for a name and not a name. */
+    assert.match(hook, /deviceName\(labels\.get\(id\)\) \|\| "An unnamed tower"/);
     assert.doesNotMatch(hook, /labels\.get\(id\) \?\? id/);
   });
 });

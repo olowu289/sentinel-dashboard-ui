@@ -28,6 +28,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { FADE } from "@/lib/motion";
+import { deviceName } from "@/lib/deviceName";
 import { formatConnectedSince } from "@/lib/time";
 import { useNow } from "@/lib/useNow";
 import {
@@ -113,7 +114,7 @@ export function PatrolControl({
 
   return (
     <div className="flex flex-col gap-[12px]">
-      {showName && <span className={LABEL}>{cameraName}</span>}
+      {showName && <span className={LABEL}>{deviceName(cameraName)}</span>}
 
       <div className="flex items-center justify-between gap-[12px]">
         <span className="text-[0.875rem] leading-[18px] text-body-ink">Patrol</span>
@@ -121,7 +122,7 @@ export function PatrolControl({
           type="button"
           role="switch"
           aria-checked={draft.enabled}
-          aria-label={`Patrol on ${cameraName}`}
+          aria-label={`Patrol on ${deviceName(cameraName)}`}
           disabled={pending}
           onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
           className={`flex h-[22px] w-[38px] shrink-0 items-center rounded-full px-[3px] transition-colors ${

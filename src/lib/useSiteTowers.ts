@@ -33,6 +33,7 @@ import { said } from "@/lib/said";
 import { getCell, getSite } from "@/lib/api/sites";
 import { listFleet } from "@/lib/api/fleet";
 import type { PickableTower } from "@/components/sharing/ShareControls";
+import { deviceName } from "@/lib/deviceName";
 
 export interface SiteTowers {
   readonly towers: readonly PickableTower[];
@@ -93,8 +94,13 @@ export function useSiteTowers(siteId: string | null | undefined): SiteTowers {
             deviceId: id,
             /* NEVER THE ID. A tower nothing can name is "an unnamed tower":
                less useful than a name and more useful than a serial, and the
-               cure is to give it a name on the Sites page. */
-            label: labels.get(id) ?? "An unnamed tower",
+               cure is to give it a name on the Sites page.
+
+               In capitals, because it is a tower's name and this is the one
+               place the Sharing screens get one — the picker, the camera list
+               and the row all read it. The FALLBACK is left in sentence case:
+               it is a phrase standing in for a name, not a name. */
+            label: deviceName(labels.get(id)) || "An unnamed tower",
             cameras: (cameras.get(id) ?? []).sort((a, b) => a - b),
           })),
           loading: false,

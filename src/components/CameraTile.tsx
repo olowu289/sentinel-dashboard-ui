@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ENTER, EXIT } from "@/lib/motion";
+import { deviceName } from "@/lib/deviceName";
 import type { CameraFeed } from "@/lib/types";
 import { useTileControls } from "@/lib/useTileControls";
 import { ControlStack } from "./ControlStack";
@@ -289,7 +290,7 @@ export function CameraTile({
       layoutDependency={layoutDep}
       transition={transition}
       onLayoutAnimationComplete={() => setExiting(false)}
-      aria-label={`${feed.name} camera`}
+      aria-label={`${deviceName(feed.name)} camera`}
       aria-modal={fullscreen || undefined}
       role={fullscreen ? "dialog" : undefined}
       onClick={onFocus}
@@ -475,7 +476,7 @@ export function CameraTile({
           </button>
           <div className="min-w-0">
             <p className="truncate font-display text-[1.25rem] leading-[24px] tracking-[0.2px] text-body-ink">
-              {feed.name}
+              {deviceName(feed.name)}
             </p>
             {/* ⚠ THE TOWER'S NAME, NEVER ITS SERIAL. This line read
                 `kln_lab_000002 · Sentry camera`: a device id, in front of a
@@ -484,7 +485,9 @@ export function CameraTile({
                 radio; the serial belongs in a support conversation. */}
             {(towerName || towerId) && (
               <p className="truncate text-[0.8125rem] leading-[16px] text-body-ink/60">
-                {towerName ? `${towerName} · Sentry camera` : "Sentry camera"}
+                {towerName
+                  ? `${deviceName(towerName)} · Sentry camera`
+                  : "Sentry camera"}
               </p>
             )}
           </div>

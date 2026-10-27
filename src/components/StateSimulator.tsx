@@ -1,4 +1,5 @@
 import type { CameraFeed, FeedState } from "@/lib/types";
+import { deviceName } from "@/lib/deviceName";
 
 /**
  * Review affordance, not product chrome.
@@ -118,7 +119,7 @@ export function StateSimulator({
         return (
           <div key={feed.id} className="mb-[12px] last:mb-0">
             <p className="mb-[6px] text-[0.75rem] lg:text-[0.6875rem] text-body-ink/35">
-              {feed.name}
+              {deviceName(feed.name)}
             </p>
             <div className="flex flex-wrap gap-[4px]">
               {STATES.map((s) => (

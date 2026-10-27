@@ -12,6 +12,7 @@ import {
   type FootageTimeline,
 } from "@/lib/footageTimeline";
 import { clipFilename } from "@/lib/snapshot";
+import { deviceName } from "@/lib/deviceName";
 import {
   formatClock24,
   formatDayLabel,
@@ -78,7 +79,13 @@ interface Clock {
 
 /* A CAMERA KEY IS NOT A LABEL. A number becomes "Camera 2"; anything else is
    the key the hub reports (`cam1`), and shouting it back was the closest this
-   screen came to printing an identifier at somebody. */
+   screen came to printing an identifier at somebody.
+
+   ⚠ NOT CAPITALISED HERE, and that is the one exception on this screen. The
+   DOWNLOAD uses this to build an evidence filename, and evidence filenames are
+   left exactly as they were — see `safeSegment` in `lib/snapshot.ts`, which
+   preserves rather than prettifies. Every place this screen DRAWS a camera
+   name puts it through `deviceName` at the point of drawing. */
 const cameraLabel = (c: CameraKey): string => {
   if (typeof c === "number") return `Camera ${c}`;
   const key = String(c).trim();
@@ -398,7 +405,7 @@ export function FootageView({
           onChange={(e) => { setTowerId(e.target.value); setLastTouched(null); }}
           className="h-[28px] shrink-0 rounded-[6px] bg-card px-[8px] text-[0.75rem] text-body-ink outline-none focus-visible:outline-1 focus-visible:outline-terra"
         >
-          {towers.map((t) => <option key={t.deviceId} value={t.deviceId}>{t.label}</option>)}
+          {towers.map((t) => <option key={t.deviceId} value={t.deviceId}>{deviceName(t.label)}</option>)}
         </select>
 
         <DatePicker isoDay={isoDay} onDay={setIsoDay} daysWithFootage={day.daysWithFootage} />
@@ -627,7 +634,7 @@ function Pane({
 
   return (
     <section
-      aria-label={`${cameraLabel(camera)} footage`}
+      aria-label={`${deviceName(cameraLabel(camera))} footage`}
       onPointerDown={onTouch}
       className={`group/pane relative size-full ${focused && !synced ? "ring-1 ring-terra" : ""}`}
     >
@@ -646,7 +653,7 @@ function Pane({
 
       <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] rounded-[4px] bg-black/50 px-[8px] py-[3px]">
         <span className="font-display text-[0.6875rem] tracking-[0.11px] text-body-ink">
-          {cameraLabel(camera)}
+          {deviceName(cameraLabel(camera))}
         </span>
       </span>
 
@@ -669,7 +676,7 @@ function Pane({
           <div
             role="slider"
             tabIndex={0}
-            aria-label={`${cameraLabel(camera)} position`}
+            aria-label={`${deviceName(cameraLabel(camera))} position`}
             aria-valuemin={dayFrom}
             aria-valuemax={dayTo}
             aria-valuenow={clock.at}
@@ -1069,7 +1076,7 @@ function TimelineLanes({
                 className="pointer-events-none absolute font-display text-[0.5625rem] leading-[13px] tracking-[0.1px] text-muted uppercase"
                 style={{ left: -(LANE_GUTTER + 6), width: LANE_GUTTER }}
               >
-                {cameraLabel(camera)}
+                {deviceName(cameraLabel(camera))}
               </span>
               <div className="absolute inset-0 overflow-hidden rounded-[3px] bg-tile-dead">
                 {bands.map((b, i) => (
@@ -1193,7 +1200,7 @@ function ClipsDrawer({
                             {formatDuration(r.duration)}
                           </span>
                           <span className="ml-auto truncate text-[0.625rem] text-body-ink/35">
-                            {cameraLabel(r.camera)}
+                            {deviceName(cameraLabel(r.camera))}
                           </span>
                         </button>
                       </li>

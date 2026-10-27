@@ -21,6 +21,7 @@
 import { useMemo, useState } from "react";
 import type { Site } from "@kallon/sentry-sdk";
 import { said } from "@/lib/said";
+import { deviceName } from "@/lib/deviceName";
 import { useShareFeed } from "@/lib/useShareFeed";
 import { useSites } from "@/lib/useSites";
 import {
@@ -146,7 +147,7 @@ export function QuickShare({
   return (
     <div className={`flex flex-col ${gap}`}>
       <p className="text-[0.8125rem] leading-[18px] text-body-ink">
-        Share <span className="font-display">{cameraLabel}</span>
+        Share <span className="font-display">{deviceName(cameraLabel)}</span>
       </p>
 
       <SitePicker sites={others} value={otherSiteId} onChange={setOther} label="With" />

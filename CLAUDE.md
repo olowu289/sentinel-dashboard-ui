@@ -170,6 +170,16 @@ field name, no apology, no second sentence of context.
 placeholder. Use a full stop, a comma, or a middle dot `·` between parts of one
 value.
 
+**8. A tower's or a camera's name is in CAPITALS.** Typed, saved and shown:
+`deviceName` in `src/lib/deviceName.ts` is the only place that decides, and
+`useCapitalName` capitalises a rename box as somebody types without moving the
+caret. Never a `uppercase` CSS class on a name — a text-transform changes the
+glyphs and nothing else, so it never reaches the server, never reaches an
+`aria-label` or a search, and has to be remembered at every one of the thirty
+places a name appears. It was not: the claim wizard drew capitals and
+registered what was typed. Organizations, people and evidence filenames are
+NOT device names and are left exactly as they are.
+
 These are enforced, not just agreed: `test/userFacingCopy.test.mjs` reads every
 string in `src/` off the source on each run, so a new em-dash or a banned word
 in user-facing text fails `npm test` the moment it is written. The scanner

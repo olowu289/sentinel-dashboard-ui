@@ -129,6 +129,13 @@ screen that shows live video adds itself to `attachedTargets`; one that does
 not attaches nothing and lets the wall idle behind it. And a profile is a
 *requirement* only when the operator chose one — the fleet's `sub` is a
 preference, so a camera that is already streaming is reused, not renegotiated.
+**Nothing chooses one any more**, which makes that rule true by construction:
+live video is standard on every tier and a mast advertises one profile, so the
+Picture quality row and the `cameraProfiles` preference behind it are gone. No
+target carries a `profile` field, and `defaultProfileField` is the different
+thing that stays — it tells the manager what "opened with nothing" resolves
+to. Do not reintroduce a per-browser quality pick: what a site keeps is
+`FOOTAGE_STREAM`, decided on the hub, and it is not a view preference.
 
 **Tokens live in the `@theme` block of `src/index.css`.** Use `bg-panel`,
 `text-muted`, `border-line`, `text-critical` and friends. A raw hex in a

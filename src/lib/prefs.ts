@@ -78,25 +78,22 @@ export interface ViewPrefs {
    * that point a local copy would disagree with a tower.
    */
   cameraSettings: Record<string, CameraSettings>;
-  /**
-   * Which stream profile this viewer watches each camera at, by feed id.
-   *
-   * ⚠ A VIEW PREFERENCE, AND THAT IS THE WHOLE ARGUMENT FOR IT BEING HERE.
-   * Choosing a profile does not configure the tower — it does not change what
-   * the camera records, what it encodes, or what anyone else sees. It selects
-   * which of the streams the tower is ALREADY serving this browser pulls. Two
-   * operators can legitimately watch the same camera at different profiles at
-   * the same time, and neither is more correct.
-   *
-   * So it belongs beside the wall arrangement rather than in `cameraSettings`:
-   * a statement about how one person looks at the fleet. If it were ever pushed
-   * to the tower it would stop being a preference and would have to move.
-   *
-   * Keyed by FEED id, not tower id — the two cameras on one tower have
-   * different hardware and different profile lists, and one of them being
-   * watched in 2K says nothing about the other.
-   */
-  cameraProfiles: Record<string, string>;
+  /* ── `cameraProfiles` IS NOT REPLACED, AND MUST NOT BE ──────────────
+
+     It remembered which of a tower's live streams this viewer watched each
+     camera at, for the Picture quality row in the tower's settings. That row
+     is gone: live video is standard on every tier now and a mast advertises
+     one profile, so it chose between one thing.
+
+     A stored key left behind is read by nothing, and `loadPrefs` builds the
+     object field by field rather than spreading what it parsed, so an old
+     browser's entry is dropped on the first read without a migration.
+
+     If a profile choice ever comes back it comes back as a SITE setting and
+     not as a view preference: `FOOTAGE_STREAM` decides what a site records,
+     it is set on the hub, and every tower follows it — which is the opposite
+     of a per-browser pick, and the reason the old row could be deleted with
+     nothing lost. */
   /**
    * Whether the Footage screen's clips drawer is open.
    *
@@ -111,7 +108,6 @@ export interface ViewPrefs {
 export const EMPTY_PREFS: ViewPrefs = {
   dismissedNotices: [],
   cameraSettings: {},
-  cameraProfiles: {},
   /* Closed by default: the picture is what the screen is for, and a drawer
      over it is something you ask for. */
   footageClips: false,
@@ -165,18 +161,6 @@ export function loadPrefs(accountId: string | null | undefined): ViewPrefs {
       cameraSettings:
         parsed.cameraSettings && typeof parsed.cameraSettings === "object"
           ? (parsed.cameraSettings as Record<string, CameraSettings>)
-          : {},
-      /* Values are checked, not just the container: a profile id read back from
-         storage is about to be sent to coordination, which refuses one it does
-         not recognise. A junk entry here would turn a stale preference into a
-         feed that will not start. */
-      cameraProfiles:
-        parsed.cameraProfiles && typeof parsed.cameraProfiles === "object"
-          ? Object.fromEntries(
-              Object.entries(
-                parsed.cameraProfiles as Record<string, unknown>,
-              ).filter(([, v]) => typeof v === "string" && v.length > 0),
-            ) as Record<string, string>
           : {},
     };
   } catch {

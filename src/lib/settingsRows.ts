@@ -1,5 +1,5 @@
 /**
- * The values four settings rows show, as functions rather than as markup.
+ * The values three settings rows show, as functions rather than as markup.
  *
  * ══════════════════════════════════════════════════════════════════════
  *  WHY THESE LEFT THE COMPONENT
@@ -7,12 +7,8 @@
  *
  * Because a hub mast and a tower have to answer the same way, and while these
  * were inline IIFEs inside `CameraSettingsPanel` nothing could check that they
- * did. They are the four rows that read differently on the two pages:
+ * did. They are the rows that read differently on the two pages:
  *
- *   Picture quality    blank on a hub mast, because its camera advertises no
- *                      profile list and the summary returned nothing for a
- *                      camera it could not name -- while the panel below it
- *                      printed "Standard" for that same camera
  *   Internet           "Fibre · connected", two facts in one value, one of
  *                      which the Kallon Cloud row answers on its own
  *   Connected since    read off the CLOUD reading on a hub and off the DEVICE
@@ -30,7 +26,7 @@
  * other clocks, and these return instants and words.
  */
 
-import type { CameraFeed, StreamProfile, Tower } from "@/lib/types";
+import type { StreamProfile, Tower } from "@/lib/types";
 import type { CloudReading } from "@/lib/api/fleet";
 
 /**
@@ -62,8 +58,19 @@ export function tierFor(width: number, height: number): string {
  * by resolution. Decided from the set rather than from the profile's id, so a
  * camera that one day offers three gets three honest names and not two names
  * and a guess.
+ *
+ * ⚠ A CAMERA WITH ONE PROFILE HAS ONE PICTURE QUALITY, AND ITS NAME IS
+ * STANDARD. The smallest-is-Standard rule only ran on a set of two or more, so
+ * a sole profile fell past it into `tierFor`, which has no tier below 1920 and
+ * answers "HD" for everything under it. A tower advertising one 704x576
+ * profile -- which is now every tower, because live video is standard
+ * everywhere and the mast offers nothing else -- therefore read "HD" on the
+ * recording row, which is the same over-claim as the "4K HD" that row was
+ * written to remove. One profile IS the smallest one; the rule simply was not
+ * being asked.
  */
 export function profileLabel(p: StreamProfile, all: readonly StreamProfile[]): string {
+  if (all.length <= 1) return "Standard";
   const sized = all.filter((x) => x.resolution);
   if (sized.length > 1 && p.resolution) {
     const pixels = (x: StreamProfile) =>
@@ -75,43 +82,13 @@ export function profileLabel(p: StreamProfile, all: readonly StreamProfile[]): s
   return tierFor(p.resolution.width, p.resolution.height);
 }
 
-/** Which profile a camera is actually being watched at. */
-export function currentProfile(
-  feed: CameraFeed,
-  chosen?: string,
-): StreamProfile | undefined {
-  const list = feed.profiles ?? [];
-  /* What is PLAYING, which is not always what was picked: a remembered id the
-     tower no longer advertises falls through to the default. */
-  return list.find((p) => p.id === chosen) ?? list.find((p) => p.default) ?? list[0];
-}
-
-/**
- * What the collapsed Picture quality row says.
- *
- * One camera speaks for itself; two agreeing speak as one; two disagreeing say
- * so rather than picking a winner to print.
- *
- * ⚠ A CAMERA THAT ADVERTISES NOTHING IS "Standard", NOT BLANK. This is the
- * hub mast's row. Its camera lists no profiles, so the old summary had nothing
- * to name and returned an empty string -- while the expanded panel below it
- * printed "Standard" for exactly that camera, because a camera with fewer than
- * two profiles has one picture quality and that is its name. The row was
- * contradicting the thing it summarises.
- */
-export function pictureQualitySummary(
-  feeds: readonly CameraFeed[],
-  chosen?: Record<string, string>,
-): string {
-  const labels = feeds.map((f) => {
-    const list = f.profiles ?? [];
-    if (list.length === 0) return "Standard";
-    const current = currentProfile(f, chosen?.[f.id]);
-    return current ? profileLabel(current, list) : "Standard";
-  });
-  if (labels.length === 0) return "";
-  return labels.every((l) => l === labels[0]) ? labels[0] : `${labels.length} cameras`;
-}
+/* ── THE PICTURE QUALITY ROW IS GONE, AND SO ARE ITS TWO FUNCTIONS ──
+   `currentProfile` and `pictureQualitySummary` answered a row that let an
+   operator pick between a tower's two live streams. Live video is standard
+   everywhere now and a mast advertises one profile, so the row was a menu of
+   one -- see the note where it used to be in `CameraSettingsPanel`. What is
+   still named here is the RECORDING resolution, which is a reading and not a
+   choice, and `profileLabel` is what names it. */
 
 /** A row's value and the status colour it carries, if any. */
 export interface RowValue {

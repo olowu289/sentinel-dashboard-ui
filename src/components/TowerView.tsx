@@ -46,8 +46,6 @@ export function TowerView({
   onNavigate,
   cameraSettings,
   onChangeSettings,
-  cameraProfiles,
-  onChooseProfile,
   onRenameTower,
   onSetHome,
   onSetPatrol,
@@ -102,10 +100,6 @@ export function TowerView({
    *  decide what an unset camera does. */
   cameraSettings: (towerId: string) => CameraSettings;
   onChangeSettings: (towerId: string, next: Partial<CameraSettings>) => void;
-  /** Which stream each camera is watched at, and how to change it. Per FEED,
-   *  unlike everything else on the settings panel — see the note there. */
-  cameraProfiles?: Record<string, string>;
-  onChooseProfile?: (feedId: string, profile: string) => void;
   /** Rename the tower. Sweeps every reference — see App. */
   onRenameTower: (from: string, to: string) => void;
   /** Save a camera's current pan/tilt as its home. Owned by the shell. */
@@ -388,8 +382,6 @@ export function TowerView({
           canTune={canTune}
           feeds={feeds}
           settings={cameraSettings(tower.id)}
-          cameraProfiles={cameraProfiles}
-          onChooseProfile={onChooseProfile}
           /* Set-home needs the same live session a move does - PTZ is
              session-scoped - so the panel reads it from the same place the
              pad does rather than holding one of its own. */

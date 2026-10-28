@@ -361,7 +361,13 @@ describe("an operator can open tower settings", () => {
          and "Home Position" was title case for no reason; both were rewritten
          by the copy pass, and this list is what keeps them OUT of the tuning
          block rather than a record of their old names. */
-      "Picture quality",
+      /* ⚠ "Picture quality" USED TO BE ON THIS LIST and is not a row any
+         more: live video is standard everywhere and a mast advertises one
+         profile, so the picker chose between one thing. `label="Recording"`
+         takes its place here, and it is the better guard — whether a site is
+         keeping its footage is the reading on this panel an operator with no
+         tuning rights most needs. */
+      'label="Recording"',
       "Home position",
       "<Group title=\"Storage\">",
       "<Group title=\"About Device\">",

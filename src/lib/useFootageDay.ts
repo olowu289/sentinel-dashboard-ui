@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ArchivedSegment } from "@kallon/sentry-sdk";
+import type { ArchivedSegment, TowerSpan, UndatedSegment } from "@kallon/sentry-sdk";
 import { describeRecordingFailure, listTowerRecordings } from "@/lib/api/recordings";
 import { buildTimeline, type FootageTimeline } from "@/lib/footageTimeline";
 import { siteDayEnd, siteDayOf, siteDayStart } from "@/lib/time";
@@ -41,6 +41,32 @@ export interface FootageDay {
   phase: FootagePhase;
   /** false -> this site does not archive. An honest state, never an empty list. */
   archiveEnabled: boolean;
+  /**
+   * FOOTAGE THAT ARRIVED WHOLE AND COULD NOT BE PLACED IN TIME.
+   *
+   * ⚠ NEVER MERGED INTO `segments`, AND NEVER GIVEN A STAMP. These files have
+   * no start and no duration, so there is no honest position for them on a
+   * timeline -- and putting them at the moment they ARRIVED would do two
+   * wrong things at once: show footage at a time it was not recorded, and cut
+   * the real segment before it short to the invented gap in front of it. They
+   * get a list of their own, below the timeline, which is the one place a
+   * thing with no time can sit without claiming one.
+   *
+   * Empty on a healthy site. The SDK rejects any row that turns up carrying a
+   * `start`, so this list cannot acquire one by a server change.
+   */
+  timeUnknown: UndatedSegment[];
+  /**
+   * FOOTAGE THE TOWER STILL HOLDS AND THE HUB HAS NOT GOT.
+   *
+   * The newest fifteen to thirty minutes of every camera, normally -- a tower
+   * records to its own SSD and sends finished files up, so the tail is always
+   * on the mast. Drawn as its own kind of span so that the end of the day
+   * stops looking like an outage. It is NOT playable from here, which is the
+   * only real difference between it and a segment, and the absent URL is how
+   * the SDK says so.
+   */
+  towerSpans: TowerSpan[];
   /** Every camera with footage, in a stable order. */
   cameras: CameraKey[];
   /** Site days (`YYYY-MM-DD`) that hold any footage, for the calendar. */
@@ -75,6 +101,8 @@ export function useFootageDay(
 ): FootageDay {
   const [phase, setPhase] = useState<FootagePhase>({ kind: "idle" });
   const [segments, setSegments] = useState<ArchivedSegment[]>([]);
+  const [timeUnknown, setTimeUnknown] = useState<UndatedSegment[]>([]);
+  const [towerSpans, setTowerSpans] = useState<TowerSpan[]>([]);
   const [archiveEnabled, setArchiveEnabled] = useState(false);
   const generation = useRef(0);
 
@@ -82,16 +110,22 @@ export function useFootageDay(
     const gen = ++generation.current;
     setPhase({ kind: "loading" });
     setSegments([]);
+    setTimeUnknown([]);
+    setTowerSpans([]);
     void (async () => {
       try {
         const list = await listTowerRecordings(dev);
         if (gen !== generation.current) return;
         setArchiveEnabled(list.archiveEnabled);
         setSegments(list.segments);
+        setTimeUnknown(list.timeUnknown);
+        setTowerSpans(list.towerSpans);
         setPhase({ kind: "ready" });
       } catch (err) {
         if (gen !== generation.current) return;
         setArchiveEnabled(false);
+        setTimeUnknown([]);
+        setTowerSpans([]);
         setPhase({ kind: "error", message: describeRecordingFailure(err) });
       }
     })();
@@ -102,6 +136,8 @@ export function useFootageDay(
       generation.current++;      // abandon anything in flight for the old tower
       setPhase({ kind: "idle" });
       setSegments([]);
+      setTimeUnknown([]);
+      setTowerSpans([]);
       setArchiveEnabled(false);
       return;
     }
@@ -161,9 +197,28 @@ export function useFootageDay(
     [timelines],
   );
 
+  /* Spans touching this day, same test the segments get. A span that straddles
+     midnight is drawn on both days, because the operator opening yesterday
+     evening and the one opening this morning are both looking at it. */
+  const spansToday = useMemo(
+    () =>
+      towerSpans.filter(
+        (s) => s.startEpoch < dayTo && s.startEpoch + Math.max(0, s.duration) > dayFrom,
+      ),
+    [towerSpans, dayFrom, dayTo],
+  );
+
+  /* ⚠ THE UNDATED LIST IS NOT FILTERED BY DAY, AND THAT IS THE POINT. It is
+     filtered by the one thing these files have, which is nothing: no start, no
+     duration, no day to belong to. Hiding them on every day but the one they
+     ARRIVED on would hide them behind a time they do not have -- the exact
+     claim the list exists to avoid making. So the whole list shows whatever
+     day is open, with its own heading saying why. */
   return {
     phase,
     archiveEnabled,
+    timeUnknown,
+    towerSpans: spansToday,
     cameras,
     daysWithFootage,
     timelineFor,

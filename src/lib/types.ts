@@ -1,3 +1,4 @@
+import type { DeviceFootage } from "@kallon/sentry-sdk";
 import type { Patrol } from "./patrol";
 
 /**
@@ -373,6 +374,23 @@ export interface Tower {
    */
   storageUsedGb?: number;
   storageTotalGb?: number;
+  /**
+   * WHAT THIS TOWER HAS RECORDED, AND HOW MUCH OF IT THE HUB HAS.
+   *
+   * ⚠ A SIBLING OF `health`, NOT A MEMBER OF IT, and the distinction is the
+   * server's rather than a tidiness choice. `health` is the cabinet as the
+   * tower measures it this beat; this block is built every 300 s by walking a
+   * disk, and half of it is the HUB's opinion of the tower rather than the
+   * tower's own report -- `sync.reason` folds a link state only the hub can
+   * observe into a verdict only the hub can reach.
+   *
+   * Carried as the SDK's own `DeviceFootage` rather than re-declared in this
+   * file's camelCase. Every other block here was re-shaped because the app
+   * needed a different arrangement of it; this one is read by exactly one
+   * module (`lib/footageStatus.ts`) and re-declaring it would be a second copy
+   * of a dozen optional fields to keep in step with the first.
+   */
+  footage?: DeviceFootage;
 }
 
 /* `UnclaimedUnit` and `PendingTower` are gone.

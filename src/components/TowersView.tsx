@@ -9,6 +9,11 @@ import { ENTER } from "@/lib/motion";
 import { formatEventTime, formatUptime } from "@/lib/time";
 import { batteryFlow, batteryHint, batteryTone } from "@/lib/battery";
 import { storageHint, storageTone } from "@/lib/storage";
+import {
+  footageReading,
+  footageWaiting,
+  waitingReading,
+} from "@/lib/footageStatus";
 import { useState } from "react";
 import { useNow } from "@/lib/useNow";
 import { AddDeviceDrawer, type AddWhat } from "@/components/AddDeviceDrawer";
@@ -154,6 +159,13 @@ const WHY = {
      off. A tower that HAS one and cannot reach it is a different state and says
      so in its own words rather than borrowing this one. */
   power: "No battery is fitted to this tower.",
+  /* ⚠ NOT "the tower doesn't report this yet", WHICH IS THE OTHER FIVE'S
+     SHAPE AND IS WRONG HERE. The tower reports its footage block and has for
+     a while; the verdict in it is the HUB's, folded from a link state only the
+     hub observes, so a site whose hub predates that projection has nobody to
+     reach the verdict rather than nobody to report it. */
+  footage:
+    "this site hasn't said whether its recordings are reaching the hub.",
   alerts: "Alerts from this tower do not reach the dashboard yet.",
 } as const;
 
@@ -455,6 +467,63 @@ function powerCell(tower: Tower): Cell {
   };
 }
 
+/**
+ * Is what this tower records reaching the hub?
+ *
+ * ⚠ SILENCE IS NOT "Up to date". `footageReading` answers `null` for a tower
+ * whose hub never reached a verdict, and that lands here as a PENDING cell —
+ * the dash, dimmed, with its reason on hover — rather than as the good word.
+ * Of every cell on this board this is the one where guessing the healthy
+ * answer costs the most: it is the reading that says whether the evidence
+ * exists anywhere but on a mast in a field.
+ *
+ * The verdict carries its own colour from `lib/footageStatus.ts`, which the
+ * settings panel's Footage row reads too. One function, two screens, and they
+ * cannot disagree about a site in front of a customer.
+ */
+function footageCell(tower: Tower, now: number): Cell {
+  const reading = footageReading(tower.footage, now);
+  if (!reading) return pending(NOT_PASSED_ON, WHY.footage);
+  return {
+    value: reading.value,
+    ...(reading.tone ? { tone: reading.tone } : {}),
+    hint: footageHint(reading.value, tower),
+  };
+}
+
+function footageHint(value: string, tower: Tower): string {
+  const waiting = footageWaiting(tower.footage);
+  const backlog =
+    waiting && waiting.files > 0
+      ? ` ${waiting.files} ${waiting.files === 1 ? "file is" : "files are"} still on the tower.`
+      : "";
+  return `Footage: ${value}.${backlog}`;
+}
+
+/**
+ * How much this tower is holding that the hub has not confirmed.
+ *
+ * Counted across every camera and stream, because the operator's question is
+ * about the SITE: two cameras an hour behind each is a site two hours behind,
+ * and a per-camera figure would need adding up by whoever read it.
+ */
+function waitingCell(tower: Tower): Cell {
+  const reading = waitingReading(tower.footage);
+  if (!reading) return pending(NOT_PASSED_ON, WHY.footage);
+  const waiting = footageWaiting(tower.footage);
+  /* Nothing waiting is the good answer and it is drawn as the quiet one: a
+     green "0 files" on a board of twelve columns is a colour spent saying
+     nothing happened. The colour on this pair lives on the Footage cell beside
+     it, which is the one that carries the verdict. */
+  if (!waiting || waiting.files === 0) {
+    return { value: reading.value, empty: true, hint: "The hub has confirmed everything this tower recorded." };
+  }
+  return {
+    value: reading.value,
+    hint: `${waiting.files} ${waiting.files === 1 ? "file" : "files"} recorded here that the hub has not confirmed.`,
+  };
+}
+
 function alertsCell(alerts: Alert[], feed: boolean): Cell {
   if (!feed) return pending(NO_FEED, WHY.alerts);
   if (alerts.length === 0) return { value: "0", hint: "No alerts." };
@@ -481,6 +550,11 @@ const COLUMNS = [
   ["cover", "Cover"],
   ["temperature", "Temp"],
   ["storage", "Storage"],
+  /* Beside Storage, deliberately: the disk and what has left it are one
+     question read left to right. A site with plenty of space and a backlog it
+     cannot send is the case these two only describe together. */
+  ["footage", "Footage"],
+  ["waiting", "Waiting"],
   ["power", "Power"],
   ["alerts", "Alerts"],
 ] as const;
@@ -521,7 +595,10 @@ const GLYPH: Partial<Record<ColumnId, string>> = {
 /* The repeat count is COLUMNS.length, and it is written out because Tailwind
    scans source text for class names: a template literal would produce a class
    that is never generated. If you add a column, change the number. */
-const GRID = "grid grid-cols-[minmax(232px,1.7fr)_repeat(10,minmax(96px,1fr))_124px]";
+/* ⚠ TWELVE. The repeat count is COLUMNS.length written out, and the note
+   above says why it cannot be interpolated. It went from ten to twelve with
+   Footage and Waiting. */
+const GRID = "grid grid-cols-[minmax(232px,1.7fr)_repeat(12,minmax(96px,1fr))_124px]";
 
 interface Assessed {
   tower: Tower;
@@ -555,6 +632,14 @@ function assess(
     cover: current(coverCell(tower)),
     temperature: current(temperatureCell(tower)),
     storage: current(storageCell(tower)),
+    /* NOT wrapped in `current`. Every other cabinet reading is dimmed when the
+       tower is offline because it describes a sensor nobody can ask right now
+       — but a tower being offline is precisely WHY its footage is not reaching
+       the hub, and dimming the answer to a dash at the moment it becomes the
+       most important reading on the row would be backwards. The verdict is the
+       hub's and the hub is still here. */
+    footage: footageCell(tower, now),
+    waiting: waitingCell(tower),
     power: current(powerCell(tower)),
     alerts: alertsCell(alerts, alertFeed),
   };

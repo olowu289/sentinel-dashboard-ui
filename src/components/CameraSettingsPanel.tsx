@@ -27,6 +27,11 @@ import {
   radioCount,
 } from "@/lib/settingsRows";
 import { storageTone } from "@/lib/storage";
+import {
+  footageReading,
+  recordingRowIsRedundant,
+  waitingReading,
+} from "@/lib/footageStatus";
 import { classifyFirmware } from "@/lib/firmware";
 import { uplinkReading, type UplinkReading } from "@/lib/api/map";
 import type { CloudReading } from "@/lib/api/fleet";
@@ -381,9 +386,14 @@ export function CameraSettingsPanel({
      `_recording_facts`), so "hub" means recording is switched OFF and says
      nothing about whether an SSD is fitted — and "tower" means it is switched
      on, which on a diskless mast is the `no_recording_disk` fault rather than
-     proof of a disk. Naming the reason needs `footage.sync.reason`, which
-     the SDK does not parse yet. Until it does, this row states the part the
-     wire actually supports. */
+     proof of a disk. Naming the reason needs `footage.sync.reason`.
+
+     ⭐ IT ARRIVED (SDK 0.13.0), AND THE SENTENCE IT ANSWERS IS ON THE
+     FOOTAGE ROW BELOW, not here. "Not recording: no disk" and "Recording off"
+     are the two exact readings this row could never reach, and putting them
+     here as well would be two rows making one claim at two levels of
+     confidence. So when the Footage row can name the reason, THIS ROW IS
+     HIDDEN -- see `recordingRowIsRedundant`. */
   const recordingModeRow = (() => {
     const mode = tower.health?.recording?.mode;
     if (!mode) return "";
@@ -392,6 +402,17 @@ export function CameraSettingsPanel({
        §6.4: the hub records its own cameras over a LAN cable, locally. */
     return isHub ? "On this hub" : "Not recording";
   })();
+
+  /* IS WHAT THIS TOWER RECORDS REACHING THE HUB, and how much is waiting?
+
+     Both are `null` for a tower that has not said -- which is most of the
+     fleet until a hub is new enough to project the block -- and a null row is
+     a row that does not render. Neither invents the good answer from silence:
+     a dashboard that reads "no footage block" as "Up to date" reports a site
+     as fine because it failed to answer, which is the one direction a
+     monitoring screen may never guess in. See `lib/footageStatus.ts`. */
+  const footageRow = footageReading(tower.footage);
+  const waitingRow = waitingReading(tower.footage);
 
   /* HOW LONG FOOTAGE REALLY LASTS. */
   const retentionRow = (() => {
@@ -486,6 +507,60 @@ export function CameraSettingsPanel({
           Math.max(1, tower.storageTotalGb)) *
         100
       : undefined);
+
+  /**
+   * THE STORAGE GROUP, AS A LIST, so the rules between rows cannot go wrong.
+   *
+   * Reading order is the chain the footage actually travels: the disk it lands
+   * on, whether anything is being written to it, whether what was written is
+   * reaching the hub, what has not got there yet, and how long any of it is
+   * kept. An operator reading down the group is following one file.
+   *
+   * ⚠ EVERY ROW IS DROPPED RATHER THAN BLANKED. Rule 4: what does not apply
+   * is hidden, and a device that reported nothing gets no group at all rather
+   * than a heading over five dashes.
+   */
+  const storageRows: { label: string; value: string; tone?: string }[] = [];
+  if (recordsLocally) {
+    const value =
+      tower.storageUsedGb !== undefined && tower.storageTotalGb !== undefined
+        ? `${tower.storageUsedGb} of ${tower.storageTotalGb} GB used`
+        : storageFreePct !== undefined
+          ? `${Math.round(storageFreePct)}% free`
+          : "";
+    if (value) {
+      storageRows.push({
+        label: isHub ? "Disk" : "Memory",
+        value,
+        /* One tier, shared with the fleet board's Storage cell. Amber below
+           20% free, red below 10%. */
+        ...(storageFreePct !== undefined ? { tone: storageTone(storageFreePct) } : {}),
+      });
+    }
+  }
+  if (recordingModeRow && !recordingRowIsRedundant(tower.footage)) {
+    storageRows.push({
+      label: "Recording",
+      value: recordingModeRow,
+      /* A SITE KEEPING NOTHING IS A FAULT, not a setting. Every other reading
+         on this panel can be green while the evidence is not being kept, which
+         is exactly the case this colour exists to interrupt. */
+      ...(recordingModeRow === "Not recording" ? { tone: "text-critical" } : {}),
+    });
+  }
+  if (footageRow) {
+    storageRows.push({ label: "Footage", value: footageRow.value, ...(footageRow.tone ? { tone: footageRow.tone } : {}) });
+  }
+  if (waitingRow) {
+    storageRows.push({ label: "Waiting", value: waitingRow.value });
+  }
+  if (recordsLocally && retentionRow.value) {
+    storageRows.push({
+      label: "Keep footage for",
+      value: retentionRow.value,
+      ...(retentionRow.tone ? { tone: retentionRow.tone } : {}),
+    });
+  }
 
   /* THE BATTERY, and the charge this panel is allowed to DRAW.
      A real tower reports `health.battery`; a seeded one carries `batteryPct`.
@@ -945,55 +1020,26 @@ export function CameraSettingsPanel({
               has reported no recording block at all now has nothing true to
               say here, and a heading over nothing reads as a group that
               failed to load. */}
-          {recordsLocally || recordingModeRow ? (
+          {storageRows.length > 0 ? (
           <Group title="Storage">
-            {recordsLocally ? (
+            {/* ⚠ ONE ARRAY, NOT FIVE CONDITIONAL ROWS, AND THE REASON IS THE
+                HAIRLINE. `RowReading` draws its own bottom rule unless it is
+                told it is `last`, and with five optional rows "which one is
+                last" is a boolean expression that has to be re-derived every
+                time a row is added. It was already wrong once: `Recording`
+                carried `last={!recordsLocally}`, which is the right answer
+                only while retention is the only row that can follow it. A
+                group ending on a rule reads as a group whose last row failed
+                to load, which is the same false alarm an empty heading gives. */}
+            {storageRows.map((row, i) => (
               <RowReading
-                label={isHub ? "Disk" : "Memory"}
-                value={
-                  tower.storageUsedGb !== undefined &&
-                  tower.storageTotalGb !== undefined
-                    ? `${tower.storageUsedGb} of ${tower.storageTotalGb} GB used`
-                    : storageFreePct !== undefined
-                      ? `${Math.round(storageFreePct)}% free`
-                      : ""
-                }
-                /* One tier, shared with the fleet board's Storage cell. Amber
-                   below 20% free, red below 10%. */
-                tone={
-                  storageFreePct !== undefined
-                    ? storageTone(storageFreePct)
-                    : undefined
-                }
+                key={row.label}
+                label={row.label}
+                value={row.value}
+                {...(row.tone ? { tone: row.tone } : {})}
+                last={i === storageRows.length - 1}
               />
-            ) : null}
-            {/* ⚠ THE ROW THAT USED TO READ "Footage · Recorded at the hub" IS
-                THIS ONE NOW. It was shown instead of a disk figure on a mast
-                that records nothing, and it claimed the hub held the footage.
-                See the note on `recordingModeRow`: it does not. A device
-                that has reported no recording block at all is a different
-                thing again and gets no row — absence of a field is not a
-                value whose meaning is unknown. */}
-            {recordingModeRow ? (
-              <RowReading
-                label="Recording"
-                value={recordingModeRow}
-                /* A SITE KEEPING NOTHING IS A FAULT, not a setting. Every
-                   other reading on this panel can be green and the evidence
-                   still is not being kept, which is exactly the case this
-                   colour exists to interrupt. */
-                tone={recordingModeRow === "Not recording" ? "text-critical" : undefined}
-                last={!recordsLocally}
-              />
-            ) : null}
-            {recordsLocally && retentionRow.value ? (
-              <RowReading
-                label="Keep footage for"
-                value={retentionRow.value}
-                tone={retentionRow.tone}
-                last
-              />
-            ) : null}
+            ))}
           </Group>
           ) : null}
 

@@ -1,0 +1,213 @@
+{
+  "_": [
+    "GENERATED -- do not hand-edit. Regenerate with the script named below.",
+    "",
+    "Every block here is the OUTPUT OF COORDINATION'S OWN CODE at sentry-core",
+    "8a5b019, not a transcription of the docs:",
+    "  footage_*           registry/projection.py  project_footage",
+    "  alert_*, colours    registry/site_alerts.py SiteAlert.to_wire,",
+    "                      hub/sitealerts.py       COLOURS",
+    "  timeline_extras_*   hub/towerfootage.py     timeline_extras",
+    "",
+    "The one exception is time_unknown_rows, which HubPlayback.list_unplaced",
+    "cannot produce without a storage backend; it is transcribed field-for-field",
+    "from that function in hub/playback.py and is marked here so it can be",
+    "checked against it.",
+    "",
+    "Specs: docs/alerts.md 4 and 8; docs/footage-sync.md 3.3, 3.4, 3.4.1, 3.5,",
+    "4.4.2."
+  ],
+  "alert_acked_with_clip": {
+    "acknowledged": true,
+    "acknowledged_at": "2026-10-28T12:05:00Z",
+    "acknowledged_by": "Terra Industries",
+    "best_quality": "standard",
+    "cameras": [
+      1
+    ],
+    "clips": [
+      {
+        "camera": 1,
+        "download_url": "/v1/viewer/alerts/clip?key=k&exp=1793190000&sig=abc&dl=1",
+        "duration": 60,
+        "filename": "labtower1_cam1_2026-10-28_12-58-03_WAT_26ba7dd47c66.mp4",
+        "key": "clips/kln_lab_000001/cam1/2026-10-28/2026-10-28_11-58-03_standard_26ba7dd47c66.mp4",
+        "quality": "standard",
+        "size": 7812345,
+        "start": "2026-10-28T11:58:03Z",
+        "start_epoch": 1793188683,
+        "url": "/v1/viewer/alerts/clip?key=k&exp=1793190000&sig=abc"
+      }
+    ],
+    "colour": "orange",
+    "device_id": "kln_lab_000001",
+    "id": "26ba7dd47c66402e9f1a0c8e4b1d3f55",
+    "progress": {
+      "bytes_left": 4294967296,
+      "eta_sec": 1718,
+      "files_left": 6,
+      "progress": 0
+    },
+    "recovered_at": "2026-10-28T12:04:10Z",
+    "rev": 7,
+    "started_at": "2026-10-28T11:59:03Z",
+    "started_epoch": 1793188743,
+    "type": "CAMERA_STOPPED"
+  },
+  "alert_live": {
+    "acknowledged": false,
+    "cameras": [
+      1,
+      2
+    ],
+    "colour": "red",
+    "device_id": "kln_lab_000002",
+    "id": "9f31c0aa11224433556677889900aabb",
+    "rev": 1,
+    "started_at": "2026-10-28T12:10:00Z",
+    "started_epoch": 1793189400,
+    "type": "TOWER_OFFLINE"
+  },
+  "alert_unknown_type": {
+    "acknowledged": false,
+    "colour": "grey",
+    "device_id": "kln_lab_000001",
+    "id": "aaaabbbbccccddddeeeeffff00001111",
+    "rev": 1,
+    "started_at": "2026-10-28T12:20:00Z",
+    "started_epoch": 1793190000,
+    "type": "GENERATOR_LOW"
+  },
+  "colours": {
+    "CAMERA_STOPPED": "orange",
+    "FOOTAGE_RECOVERED": "teal",
+    "FOOTAGE_RECOVERING": "purple",
+    "TOWER_OFFLINE": "red",
+    "TOWER_ONLINE": "green"
+  },
+  "footage_healthy": {
+    "as_of": "2026-10-27T08:00:00.000Z",
+    "cameras": [
+      {
+        "camera": 1,
+        "streams": [
+          {
+            "bytes": 77000000000,
+            "oldest_unconfirmed_exact": false,
+            "oldest_unconfirmed_start": "2026-10-27T03:00:00.000Z",
+            "segments": 672,
+            "spans": [
+              {
+                "bytes": 11000000000,
+                "confirmed_bytes": 11000000000,
+                "from": "2026-10-20T00:00:00.000Z",
+                "segments": 96,
+                "to": "2026-10-27T03:00:00.000Z"
+              }
+            ],
+            "stream": "main",
+            "unconfirmed_bytes": 1390000000,
+            "unconfirmed_segments": 12,
+            "unplaced_segments": 2
+          }
+        ]
+      },
+      {
+        "camera": 2,
+        "streams": [
+          {
+            "bytes": 1000000,
+            "oldest_unconfirmed_start": "2026-10-27T07:00:00.000Z",
+            "segments": 10,
+            "stream": "main"
+          }
+        ]
+      }
+    ],
+    "clock": {
+      "state": "synced",
+      "unsynced_at_record_start": true
+    },
+    "copy": "tower",
+    "footage_stream": "2k",
+    "record_stream": "main",
+    "sync": {
+      "free_pct": 71.2,
+      "reason": "behind",
+      "separate_disk": true,
+      "state": "ready",
+      "total_gb": 1863
+    },
+    "times": "reliable"
+  },
+  "footage_no_disk": {
+    "as_of": "2026-10-27T08:00:00.000Z",
+    "copy": "hub_only",
+    "record_stream": "sub",
+    "sync": {
+      "blocked_by": "no_recording_disk",
+      "free_pct": 3,
+      "reason": "no_recording_disk",
+      "separate_disk": false,
+      "state": "unavailable"
+    },
+    "times": "unreliable"
+  },
+  "footage_silent_sync": {
+    "as_of": "2026-10-27T08:00:00.000Z",
+    "cameras": [
+      {
+        "camera": 1,
+        "streams": [
+          {
+            "segments": 4,
+            "stream": "sub"
+          }
+        ]
+      }
+    ],
+    "copy": "tower",
+    "record_stream": "sub"
+  },
+  "timeline_extras_healthy": {
+    "tower_copy": "hub_only"
+  },
+  "timeline_extras_no_disk": {
+    "tower_copy": "hub_only",
+    "tower_sync": {
+      "reason": "no_recording_disk",
+      "state": "unavailable"
+    },
+    "tower_times_unreliable": true
+  },
+  "timeline_extras_with_spans": {
+    "tower_copy": "tower",
+    "tower_spans": [
+      {
+        "camera": 1,
+        "duration": 5400,
+        "start": "2026-10-26T03:00:00.000Z",
+        "start_epoch": 1792983600,
+        "state": "on_tower"
+      }
+    ],
+    "tower_sync": {
+      "reason": "behind",
+      "state": "sending"
+    }
+  },
+  "time_unknown_rows": [
+    {
+      "key": "archive/kln_lab_000001/cam1/2026-10-26/2026-10-26_05-12-44_unknown.mp4",
+      "camera": 1,
+      "device_id": "kln_lab_000001",
+      "time_unknown": true,
+      "size": 118374912,
+      "url": "/v1/viewer/recordings/segment?key=k1&exp=1793190000&sig=s1",
+      "download_url": "/v1/viewer/recordings/segment?key=k1&exp=1793190000&sig=s1&dl=1",
+      "filename": "labtower1_cam1_2026-10-26_06-12-44_WAT_unknown.mp4",
+      "arrived": "2026-10-26T05:12:44.000Z",
+      "arrived_epoch": 1792991564
+    }
+  ]
+}

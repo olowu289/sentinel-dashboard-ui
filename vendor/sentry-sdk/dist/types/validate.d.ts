@@ -36,7 +36,7 @@
  * else in §A.6's SHOULD-omit tier — `codec`, `calibrated`, internal health
  * detail — is tolerated in silence whether present or absent.
  */
-import type { CameraInfo, IceCandidatesResponse, PtzResult, SweepStatus, TowerDetail, ViewerSessionStatus, TowerHealth, TowerInfo, TowerListResponse, ViewerSession } from "./models.js";
+import type { CameraInfo, DeviceFootage, IceCandidatesResponse, PtzResult, SweepStatus, TowerDetail, ViewerSessionStatus, TowerHealth, TowerInfo, TowerListResponse, ViewerSession } from "./models.js";
 /** Collects field paths that failed, so one error reports every problem. */
 declare class Check {
     readonly issues: string[];
@@ -160,6 +160,17 @@ export declare function parseCameraInfo(c: Check, path: string, raw: unknown): C
  * changed. Requiring the full set would reject every state push.
  */
 export declare function parseTowerHealth(c: Check, path: string, raw: unknown): TowerHealth;
+/**
+ * Validate a device's `footage` block.
+ *
+ * **Every member is optional**, because the projection whitelists field by
+ * field and a tower that did not report something sends nothing. The one rule
+ * that is not merely structural is `oldest_unconfirmed_exact`: it is read as
+ * `=== false` and carried only then, because its ABSENCE is the stronger
+ * statement and defaulting it to `true` would turn "we could not establish
+ * this" into "we did".
+ */
+export declare function parseDeviceFootage(c: Check, path: string, raw: unknown): DeviceFootage;
 /**
  * Validate one projected tower (§A.3).
  *

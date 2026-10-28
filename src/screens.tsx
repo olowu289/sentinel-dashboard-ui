@@ -1163,8 +1163,7 @@ function PtzRefused() {
    put a particular row into the state worth photographing:
 
      radio.signal_dbm -62 from the TOWER's own radio    -> "Good · -62 dBm"
-     recording mode hub, stream main                    -> the 2K stream
-     disk absent on the tower                           -> "Recorded at the hub"
+     recording mode hub, no disk on the tower           -> "Not recording"
      battery absent                                     -> "Not connected"
      cloud connected over Fibre at 42 ms                -> the Kallon Cloud row
 
@@ -1193,8 +1192,13 @@ const SETTINGS_TOWER: Tower = {
       signalDbm: -62,
       signalFrom: "tower",
     },
-    /* The footage is the hub's. A tower on an SD card has no disk to offer and
-       must not print its root filesystem as the site's storage.
+    /* ⚠ THIS TOWER IS NOT RECORDING, AND THE FIXTURE'S OLD COMMENT SAID
+       "the footage is the hub's". It was true while the hub recorded every
+       tower's live stream; it records nothing from a tower now, so `mode:
+       "hub"` (which is `RECORD_ENABLE=0` and nothing else) means this mast is
+       keeping no footage at all. The frame photographs the row that says so.
+       A tower on an SD card still has no disk to offer either way, and must
+       not print its root filesystem as the site's storage.
 
        ⚠ AND NO `stream`. `RECORD_STREAM` says what THIS box would write; with
        the hub writing, the hub's config decides, and a tower repeating its own

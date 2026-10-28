@@ -31,6 +31,7 @@
  */
 import { HttpTransport } from "./http.js";
 import { parseAddDevice, parseAudit, parseCapabilities, parseCellDetail, parseCellList, parseMoveCell, parsePeopleList, parseRemoveTower, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
+import { AlertRevisionGate, SseBuffer, alertEventOf, parseSiteAlert, parseSiteAlertList, } from "./alerts.js";
 import { PtzError, SentryError, ValidationError } from "./errors.js";
 import { PTZ_KEEPALIVE_MS, PTZ_STEP_DEG_MAX, PTZ_STEP_DEG_MIN, RECORDING_MAX_CLIP_SEC, RECORDING_MAX_SLICE_SEC, } from "./models.js";
 import { parseIceCandidates, parsePtzResult, parseSweepStatus, parseSessionStatus, parseTowerDetail, parseTowerInfo, parseTowerList, parseViewerSession, } from "./validate.js";
@@ -744,7 +745,88 @@ export class SentryClient {
                 // older hub that does not send it still yields something usable.
                 filename: String(s.filename ?? String(s.key ?? "").split("/").pop() ?? "segment"),
             })),
+            ...this.timelineExtras(raw, deviceId, camera, coerceCamera),
         };
+    }
+    /**
+     * The fields a timeline answer gained for footage that is not on the hub's
+     * disk yet, or cannot be placed in time (footage-sync.md §3.5, §4.4.2).
+     *
+     * ⚠ ALL OF THESE ARE ABSENT ON A HEALTHY LINK, AND THAT IS THE NORMAL CASE.
+     * So absence is never an error here: the arrays come back **empty** and
+     * `towerTimesUnreliable` comes back `false`. A tower with none of this sends
+     * nothing and nothing changes for it, which is the rule the server states for
+     * these keys in its own words.
+     */
+    timelineExtras(raw, deviceId, camera, coerceCamera) {
+        const rows = Array.isArray(raw.time_unknown) ? raw.time_unknown : [];
+        const timeUnknown = rows
+            .map((r) => r)
+            .filter((r) => typeof r.url === "string" && r.url !== "")
+            // ⚠ REJECT AN ENTRY CARRYING `start` OR `duration`. The whole point of
+            // this list is that neither exists: a segment nobody could place has no
+            // start, and the absence IS the message. A server that sent one would be
+            // offering a guess, and passing it through puts footage on a timeline at a
+            // time it was not recorded — which also cuts the real segment before it
+            // short to the gap in front of the intruder. Dropping the row loses one
+            // playable item from a side list; keeping it corrupts the timeline.
+            .filter((r) => r.start === undefined && r.duration === undefined)
+            .map((r) => {
+            const out = {
+                key: String(r.key ?? ""),
+                camera: coerceCamera(r.camera ?? camera ?? ""),
+                deviceId: String(r.device_id ?? deviceId),
+                size: Number(r.size ?? 0),
+                url: this.http.url(String(r.url)),
+                downloadUrl: this.http.url(String(r.download_url ?? r.url)),
+                filename: String(r.filename ?? String(r.key ?? "").split("/").pop() ?? "segment"),
+            };
+            // `arrived` is when the HUB RECEIVED it, never when it happened. Carried
+            // only when sent, so a consumer cannot mistake a default for a reading.
+            if (typeof r.arrived === "string")
+                out.arrived = r.arrived;
+            if (typeof r.arrived_epoch === "number")
+                out.arrivedEpoch = r.arrived_epoch;
+            return out;
+        });
+        const spanRows = Array.isArray(raw.tower_spans) ? raw.tower_spans : [];
+        const towerSpans = spanRows
+            .map((s) => s)
+            // A span with no start cannot be laid out, and one that arrived with a
+            // `url` is not a tower span at all — the missing URL is the only honest
+            // difference between this and a playable segment.
+            .filter((s) => typeof s.start === "string" && s.url === undefined)
+            .map((s) => ({
+            camera: coerceCamera(s.camera ?? camera ?? ""),
+            start: String(s.start),
+            startEpoch: Number(s.start_epoch ?? 0),
+            duration: Number(s.duration ?? 0),
+            state: String(s.state ?? "on_tower"),
+        }));
+        const out = {
+            timeUnknown,
+            towerSpans,
+            // `true` only. `false` means nothing was reported, NOT that the times are
+            // good — the server sends this key exclusively when the answer is bad.
+            towerTimesUnreliable: raw.tower_times_unreliable === true,
+        };
+        const sync = raw.tower_sync;
+        if (sync !== null && typeof sync === "object" && !Array.isArray(sync)) {
+            const s = sync;
+            const summary = {};
+            if (typeof s.state === "string")
+                summary.state = s.state;
+            // The five-value VERDICT, not the tower's refusal code — that moved to
+            // `footage.sync.blocked_by` and this key answers what a screen asks.
+            if (typeof s.reason === "string")
+                summary.reason = s.reason;
+            if (summary.state !== undefined || summary.reason !== undefined)
+                out.towerSync = summary;
+        }
+        if (typeof raw.tower_copy === "string" && raw.tower_copy !== "") {
+            out.towerCopy = raw.tower_copy;
+        }
+        return out;
     }
     /**
      * One bounded slice of recorded video, as bytes a `<video>` can play (§12.6).
@@ -1741,6 +1823,232 @@ export class SentryClient {
             });
         }
         return person;
+    }
+    /* ---------------------------------------------------------------- *
+     * Site alerts (docs/alerts.md §4)
+     * ---------------------------------------------------------------- */
+    /**
+     * The alerts this account may see — `GET /v1/viewer/site-alerts`.
+     *
+     * Newest first, scoped from identity: **no account parameter is accepted
+     * anywhere**, because the scope is computed through the same choke point every
+     * other viewer route goes through. A second way to say "whose alerts" is how
+     * one customer ends up reading another's.
+     *
+     * Returns the alerts **and the `colours` map**. Render a row's colour by
+     * looking its `type` up in that map, not with a switch in your bundle: the map
+     * is sent precisely so a type this build of the website has never heard of
+     * still appears, in the colour the server picked for it.
+     *
+     * `since` is a **recovery tool**, not a pagination cursor. A client whose live
+     * stream dropped re-reads from the last alert it saw; the stream itself
+     * replays nothing, deliberately, because a replay buffer would be a second and
+     * lossier answer to the same question. {@link subscribeSiteAlerts} does this
+     * for you.
+     */
+    async listSiteAlerts(query = {}) {
+        const { since, limit, ...opts } = query;
+        // HAND-BUILT, NOT URLSearchParams — see `listArchivedRecordings` for why
+        // that global does not typecheck in this package.
+        const parts = [];
+        if (since !== undefined)
+            parts.push(`since=${encodeURIComponent(String(since))}`);
+        if (limit !== undefined)
+            parts.push(`limit=${encodeURIComponent(String(limit))}`);
+        const path = `/v1/viewer/site-alerts${parts.length ? `?${parts.join("&")}` : ""}`;
+        const { status, body } = await this.http.send({
+            method: "GET",
+            path,
+            accept: "json",
+            ...pick(opts),
+        });
+        return parseSiteAlertList(body, { status, path });
+    }
+    /**
+     * One alert — `GET /v1/viewer/site-alerts/{id}`.
+     *
+     * Re-read it to get **fresh clip URLs**: `url` and `download_url` are minted
+     * per request and a presigned bucket URL lives fifteen minutes, so a URL
+     * cached in component state serves a dead link to whoever opens the alert an
+     * hour later. `key` is the stable identity to cache against.
+     *
+     * @throws {NotFoundError} `404 alert_unknown` — no such alert, **or** not
+     *   yours. One answer for both, as it is for a tower: otherwise the endpoint
+     *   enumerates the fleet. Say *unavailable*, never *does not exist*.
+     */
+    async getSiteAlert(alertId, opts = {}) {
+        const path = `/v1/viewer/site-alerts/${encodeURIComponent(alertId)}`;
+        const { status, body } = await this.http.send({
+            method: "GET",
+            path,
+            accept: "json",
+            ...pick(opts),
+        });
+        return parseSiteAlert(body, { status, path });
+    }
+    /**
+     * Acknowledge an alert — `POST /v1/viewer/site-alerts/{id}/ack`. Returns the
+     * updated alert.
+     *
+     * **No body is sent, and none is read.** Who acknowledged is the
+     * authenticated caller and never a name in a request — a name in the body
+     * would be an unverified claim about a person written into an audit fact.
+     *
+     * Acknowledging is **one-way and the first one wins**. There is no
+     * un-acknowledge: "who noticed" is the fact, and a second person opening the
+     * same alert has not re-noticed it. A one-way flag is also what makes the hub
+     * and the data centre converge on the same answer whichever hears first.
+     */
+    async ackSiteAlert(alertId, opts = {}) {
+        const path = `/v1/viewer/site-alerts/${encodeURIComponent(alertId)}/ack`;
+        const { status, body } = await this.http.send({
+            method: "POST",
+            path,
+            accept: "json",
+            ...pick(opts),
+        });
+        return parseSiteAlert(body, { status, path });
+    }
+    /**
+     * Subscribe to the live alert channel — `GET /v1/viewer/events`.
+     *
+     * ⚠ THIS DOES NOT USE `EventSource`, AND THAT IS THE WHOLE REASON IT EXISTS.
+     * `EventSource` cannot set an `Authorization` header, and this route is
+     * authenticated like every other viewer route. So the stream is read with
+     * `fetch()` and a body reader. The alternative would be a credential in the
+     * query string — which is exactly what the clip ticket was invented to avoid,
+     * and is only tolerable there because a `<video src>` cannot send a header.
+     *
+     * What it handles so a caller does not have to:
+     *
+     * - **Framing across reads.** A frame can arrive split in two; the network
+     *   does not respect `\n\n`.
+     * - **Keepalives.** A `: keepalive` comment arrives every 15 s and is ignored,
+     *   never surfaced as an event.
+     * - **Out-of-order updates**, dropped by `rev` ({@link AlertRevisionGate}).
+     *   The live channel and the recovery read are two sources for one row and
+     *   nothing orders them against each other, so without this a stale forward
+     *   overwrites a fresh one and a recovered alert flips back to live on screen.
+     * - **Recovery on any drop.** A slow reader is *dropped, not waited for* — the
+     *   publisher is the loop watching the fleet and may never block on a socket —
+     *   and a node holds at most 64 streams. So drops are expected, not
+     *   exceptional. On every one this re-reads `listSiteAlerts({since})` from the
+     *   last alert seen, emits whatever the gate accepts, and reconnects.
+     *
+     * Unknown event kinds are ignored rather than thrown on: a new kind on this
+     * channel is an additive server change, and a reader that threw would turn it
+     * into a broken dashboard.
+     *
+     * ```ts
+     * const sub = client.subscribeSiteAlerts({ onAlert: (e) => store.upsert(e.alert) });
+     * // ...on teardown:
+     * sub.stop();
+     * ```
+     *
+     * @returns A handle. `stop()` is idempotent; `done` resolves when the loop has
+     *   finished, which is only ever after `stop()` or an aborted signal.
+     */
+    subscribeSiteAlerts(handlers) {
+        const gate = new AlertRevisionGate();
+        const retryMs = handlers.retryMs ?? 3000;
+        // THE WATERMARK a recovery read restarts from: the newest alert seen. An
+        // inclusive re-read is harmless because the gate drops what we already have,
+        // and inclusive is the safe direction — an exclusive one can skip an alert
+        // raised in the same second as the last.
+        let since = handlers.since;
+        let stopped = false;
+        let reader = null;
+        const stop = () => {
+            if (stopped)
+                return;
+            stopped = true;
+            // Cancel the reader so a `read()` blocked on an idle stream returns now,
+            // rather than when the next keepalive arrives 15 s later.
+            void reader?.cancel?.();
+        };
+        if (handlers.signal) {
+            if (handlers.signal.aborted)
+                stopped = true;
+            else
+                handlers.signal.addEventListener("abort", stop);
+        }
+        const emit = (event) => {
+            if (!gate.accept(event.alert))
+                return;
+            if (event.alert.started_epoch > (since ?? -Infinity))
+                since = event.alert.started_epoch;
+            handlers.onAlert(event);
+        };
+        const recover = async () => {
+            // Nothing to recover before the first connection: the caller wanted a
+            // live subscription, not a backfill of the whole history.
+            if (since === undefined)
+                return;
+            const list = await this.listSiteAlerts({ since });
+            for (const alert of list.alerts)
+                emit({ kind: "alert.updated", alert });
+        };
+        const run = async () => {
+            let first = true;
+            while (!stopped) {
+                try {
+                    // The recovery read happens BEFORE the stream is opened on a
+                    // reconnect, so the gap is closed by the time frames start arriving
+                    // and a frame cannot be overwritten by an older row from the read.
+                    if (!first)
+                        await recover();
+                    const opened = await this.http.open({
+                        path: "/v1/viewer/events",
+                        ...(handlers.signal ? { signal: handlers.signal } : {}),
+                    });
+                    reader = opened.reader;
+                    first = false;
+                    handlers.onOpen?.();
+                    const buffer = new SseBuffer();
+                    const decoder = new TextDecoder();
+                    for (;;) {
+                        const chunk = await reader.read();
+                        if (chunk.done)
+                            break;
+                        if (!chunk.value)
+                            continue;
+                        for (const frame of buffer.push(decoder.decode(chunk.value, { stream: true }))) {
+                            let event = null;
+                            try {
+                                event = alertEventOf(frame);
+                            }
+                            catch (err) {
+                                // A frame claiming to be an alert whose data is not one. Report
+                                // it and keep reading: one malformed frame is not a reason to
+                                // drop a connection that is otherwise delivering.
+                                handlers.onError?.(err);
+                            }
+                            if (event)
+                                emit(event);
+                        }
+                    }
+                    // A clean end is still a drop — the server closes a slow reader and
+                    // ends the stream past 64 subscribers. Fall through to the backoff.
+                    if (!stopped)
+                        handlers.onError?.(new Error("event stream ended"));
+                }
+                catch (err) {
+                    if (!stopped)
+                        handlers.onError?.(err);
+                }
+                finally {
+                    reader = null;
+                }
+                if (stopped)
+                    break;
+                await new Promise((resolve) => {
+                    const timer = setTimeout(resolve, retryMs);
+                    timer.unref?.();
+                });
+            }
+            handlers.signal?.removeEventListener("abort", stop);
+        };
+        return { stop, done: run() };
     }
 }
 /* ------------------------------------------------------------------ *

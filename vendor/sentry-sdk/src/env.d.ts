@@ -20,3 +20,16 @@ declare function setTimeout(handler: () => void, timeout?: number): unknown;
 declare function clearTimeout(handle: unknown): void;
 declare function setInterval(handler: () => void, timeout?: number): unknown;
 declare function clearInterval(handle: unknown): void;
+
+/**
+ * Decodes the live event channel's bytes (`GET /v1/viewer/events`).
+ *
+ * Declared rather than pulled in from a lib for the reason above: this package
+ * compiles against `lib: ["ES2022"]` with no DOM and no `@types/node`, and
+ * `TextDecoder` is present in every runtime this SDK targets (Node 18+, every
+ * current browser) without being in that lib. Only the one member is named,
+ * because only the one member is used.
+ */
+declare const TextDecoder: {
+  new (): { decode(input?: Uint8Array, options?: { stream?: boolean }): string };
+};

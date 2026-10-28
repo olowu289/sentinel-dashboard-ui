@@ -46,6 +46,55 @@ export class HttpTransport {
             return pathOrUrl;
         return this.baseUrl + (pathOrUrl.startsWith("/") ? pathOrUrl : "/" + pathOrUrl);
     }
+    /**
+     * Open a long-lived GET and hand back a reader over its body — the live event
+     * channel, and nothing else so far.
+     *
+     * ⚠ NO DEADLINE, DELIBERATELY. Every other call here gets a per-call
+     * `AbortController` timeout, and applying one to a stream would close a
+     * healthy connection every ten seconds: an event channel is *supposed* to sit
+     * idle, and a `: keepalive` comment every 15 s is how it proves it is alive.
+     * Cancellation is the caller's `signal` instead, which is the only thing that
+     * knows when the consumer is done.
+     *
+     * A non-2xx still reads its body as text and throws the typed error, exactly
+     * as `send` does — an auth failure on this route must look like an auth
+     * failure everywhere else, not like a stream that would not start.
+     */
+    async open(args) {
+        const url = this.url(args.path);
+        const headers = { ...this.extraHeaders, Accept: "text/event-stream" };
+        const token = await resolveToken(this.token);
+        if (token)
+            headers["Authorization"] = `Bearer ${token}`;
+        if (this.userAgent)
+            headers["X-Sentry-Client"] = this.userAgent;
+        let res;
+        try {
+            const init = { method: "GET", headers };
+            if (args.signal !== undefined)
+                init.signal = args.signal;
+            res = await this.doFetch(url, init);
+        }
+        catch (cause) {
+            if (args.signal?.aborted) {
+                throw new RequestAbortedError(`GET ${args.path} aborted`, { path: args.path, cause });
+            }
+            throw new NetworkError(`GET ${args.path} failed: ${messageOf(cause)}`, {
+                path: args.path,
+                cause,
+            });
+        }
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw this.toError(res.status, text, res.headers.get("content-type") ?? "", args.path);
+        }
+        const body = res.body;
+        if (!body || typeof body.getReader !== "function") {
+            throw new SentryError(`GET ${args.path} needs a fetch whose Response exposes a readable body`, { code: "response_invalid", status: res.status, path: args.path });
+        }
+        return { status: res.status, reader: body.getReader() };
+    }
     async send(args) {
         const url = this.url(args.path);
         const timeoutMs = args.timeoutMs ?? this.defaultTimeoutMs;

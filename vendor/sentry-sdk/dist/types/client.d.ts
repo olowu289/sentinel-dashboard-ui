@@ -30,7 +30,8 @@
  * ```
  */
 import type { AddDeviceResponse, AuditResponse, Capabilities, CellDetailResponse, CellListResponse, MoveCellResponse, PeopleListResponse, Person, RemoveCellResponse, RemovePersonResponse, RemoveSiteResponse, RemoveTowerResponse, Share, ShareListResponse, ShareScopeEntry, SiteDetailResponse, SiteListResponse } from "./sites.js";
-import type { HttpOptions, RequestOptions } from "./http.js";
+import type { AbortSignalLike, HttpOptions, RequestOptions } from "./http.js";
+import type { AlertEvent, SiteAlert, SiteAlertList, SiteAlertQuery } from "./alerts.js";
 import { type CameraIndex, type DeviceId, type CreateSessionRequest, type IceCandidate, type IceCandidatesResponse, type PtzCommand, type PtzMoveParams, type PtzResult, type PtzStepParams, type PtzStopParams, type RecordingWindow, type SweepStatus, type ArchivedRecordingList, type FreshSegmentUrl, type ReviewableTower, type SessionCloseReason, type SessionId, type TowerDetail, type TowerInfo, type TowerListResponse, type ViewerSession, type ViewerSessionStatus } from "./models.js";
 /** Anything carrying a session id: the session object, or the id itself. */
 export type SessionRef = SessionId | Pick<ViewerSession, "session_id" | "offer_url" | "ice_url">;
@@ -435,6 +436,17 @@ export declare class SentryClient {
         from?: number;
         to?: number;
     } & RequestOptions): Promise<ArchivedRecordingList>;
+    /**
+     * The fields a timeline answer gained for footage that is not on the hub's
+     * disk yet, or cannot be placed in time (footage-sync.md §3.5, §4.4.2).
+     *
+     * ⚠ ALL OF THESE ARE ABSENT ON A HEALTHY LINK, AND THAT IS THE NORMAL CASE.
+     * So absence is never an error here: the arrays come back **empty** and
+     * `towerTimesUnreliable` comes back `false`. A tower with none of this sends
+     * nothing and nothing changes for it, which is the rule the server states for
+     * these keys in its own words.
+     */
+    private timelineExtras;
     /**
      * One bounded slice of recorded video, as bytes a `<video>` can play (§12.6).
      *
@@ -1013,6 +1025,113 @@ export declare class SentryClient {
      * Admin only.
      */
     adminRenamePerson(accountId: string, name: string, opts?: RequestOptions): Promise<Person>;
+    /**
+     * The alerts this account may see — `GET /v1/viewer/site-alerts`.
+     *
+     * Newest first, scoped from identity: **no account parameter is accepted
+     * anywhere**, because the scope is computed through the same choke point every
+     * other viewer route goes through. A second way to say "whose alerts" is how
+     * one customer ends up reading another's.
+     *
+     * Returns the alerts **and the `colours` map**. Render a row's colour by
+     * looking its `type` up in that map, not with a switch in your bundle: the map
+     * is sent precisely so a type this build of the website has never heard of
+     * still appears, in the colour the server picked for it.
+     *
+     * `since` is a **recovery tool**, not a pagination cursor. A client whose live
+     * stream dropped re-reads from the last alert it saw; the stream itself
+     * replays nothing, deliberately, because a replay buffer would be a second and
+     * lossier answer to the same question. {@link subscribeSiteAlerts} does this
+     * for you.
+     */
+    listSiteAlerts(query?: SiteAlertQuery & RequestOptions): Promise<SiteAlertList>;
+    /**
+     * One alert — `GET /v1/viewer/site-alerts/{id}`.
+     *
+     * Re-read it to get **fresh clip URLs**: `url` and `download_url` are minted
+     * per request and a presigned bucket URL lives fifteen minutes, so a URL
+     * cached in component state serves a dead link to whoever opens the alert an
+     * hour later. `key` is the stable identity to cache against.
+     *
+     * @throws {NotFoundError} `404 alert_unknown` — no such alert, **or** not
+     *   yours. One answer for both, as it is for a tower: otherwise the endpoint
+     *   enumerates the fleet. Say *unavailable*, never *does not exist*.
+     */
+    getSiteAlert(alertId: string, opts?: RequestOptions): Promise<SiteAlert>;
+    /**
+     * Acknowledge an alert — `POST /v1/viewer/site-alerts/{id}/ack`. Returns the
+     * updated alert.
+     *
+     * **No body is sent, and none is read.** Who acknowledged is the
+     * authenticated caller and never a name in a request — a name in the body
+     * would be an unverified claim about a person written into an audit fact.
+     *
+     * Acknowledging is **one-way and the first one wins**. There is no
+     * un-acknowledge: "who noticed" is the fact, and a second person opening the
+     * same alert has not re-noticed it. A one-way flag is also what makes the hub
+     * and the data centre converge on the same answer whichever hears first.
+     */
+    ackSiteAlert(alertId: string, opts?: RequestOptions): Promise<SiteAlert>;
+    /**
+     * Subscribe to the live alert channel — `GET /v1/viewer/events`.
+     *
+     * ⚠ THIS DOES NOT USE `EventSource`, AND THAT IS THE WHOLE REASON IT EXISTS.
+     * `EventSource` cannot set an `Authorization` header, and this route is
+     * authenticated like every other viewer route. So the stream is read with
+     * `fetch()` and a body reader. The alternative would be a credential in the
+     * query string — which is exactly what the clip ticket was invented to avoid,
+     * and is only tolerable there because a `<video src>` cannot send a header.
+     *
+     * What it handles so a caller does not have to:
+     *
+     * - **Framing across reads.** A frame can arrive split in two; the network
+     *   does not respect `\n\n`.
+     * - **Keepalives.** A `: keepalive` comment arrives every 15 s and is ignored,
+     *   never surfaced as an event.
+     * - **Out-of-order updates**, dropped by `rev` ({@link AlertRevisionGate}).
+     *   The live channel and the recovery read are two sources for one row and
+     *   nothing orders them against each other, so without this a stale forward
+     *   overwrites a fresh one and a recovered alert flips back to live on screen.
+     * - **Recovery on any drop.** A slow reader is *dropped, not waited for* — the
+     *   publisher is the loop watching the fleet and may never block on a socket —
+     *   and a node holds at most 64 streams. So drops are expected, not
+     *   exceptional. On every one this re-reads `listSiteAlerts({since})` from the
+     *   last alert seen, emits whatever the gate accepts, and reconnects.
+     *
+     * Unknown event kinds are ignored rather than thrown on: a new kind on this
+     * channel is an additive server change, and a reader that threw would turn it
+     * into a broken dashboard.
+     *
+     * ```ts
+     * const sub = client.subscribeSiteAlerts({ onAlert: (e) => store.upsert(e.alert) });
+     * // ...on teardown:
+     * sub.stop();
+     * ```
+     *
+     * @returns A handle. `stop()` is idempotent; `done` resolves when the loop has
+     *   finished, which is only ever after `stop()` or an aborted signal.
+     */
+    subscribeSiteAlerts(handlers: {
+        /** Every accepted `alert.new` / `alert.updated`, and every alert a recovery read turned up. */
+        onAlert: (event: AlertEvent) => void;
+        /**
+         * Each drop and each failed reconnect. **Informational, not fatal** — the
+         * loop keeps going. A dashboard should use it to show "reconnecting", not to
+         * tear the subscription down.
+         */
+        onError?: (err: unknown) => void;
+        /** Called once per successful (re)connection, after any recovery read. */
+        onOpen?: () => void;
+        /** Where to start a recovery read before the first frame has been seen. */
+        since?: number;
+        /** Backoff between attempts. Default 3000 ms, which is the server's own `retry:`. */
+        retryMs?: number;
+        /** Caller cancellation. Aborting it stops the loop as `stop()` does. */
+        signal?: AbortSignalLike;
+    }): {
+        stop: () => void;
+        done: Promise<void>;
+    };
 }
 /**
  * Clamp to the §5.1 normalized ranges.

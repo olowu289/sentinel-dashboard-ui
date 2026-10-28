@@ -675,6 +675,102 @@ export interface ArchivedRecordingList {
     archiveEnabled: boolean;
     /** Ordered oldest-first. */
     segments: ArchivedSegment[];
+    /**
+     * Real footage with **no time** (footage-sync.md §4.4.2). Empty on a healthy
+     * archive, which is the normal case.
+     *
+     * These are kept OUT of {@link segments} deliberately. The two wrong answers
+     * were to drop them (footage lost) and to draw them at the time they arrived
+     * (footage shown where it was not recorded — and worse, a real segment's own
+     * span cut short to the gap before the intruder).
+     *
+     * Show the count near the timeline and the list behind it, with a label of its
+     * own and **no time axis**. Each row plays from `url` exactly like a timeline
+     * segment, which is how somebody works out what the footage is.
+     */
+    timeUnknown: UndatedSegment[];
+    /**
+     * Stretches the TOWER holds that the hub has not got yet (§3.5). Empty when
+     * there is nothing to add, which is the normal case on a healthy link.
+     *
+     * These are **subtracted**: only stretches the hub has no footage for. A span
+     * on a timeline and a backlog on the tower are the same fact seen from the two
+     * ends, and the pipeline makes them disappear by filling them.
+     */
+    towerSpans: TowerSpan[];
+    /**
+     * Why the tower's own footage is or is not moving. Absent when the tower has
+     * said nothing about its sync — which is not the same as `ok`.
+     */
+    towerSync?: TowerSyncSummary;
+    /**
+     * Which copy exists. See {@link FootageCopy} for why `hub_only` is a worse
+     * reading than its name suggests.
+     */
+    towerCopy?: FootageCopy;
+    /**
+     * `true` only, and said out loud rather than silently dropping the spans:
+     * "this tower holds footage whose times cannot be trusted" is a fact an
+     * operator can act on, and a timeline that simply showed nothing would hide
+     * it. `false` here means nothing was reported, not that times are good.
+     */
+    towerTimesUnreliable: boolean;
+}
+/**
+ * A segment that arrived whole and whose start nobody could establish
+ * (footage-sync.md §4.4.2).
+ *
+ * ⚠ IT HAS NO `start` AND NO `duration`, AT ALL. That absence is the message: a
+ * field whose value would be a guess is the whole fault this shape fixes, and a
+ * screen cannot draw a span it was not given. {@link SentryClient.listArchivedRecordings}
+ * **rejects** an entry carrying either, rather than passing a server's mistake
+ * through to a timeline that would then place footage where it was not recorded.
+ *
+ * `arrived` is when the hub RECEIVED the footage, not when it happened, and must
+ * be labelled as such wherever it is shown.
+ */
+export interface UndatedSegment {
+    /** The backend object key. Carries the `_unknown` mark — the fact travels in the name. */
+    key: string;
+    camera: number | string;
+    deviceId: string;
+    /** Bytes. */
+    size: number;
+    /** Plays inline, exactly like a timeline segment. */
+    url: string;
+    downloadUrl: string;
+    filename: string;
+    /** RFC 3339. When the hub received it. **Not** when it was recorded. */
+    arrived?: Timestamp;
+    arrivedEpoch?: number;
+}
+/**
+ * One stretch of footage the tower holds and the hub does not (§3.5).
+ *
+ * Carries the **same keys a playable segment does** (`start`, `startEpoch`,
+ * `duration`) so one piece of arithmetic lays both kinds out on a timeline.
+ * What is missing is the only honest difference: **no URL**, because there is
+ * nothing to play yet. Slivers under 30 seconds are dropped server-side — two
+ * recorders starting a second apart would otherwise pepper a timeline with marks
+ * that hide the real gaps.
+ */
+export interface TowerSpan {
+    camera: number | string;
+    start: Timestamp;
+    startEpoch: number;
+    /** Seconds. */
+    duration: number;
+    /**
+     * A machine value: `on_tower`. The website writes the sentence. There is
+     * nothing to fetch on demand — the pipeline is what makes these disappear.
+     */
+    state: string;
+}
+/** The sync facts a timeline answer carries, from the tower's `footage.sync`. */
+export interface TowerSyncSummary {
+    state?: FootageSyncState;
+    /** The five-value verdict. See {@link FootageSyncReason}. */
+    reason?: FootageSyncReason;
 }
 /**
  * The longest slice a single request may ask for (§12.6), in seconds.
@@ -919,6 +1015,195 @@ export interface SensorInfo {
     [key: string]: unknown;
 }
 /**
+ * Which MediaMTX stream the recorder writes. A **machine value**, like a code:
+ * `sub` and `main` must never reach a screen as themselves.
+ */
+export type FootageStream = "sub" | "main";
+/**
+ * What a site keeps. A **machine value**: the label for `standard` is
+ * **Standard** and for `2k` it is **Full size** (§6.5). A customer never sees
+ * either word on this list.
+ */
+export type FootageStreamChoice = "2k" | "standard";
+/**
+ * Whether the recorder's filenames can be trusted as times.
+ *
+ * `unreliable` means the tower's clock was wrong when the recorder started, so
+ * its filenames are wrong and nothing renames them. **Spans are then not drawn
+ * on a timeline at all** — the honest answer is that the footage exists without
+ * placing it at a time that is a lie.
+ */
+export type FootageTimes = "reliable" | "unreliable";
+/**
+ * Which copy of this tower's footage exists.
+ *
+ * ⚠ `hub_only` IS OLDER THAN THE DESIGN IT DESCRIBES. It was coined when the
+ * hub recorded every tower's live stream, and the hub records nothing from a
+ * tower now — so a `hub_only` tower has **no footage at all** once the hub's
+ * existing archive ages out. The value is unchanged because the website
+ * branches on it; what it means is "this tower records nothing, fix that".
+ */
+export type FootageCopy = "tower" | "hub_only";
+/** Whether the sync pipeline can run at all. */
+export type FootageSyncState = "ready" | "unavailable" | "sending" | "idle";
+/**
+ * The **verdict** a screen asks for, over a fixed five (alerts.md §8).
+ *
+ * | value | means |
+ * | --- | --- |
+ * | `ok` | footage is arriving |
+ * | `behind` | arriving, more than four hours late — a ceiling or a radio to look at |
+ * | `unreachable` | this hub cannot get footage off that tower at all |
+ * | `no_recording_disk` | the tower has nowhere to record it in the first place |
+ * | `recording_off` | somebody turned recording off; a decision, not a fault |
+ *
+ * ⚠ THIS KEY USED TO CARRY THE TOWER'S REFUSAL CODE AND NOW CARRIES A VERDICT.
+ * The refusal codes moved to {@link FootageSync.blocked_by}, unchanged in
+ * value. One key quietly meaning two different things on two builds is worse
+ * than two keys — so a consumer reading `reason` as a refusal code is reading
+ * an older contract.
+ *
+ * **Absent when there is nothing to base it on.** A tower that reported footage
+ * but no `sync` block has said nothing about its sync, and `ok` derived from
+ * silence is a guess on a screen. The one verdict that does not need the tower
+ * is `unreachable`, because the link state is observed and never reported.
+ */
+export type FootageSyncReason = "ok" | "behind" | "unreachable" | "no_recording_disk" | "recording_off";
+/**
+ * What the TOWER says is stopping its sync (footage-sync.md §3.4).
+ *
+ * These are the tower's own refusal codes, unchanged in value from when they
+ * lived under `reason`. {@link FootageSyncReason} is the verdict derived from
+ * them, and the map is in alerts.md §8 — note `wireguard_link` and
+ * `cannot_determine` both become `unreachable`, because neither is a disk
+ * fault and neither may claim one.
+ */
+export type FootageBlockedBy = "no_recording_disk" | "recording_disabled" | "wireguard_link" | "no_recording_path" | "cannot_determine";
+/** Whether the tower's clock was right when the recorder started. */
+export interface FootageClock {
+    state?: "synced" | "unsynced" | "unknown";
+    /**
+     * `true` only. Absent means it was synced — the projection sends this key
+     * exclusively when the answer is the bad one.
+     */
+    unsynced_at_record_start?: boolean;
+}
+/** The recording disk, and whether footage can leave the tower. */
+export interface FootageSync {
+    state?: FootageSyncState;
+    /** The verdict (§8). See {@link FootageSyncReason} — absent is meaningful. */
+    reason?: FootageSyncReason;
+    /** What the tower says is stopping it. The old meaning of `reason`. */
+    blocked_by?: FootageBlockedBy;
+    /** Percent free on the recording disk. */
+    free_pct?: number;
+    /** Gigabytes, the whole disk. */
+    total_gb?: number;
+    /**
+     * Whether the recording path is on a disk of its own. `false` is the fault
+     * `no_recording_disk` names: `RECORD_ENABLE=1` on a tower recording to the
+     * boot eMMC fills the root filesystem, and a Jetson with a full root does
+     * not come back up.
+     */
+    separate_disk?: boolean;
+}
+/**
+ * One contiguous stretch of footage the tower holds.
+ *
+ * **Spans, not segments**: seven days of two cameras is ~1,350 segments, which
+ * is megabytes of JSON on a link that also carries PTZ keepalives. Collapsed to
+ * spans it is a few dozen entries.
+ *
+ * A span ends at its last segment's start plus **that segment's own measured
+ * length** where the index has one. The last segment of a span is by definition
+ * the one something interrupted — a reboot, a dropped feed, the power — so it is
+ * the one most likely to be short, and using the configured length made a span
+ * claim up to a quarter of an hour of footage that does not exist, at exactly
+ * the end an operator is looking at the gap after.
+ */
+export interface FootageSpan {
+    /** RFC 3339. */
+    from: string;
+    /** RFC 3339. */
+    to: string;
+    segments?: number;
+    bytes?: number;
+    /** Bytes the hub has confirmed receiving. */
+    confirmed_bytes?: number;
+}
+/** What one camera·stream holds on the tower. */
+export interface FootageStreamEntry {
+    /** A machine value. Never rendered as itself. */
+    stream: FootageStream;
+    segments?: number;
+    bytes?: number;
+    /** Segments the hub has not confirmed — the backlog, as a count. */
+    unconfirmed_segments?: number;
+    unconfirmed_bytes?: number;
+    /** Segments whose start could not be established at all (§4.4.2). */
+    unplaced_segments?: number;
+    /**
+     * RFC 3339. **How old the backlog is** — the one footage fact a screen could
+     * not read before, because it never crossed the projection's whitelist even
+     * though the tower had reported it all along.
+     *
+     * It is also what `sync.reason: "behind"` is measured from, against the same
+     * four hours `FOOTAGE_SYNC_BEHIND` fires at — so a screen saying "behind" and
+     * an alert saying so cannot disagree in front of a customer.
+     */
+    oldest_unconfirmed_start?: string;
+    /**
+     * `false` when {@link oldest_unconfirmed_start} could not be established
+     * exactly, and **ABSENT when it could**.
+     *
+     * ⚠ THE ABSENCE IS THE STRONGER STATEMENT, which is why it is not defaulted
+     * to `true` anywhere — not in the projection and not here. Read it as
+     * `=== false`, never as falsy.
+     */
+    oldest_unconfirmed_exact?: boolean;
+    /** Absent when there are none. */
+    spans?: FootageSpan[];
+}
+/** One camera's footage on the tower. */
+export interface FootageCamera {
+    camera: CameraIndex;
+    /**
+     * ONE stream per site now. A second entry is footage recorded before a
+     * switch, still on the tower and still being sent.
+     */
+    streams: FootageStreamEntry[];
+}
+/**
+ * The `footage` block, a **sibling of `health`** on a projected device.
+ *
+ * Three questions a screen can answer with it and could not before:
+ *
+ * - is footage being kept on this tower at all, or is the hub's copy the only
+ *   one (`copy`)?
+ * - is the sync working, and if not, why (`sync`)?
+ * - which stretches does the tower hold that the hub has not got yet
+ *   (`cameras[].streams[].spans`)? A timeline draws those as "on the tower",
+ *   and the pipeline makes them disappear by filling them.
+ *
+ * Every member is optional because the block is **whitelisted field by field**:
+ * a tower's report is data, not instructions, and a key the projection does not
+ * name does not cross. Absent means the tower did not say it.
+ */
+export interface DeviceFootage {
+    /** RFC 3339. When this block was built — refreshed every 300 s, not per beat. */
+    as_of?: string;
+    times?: FootageTimes;
+    clock?: FootageClock;
+    sync?: FootageSync;
+    /** What this site keeps. */
+    footage_stream?: FootageStreamChoice;
+    /** The MediaMTX stream that means. */
+    record_stream?: FootageStream;
+    /** Derived by the hub, not reported — the tower cannot know what the hub holds. */
+    copy?: FootageCopy;
+    cameras?: FootageCamera[];
+}
+/**
  * The **projected inventory** for one tower (§A.3) — the shape the dashboard
  * and this SDK consume, served by `GET /v1/viewer/towers`.
  *
@@ -1019,6 +1304,18 @@ export interface TowerInfo {
     capabilities?: string[];
     last_seen?: Timestamp | null;
     health?: TowerHealth;
+    /**
+     * What this device holds of its own footage — `footage`, a **sibling of
+     * `health`** on the projected tower (`project_footage`).
+     *
+     * ⚠ ABSENT IS NOT AN EMPTY ARCHIVE. The block is present only when the tower
+     * has actually reported footage; a tower that has never said is not a tower
+     * with nothing, and the absence is the honest difference. Render "not
+     * reported", never "no footage".
+     *
+     * See {@link DeviceFootage} for the three questions it answers.
+     */
+    footage?: DeviceFootage;
     /**
      * §A.3.2 — when the CURRENT link came up.
      *

@@ -1,5 +1,109 @@
 # Changelog
 
+## 0.13.0
+
+Additive. Nothing in 0.12.0 changed shape.
+
+Site alerts, the live channel they arrive on, and the footage facts a screen
+could not read before. Specs: `sentry-core/docs/alerts.md` (sections 4 and 8)
+and `docs/footage-sync.md` (sections 3.3, 3.4, 3.4.1, 3.5, 4.4.2), at
+sentry-core `8a5b019`.
+
+### Added - site alerts
+
+- **`listSiteAlerts({since, limit})`**, returning the alerts **and the
+  `colours` map**. Render a row by looking its `type` up in that map, not with
+  a switch in your bundle: the map is sent precisely so a type this build of
+  the website has never heard of still appears, in the colour the server picked
+  for it (`grey` when the server could not name it either).
+  `since` is a **recovery tool**, not a cursor.
+- **`getSiteAlert(id)`** and **`ackSiteAlert(id)`**. The ack sends **no body**:
+  who acknowledged is the authenticated caller, never a name in a request, and
+  it is one-way - the first one wins.
+- **`SiteAlert`**, `AlertClip`, `AlertProgress` and the parsers, holding the
+  field rules the server promises:
+  **absent never null** (so `"recovered_at" in alert` is the check, and a
+  `null` arriving from an older tier is dropped rather than carried through);
+  **`acknowledged` always a boolean** (a missing one FAILS - `false` and "an
+  older hub that did not say" must not be one thing on a screen);
+  **`type` and `colour` are codes** with no `message` field anywhere;
+  **`rev` for ordering**; and **`url`/`download_url` never cached**, because
+  both are minted per request and a presigned bucket URL lives fifteen minutes.
+  `key` is the stable identity.
+- **`AlertRevisionGate`** - drops an out-of-order update by `rev`. The live
+  channel and the recovery read are two sources for one row and nothing orders
+  them against each other, so without it a stale forward overwrites a fresh one
+  and a recovered alert flips back to live on screen.
+
+### Added - the live channel
+
+- **`subscribeSiteAlerts({onAlert, onError, since})`** over
+  `GET /v1/viewer/events`, with `SseBuffer`, `parseSseFrame` and
+  `alertEventOf` exported for anyone framing it themselves.
+  ⚠ **It uses `fetch()` and a body reader, NOT `EventSource`**, which cannot
+  set an `Authorization` header - and this route is authenticated like every
+  other viewer route. A credential in the query string is what the clip ticket
+  exists to avoid.
+  It reassembles frames split across reads, ignores the 15-second
+  `: keepalive`, ignores unknown event kinds, and **on every drop re-reads
+  `listSiteAlerts({since})` from the last alert seen** before reconnecting -
+  drops are expected, not exceptional: a slow reader is closed rather than
+  waited for, and a node holds at most 64 streams.
+- `HttpTransport.open()` for it, deliberately **with no per-call deadline**: a
+  stream is supposed to sit idle, and a 10-second timeout would close a healthy
+  connection. Cancellation is the caller's `signal`.
+
+### Added - the timeline gains what is not on the hub yet
+
+`listArchivedRecordings` now returns four more fields. **All are empty on a
+healthy link, never an error** - a tower with none of this sends nothing.
+
+- **`timeUnknown`** (`UndatedSegment[]`) - real footage with no time. Kept out
+  of `segments` on purpose, and an entry carrying `start` or `duration` is
+  **rejected**: the absence is the message, and drawing such a row would place
+  footage where it was not recorded AND cut the real segment before it short to
+  the gap in front of it. `arrived` is when the hub RECEIVED it.
+- **`towerSpans`** (`TowerSpan[]`) - stretches the tower holds and the hub does
+  not, carrying the same `start`/`startEpoch`/`duration` a segment does so one
+  piece of arithmetic lays both out, and **no URL**, which is the only honest
+  difference.
+- **`towerSync`** (`{state, reason}`), **`towerCopy`**, and
+  **`towerTimesUnreliable`** (`true` only).
+
+### Added - the device `footage` block
+
+- **`DeviceFootage` on `TowerInfo`**, a sibling of `health`, parsed by
+  `parseDeviceFootage` and reaching the tower LIST as well as the detail.
+  **Absent is not an empty archive**: a tower that has never reported footage is
+  not a tower with nothing.
+- **`footage.sync.reason`** is a **verdict over a fixed five** - `ok`,
+  `behind`, `unreachable`, `no_recording_disk`, `recording_off`.
+  ⚠ **This key used to carry the tower's refusal code.** Those moved to
+  **`sync.blocked_by`**, unchanged in value. A consumer reading `reason` as a
+  refusal code is reading an older contract.
+  Absent when the tower said nothing about its sync - `ok` from silence is a
+  guess on a screen.
+- **`oldest_unconfirmed_start`** and **`oldest_unconfirmed_exact`** on each
+  camera stream. The tower had reported both all along and neither crossed the
+  projection's whitelist, so no screen could say "the oldest footage still on
+  that mast is from 03:00". `_exact` is `false` when the start could not be
+  established and **absent when it could**; it is read as `=== false` and never
+  defaulted, because the absence is the stronger statement.
+
+### Tests
+
+`test/alerts-and-footage.test.mjs` (36), on
+`test/fixtures/alerts_and_footage.json` - which is the **output of
+coordination's own code** (`project_footage`, `SiteAlert.to_wire`,
+`timeline_extras`, `COLOURS`) dumped to JSON, not a transcription of the docs.
+A fixture written by hand agrees with the type written beside it and proves
+nothing, which is how `label` and `patrol` were both lost: the type was right
+and the validator never read the field.
+
+Also wired `camera-patrol` and `camera-label` into `npm test`. Both existed,
+both passed, and nothing ran them - a test file nothing runs cannot fail, which
+is the same gap those two tests were written to close.
+
 ## 0.5.0
 
 Additive. Nothing in 0.4.0 changed shape.

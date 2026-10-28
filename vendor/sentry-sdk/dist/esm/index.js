@@ -11,7 +11,7 @@
 export { SentryClient, clampMove, clampStep } from "./client.js";
 export { HttpTransport } from "./http.js";
 export { AuthError, GrantError, InvalidRequestError, MediaError, NetworkError, NotFoundError, ProjectionLeakError, PtzError, PtzYieldedError, RateLimitedError, RequestAbortedError, RequestTimeoutError, SentryError, ServerError, SessionConflictError, TowerOfflineError, TowerTimeoutError, ValidationError, describeError, errorFromEnvelope, isNormalPtzOutcome, isPtzPermissionDenied, isPtzYielded, isSentryErrorCode, isSessionEnded, } from "./errors.js";
-export { assertNoProjectionLeak, parseCameraInfo, parseIceCandidates, parsePtzResult, parseSweepStatus, sweepOf, parseTowerDetail, parseTowerHealth, parseTowerInfo, parseTowerList, parseSessionStatus, parseViewerSession, ValidationCheck, } from "./validate.js";
+export { assertNoProjectionLeak, parseCameraInfo, parseIceCandidates, parsePtzResult, parseSweepStatus, sweepOf, parseDeviceFootage, parseTowerDetail, parseTowerHealth, parseTowerInfo, parseTowerList, parseSessionStatus, parseViewerSession, ValidationCheck, } from "./validate.js";
 export { PTZ_CLICK_MS, PTZ_DEADMAN_MS, PTZ_KEEPALIVE_MS, PTZ_STEP_DEG_MAX, PTZ_STEP_DEG_MIN, SWEEP_SECONDS_MAX, SWEEP_SECONDS_MIN, } from "./models.js";
 /** Protocol version this SDK is written against (§2.2 `v`). */
 export const PROTOCOL_VERSION = 1;
@@ -21,4 +21,8 @@ export const API_PREFIX = "/v1";
  * Sites, people and sharing
  * ------------------------------------------------------------------ */
 export { SHARE_DEFAULT_SEC, SHARE_MAX_SEC, SHARE_MESSAGE_MAX, SHARE_MIN_SEC, isAdminRole, isShareLive, parseAddDevice, parseAudit, parseCapabilities, parseCellDetail, parseCellList, parseMoveCell, parsePeopleList, parseRemoveTower, parseShare, parseShareList, parseSiteDetail, parseSiteList, } from "./sites.js";
+/* ------------------------------------------------------------------ *
+ * Site alerts and the live channel (docs/alerts.md §4)
+ * ------------------------------------------------------------------ */
+export { AlertRevisionGate, SseBuffer, alertEventOf, parseSiteAlert, parseSiteAlertList, parseSseFrame, } from "./alerts.js";
 //# sourceMappingURL=index.js.map

@@ -29,6 +29,33 @@ export interface FetchResponseLike {
      * The caller wraps it for whatever it is feeding.
      */
     arrayBuffer?(): Promise<ArrayBuffer>;
+    /**
+     * The response body as a stream, for the live event channel
+     * (`GET /v1/viewer/events`).
+     *
+     * OPTIONAL for the same reason `arrayBuffer` is: this interface is the SDK's
+     * whole fetch contract, and a host supplying a minimal one should not have to
+     * grow a member to keep compiling. {@link HttpTransport.open} checks for it
+     * and says so plainly, which beats a `TypeError` from inside the transport.
+     *
+     * ⚠ A READER, NOT `EventSource`. `EventSource` cannot set an `Authorization`
+     * header and this route is authenticated like every other viewer route, so
+     * the stream has to be read by hand. The alternative — a ticket in the query
+     * string, as the clip and segment routes have — exists there only because a
+     * `<video src>` cannot send a header; JavaScript can, so a credential in this
+     * URL would be a second auth path bought for nothing.
+     */
+    body?: {
+        getReader(): StreamReaderLike;
+    } | null;
+}
+/** The slice of a `ReadableStreamDefaultReader` this SDK uses. */
+export interface StreamReaderLike {
+    read(): Promise<{
+        done: boolean;
+        value?: Uint8Array | undefined;
+    }>;
+    cancel?(reason?: unknown): Promise<void> | void;
 }
 export interface FetchInitLike {
     method?: string;
@@ -114,6 +141,28 @@ export declare class HttpTransport {
      * `ice_url` verbatim rather than rebuilding them (§4.2).
      */
     url(pathOrUrl: string): string;
+    /**
+     * Open a long-lived GET and hand back a reader over its body — the live event
+     * channel, and nothing else so far.
+     *
+     * ⚠ NO DEADLINE, DELIBERATELY. Every other call here gets a per-call
+     * `AbortController` timeout, and applying one to a stream would close a
+     * healthy connection every ten seconds: an event channel is *supposed* to sit
+     * idle, and a `: keepalive` comment every 15 s is how it proves it is alive.
+     * Cancellation is the caller's `signal` instead, which is the only thing that
+     * knows when the consumer is done.
+     *
+     * A non-2xx still reads its body as text and throws the typed error, exactly
+     * as `send` does — an auth failure on this route must look like an auth
+     * failure everywhere else, not like a stream that would not start.
+     */
+    open(args: {
+        path: string;
+        signal?: AbortSignalLike;
+    }): Promise<{
+        status: number;
+        reader: StreamReaderLike;
+    }>;
     send(args: SendArgs): Promise<{
         status: number;
         body: unknown;

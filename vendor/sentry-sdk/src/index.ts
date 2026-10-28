@@ -19,6 +19,7 @@ export type {
 export { HttpTransport } from "./http.js";
 export type {
   AbortSignalLike,
+  StreamReaderLike,
   FetchInitLike,
   FetchLike,
   FetchResponseLike,
@@ -62,6 +63,7 @@ export {
   parsePtzResult,
   parseSweepStatus,
   sweepOf,
+  parseDeviceFootage,
   parseTowerDetail,
   parseTowerHealth,
   parseTowerInfo,
@@ -138,6 +140,26 @@ export type {
   SweepStatus,
   RecordingSpan,
   RecordingWindow,
+  /* THE `footage` BLOCK -- a sibling of `health` on a projected device, and
+     the timeline fields that read from it. Listed as a group for the reason
+     the health members above are: a type nobody can import is a type every
+     consumer re-declares by hand, and then disagrees about. */
+  DeviceFootage,
+  FootageBlockedBy,
+  FootageCamera,
+  FootageClock,
+  FootageCopy,
+  FootageSpan,
+  FootageStream,
+  FootageStreamChoice,
+  FootageStreamEntry,
+  FootageSync,
+  FootageSyncReason,
+  FootageSyncState,
+  FootageTimes,
+  TowerSpan,
+  TowerSyncSummary,
+  UndatedSegment,
   ArchivedSegment,
   FreshSegmentUrl,
   ReviewableTower,
@@ -223,3 +245,29 @@ export type {
   SiteName,
   SiteStatus,
 } from "./sites.js";
+
+/* ------------------------------------------------------------------ *
+ * Site alerts and the live channel (docs/alerts.md §4)
+ * ------------------------------------------------------------------ */
+
+export {
+  AlertRevisionGate,
+  SseBuffer,
+  alertEventOf,
+  parseSiteAlert,
+  parseSiteAlertList,
+  parseSseFrame,
+} from "./alerts.js";
+export type {
+  AlertClip,
+  AlertColour,
+  AlertEvent,
+  AlertEventKind,
+  AlertProgress,
+  AlertType,
+  ClipQuality,
+  SiteAlert,
+  SiteAlertList,
+  SiteAlertQuery,
+  SseFrame,
+} from "./alerts.js";

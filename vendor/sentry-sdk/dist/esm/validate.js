@@ -959,7 +959,169 @@ function towerInfo(c, path, raw) {
     if (o["health"] !== undefined && o["health"] !== null) {
         value.health = parseTowerHealth(c, `${p}health`, o["health"]);
     }
+    // THE `footage` BLOCK, a sibling of `health` and parsed like one.
+    //
+    // ⚠ A LINE HERE FOR EVERY FIELD, which is the lesson `label` and `patrol`
+    // both taught: this validator builds a NEW object from the fields it names,
+    // so a block the projection sends and this function does not read is a block
+    // no consumer can see, however correct the type beside it is.
+    if (o["footage"] !== undefined && o["footage"] !== null) {
+        value.footage = parseDeviceFootage(c, `${p}footage`, o["footage"]);
+    }
     return value;
+}
+/* ------------------------------------------------------------------ *
+ * The `footage` block (footage-sync.md §3.3/§3.4/§3.4.1, alerts.md §8)
+ * ------------------------------------------------------------------ */
+const FOOTAGE_SYNC_STATES = ["ready", "unavailable", "sending", "idle"];
+const FOOTAGE_SYNC_REASONS = [
+    "ok",
+    "behind",
+    "unreachable",
+    "no_recording_disk",
+    "recording_off",
+];
+const FOOTAGE_BLOCKED_BY = [
+    "no_recording_disk",
+    "recording_disabled",
+    "wireguard_link",
+    "no_recording_path",
+    "cannot_determine",
+];
+const FOOTAGE_STREAMS = ["sub", "main"];
+/**
+ * Validate a device's `footage` block.
+ *
+ * **Every member is optional**, because the projection whitelists field by
+ * field and a tower that did not report something sends nothing. The one rule
+ * that is not merely structural is `oldest_unconfirmed_exact`: it is read as
+ * `=== false` and carried only then, because its ABSENCE is the stronger
+ * statement and defaulting it to `true` would turn "we could not establish
+ * this" into "we did".
+ */
+export function parseDeviceFootage(c, path, raw) {
+    const o = c.obj(path, raw);
+    if (!o)
+        return {};
+    const out = {};
+    const asOf = c.optStr(`${path}.as_of`, o["as_of"]);
+    if (asOf !== undefined)
+        out.as_of = asOf;
+    if (o["times"] !== undefined && o["times"] !== null) {
+        out.times = c.enum(`${path}.times`, o["times"], ["reliable", "unreliable"], "reliable");
+    }
+    if (o["footage_stream"] !== undefined && o["footage_stream"] !== null) {
+        out.footage_stream = c.enum(`${path}.footage_stream`, o["footage_stream"], ["2k", "standard"], "standard");
+    }
+    if (o["record_stream"] !== undefined && o["record_stream"] !== null) {
+        out.record_stream = c.enum(`${path}.record_stream`, o["record_stream"], FOOTAGE_STREAMS, "sub");
+    }
+    if (o["copy"] !== undefined && o["copy"] !== null) {
+        out.copy = c.enum(`${path}.copy`, o["copy"], ["tower", "hub_only"], "hub_only");
+    }
+    if (o["clock"] !== undefined && o["clock"] !== null) {
+        const k = c.obj(`${path}.clock`, o["clock"]);
+        if (k) {
+            const clock = {};
+            if (k["state"] !== undefined && k["state"] !== null) {
+                clock.state = c.enum(`${path}.clock.state`, k["state"], ["synced", "unsynced", "unknown"], "unknown");
+            }
+            // `true` only — the projection sends this key exclusively when the answer
+            // is the bad one, so anything else is left absent rather than coerced.
+            if (k["unsynced_at_record_start"] === true)
+                clock.unsynced_at_record_start = true;
+            out.clock = clock;
+        }
+    }
+    if (o["sync"] !== undefined && o["sync"] !== null) {
+        const s = c.obj(`${path}.sync`, o["sync"]);
+        if (s) {
+            const sync = {};
+            if (s["state"] !== undefined && s["state"] !== null) {
+                sync.state = c.enum(`${path}.sync.state`, s["state"], FOOTAGE_SYNC_STATES, "idle");
+            }
+            // THE VERDICT, over a fixed five. Absent is meaningful: a tower that said
+            // nothing about its sync has not said `ok`.
+            if (s["reason"] !== undefined && s["reason"] !== null) {
+                sync.reason = c.enum(`${path}.sync.reason`, s["reason"], FOOTAGE_SYNC_REASONS, "unreachable");
+            }
+            // ...and the tower's own refusal code, which this key used to carry.
+            if (s["blocked_by"] !== undefined && s["blocked_by"] !== null) {
+                sync.blocked_by = c.enum(`${path}.sync.blocked_by`, s["blocked_by"], FOOTAGE_BLOCKED_BY, "cannot_determine");
+            }
+            const freePct = c.optNum(`${path}.sync.free_pct`, s["free_pct"]);
+            if (freePct !== undefined)
+                sync.free_pct = freePct;
+            const totalGb = c.optNum(`${path}.sync.total_gb`, s["total_gb"]);
+            if (totalGb !== undefined)
+                sync.total_gb = totalGb;
+            const separate = c.optBool(`${path}.sync.separate_disk`, s["separate_disk"]);
+            if (separate !== undefined)
+                sync.separate_disk = separate;
+            out.sync = sync;
+        }
+    }
+    if (o["cameras"] !== undefined && o["cameras"] !== null) {
+        const cams = c.arr(`${path}.cameras`, o["cameras"]).map((raw, i) => {
+            const at = `${path}.cameras[${i}]`;
+            const cam = c.obj(at, raw);
+            if (!cam)
+                return { camera: 0, streams: [] };
+            const streams = c.arr(`${at}.streams`, cam["streams"]).map((s, j) => {
+                const sat = `${at}.streams[${j}]`;
+                const st = c.obj(sat, s);
+                if (!st)
+                    return { stream: "sub" };
+                const entry = {
+                    stream: c.enum(`${sat}.stream`, st["stream"], FOOTAGE_STREAMS, "sub"),
+                };
+                for (const key of [
+                    "segments",
+                    "bytes",
+                    "unconfirmed_segments",
+                    "unconfirmed_bytes",
+                    "unplaced_segments",
+                ]) {
+                    const v = c.optNum(`${sat}.${key}`, st[key]);
+                    if (v !== undefined)
+                        entry[key] = v;
+                }
+                const oldest = c.optStr(`${sat}.oldest_unconfirmed_start`, st["oldest_unconfirmed_start"]);
+                if (oldest !== undefined)
+                    entry.oldest_unconfirmed_start = oldest;
+                // ⚠ `=== false`, NEVER FALSY, AND NEVER DEFAULTED. Absent means the
+                // start WAS established exactly; defaulting to true would state that on
+                // a tower that never said so.
+                if (st["oldest_unconfirmed_exact"] === false)
+                    entry.oldest_unconfirmed_exact = false;
+                if (st["spans"] !== undefined && st["spans"] !== null) {
+                    const spans = c.arr(`${sat}.spans`, st["spans"]).map((sp, k) => {
+                        const pat = `${sat}.spans[${k}]`;
+                        const so = c.obj(pat, sp);
+                        if (!so)
+                            return { from: "", to: "" };
+                        const span = {
+                            from: c.str(`${pat}.from`, so["from"]),
+                            to: c.str(`${pat}.to`, so["to"]),
+                        };
+                        for (const key of ["segments", "bytes", "confirmed_bytes"]) {
+                            const v = c.optNum(`${pat}.${key}`, so[key]);
+                            if (v !== undefined)
+                                span[key] = v;
+                        }
+                        return span;
+                    });
+                    if (spans.length > 0)
+                        entry.spans = spans;
+                }
+                return entry;
+            });
+            return { camera: c.int(`${at}.camera`, cam["camera"], 0), streams };
+        });
+        if (cams.length > 0)
+            out.cameras = cams;
+    }
+    return out;
 }
 /**
  * Validate one projected tower (§A.3).

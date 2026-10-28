@@ -23,7 +23,6 @@ import { useCapitalName } from "@/lib/useCapitalName";
 import {
   connectedSinceAt,
   internetRow,
-  pictureQualitySummary,
   profileLabel,
   radioCount,
 } from "@/lib/settingsRows";
@@ -185,8 +184,6 @@ export function CameraSettingsPanel({
   renamePhase = { kind: "idle" },
   onRetryRename,
   onDismissRename,
-  cameraProfiles,
-  onChooseProfile,
   onSetHome,
   onGoHome,
   onSetPatrol,
@@ -215,18 +212,6 @@ export function CameraSettingsPanel({
   feeds: CameraFeed[];
   settings: CameraSettings;
   onChange: (next: Partial<CameraSettings>) => void;
-  /**
-   * Which profile each camera is being watched at, by feed id, and how to
-   * change it. Owned by the shell because the choice re-opens a session and
-   * this panel is not what holds the peer.
-   *
-   * ⚠ NOT PART OF `settings`. Every other row here writes to a store nothing
-   * reads; this one selects which stream the browser pulls and takes effect
-   * immediately. Keeping it out of `CameraSettings` is the difference being
-   * made visible in the types.
-   */
-  cameraProfiles?: Record<string, string>;
-  onChooseProfile?: (feedId: string, profile: string) => void;
   /**
    * Save a camera's current pan/tilt as its home.
    *
@@ -312,7 +297,6 @@ export function CameraSettingsPanel({
   const canShare = caps?.features.sites === true;
   const [editingZones, setEditingZones] = useState(false);
 
-  const streamSummary = pictureQualitySummary(feeds, cameraProfiles);
 
   /* ── TOWER OR HUB ────────────────────────────────────────────────────
      From the box's own word, not from a guess. `health.sectors` was the
@@ -377,11 +361,36 @@ export function CameraSettingsPanel({
 
      ⚠ AND NO STREAM. This read "At the hub · 2K main stream", which is two of
      our own words in a row; the resolution it was conveying has its own row,
-     named by resolution. */
+     named by resolution.
+
+     ── THE HUB DOES NOT HAVE IT ───────────────────────────────
+
+     ⚠ THIS ROW SAID "At the hub", AND THERE IS A MATCHING ROW BELOW THAT
+     SAID "Recorded at the hub". Both were true when the hub recorded every
+     tower's live stream as it arrived. The hub records nothing from a tower
+     now (sentry-core docs/footage-sync.md §1): the tower records to its own
+     SSD and a pipeline moves the finished files up. So a tower that is not
+     recording has NO footage anywhere once the hub's existing archive ages
+     out, and two screens were telling an operator their evidence was safe at
+     the hub while nothing was being kept at all. That is the worst shape a
+     wrong reading can take on this product.
+
+     ⚠ AND IT SAYS "Not recording" AND NOT "Not recording: no disk", WHICH IS
+     THE SHORTER CLAIM ON PURPOSE. `health.recording.mode` is read off
+     `RECORD_ENABLE` and nothing else (sentry-core tower/broker/inventory.py,
+     `_recording_facts`), so "hub" means recording is switched OFF and says
+     nothing about whether an SSD is fitted — and "tower" means it is switched
+     on, which on a diskless mast is the `no_recording_disk` fault rather than
+     proof of a disk. Naming the reason needs `footage.sync.reason`, which
+     the SDK does not parse yet. Until it does, this row states the part the
+     wire actually supports. */
   const recordingModeRow = (() => {
     const mode = tower.health?.recording?.mode;
     if (!mode) return "";
-    return mode === "hub" ? "At the hub" : "On this tower";
+    if (mode === "tower") return "On this tower";
+    /* A HUB MAST IS THE ONE DEVICE FOR WHICH "the hub" IS ITS OWN DISK.
+       §6.4: the hub records its own cameras over a LAN cable, locally. */
+    return isHub ? "On this hub" : "Not recording";
   })();
 
   /* HOW LONG FOOTAGE REALLY LASTS. */
@@ -750,30 +759,27 @@ export function CameraSettingsPanel({
                 onPick={(v) => onChange({ nightVision: v })}
               />
             </Row>
-            {/* ⚠ TWO PARAGRAPHS AND A LESSON IN MEDIAMTX USED TO LIVE HERE.
-                The row explained that "the sub stream runs all the time and is
-                what the fleet wall shows", then that "opening one camera
-                switches that camera to its main stream" -- our words for two
-                paths, in front of somebody who wants a clearer picture. A
-                quality picker is a label and a list of qualities. */}
-            <Row
-              label="Picture quality"
-              value={streamSummary}
-              expanded={open === "quality"}
-              onToggle={() => toggle("quality")}
-            >
-              <div className="flex flex-col gap-[10px]">
-                {feeds.map((f) => (
-                  <StreamChoice
-                    key={f.id}
-                    feed={f}
-                    multiple={feeds.length > 1}
-                    chosen={cameraProfiles?.[f.id]}
-                    onPick={(id) => onChooseProfile?.(f.id, id)}
-                  />
-                ))}
-              </div>
-            </Row>
+            {/* ── PICTURE QUALITY IS NOT A ROW ANY MORE ───────────────
+
+                It let an operator pick which of a tower's two live streams
+                this browser pulled, and it is the only control on this panel
+                that was ever removed for being INERT rather than for being
+                wrong.
+
+                Live video is standard everywhere now — on a tower, on a hub,
+                at the data centre and on sentri.watch — and 2K travels only
+                on the footage lane, which nobody watches. A mast therefore
+                advertises one profile, so the row was a menu of one: a label,
+                a chevron, and a single word under it that could not be
+                changed.
+
+                ⚠ IT NEVER WROTE TO A SERVER, which is why removing it takes
+                nothing away. `chooseProfile` set one field of browser state,
+                that field became the `profile` on a WebRTC open, and the
+                whole effect was which stream THIS tab pulled. What a site
+                RECORDS is `FOOTAGE_STREAM`, decided on the hub, and the
+                Recording resolution row below reads it — that row stays, and
+                it is the one a customer was actually looking for here. */}
             {/* ⚠ MOVABLE CAMERAS ONLY. A fixed dome used to get a row here
                 that existed to refuse: "This camera is fixed, it has no
                 position to save." A row whose only content is why it is not a
@@ -931,7 +937,15 @@ export function CameraSettingsPanel({
               beside it already reads as a value.
 
               And the two rows that describe a disk this device does not have
-              are hidden rather than filled with "Not reported". */}
+              are hidden rather than filled with "Not reported".
+
+              ⚠ AND THE GROUP ITSELF GOES WHEN EVERY ROW IN IT DOES. It used
+              to be guaranteed one row, because a mast with no disk still got
+              "Recorded at the hub" — the claim that is gone. A device that
+              has reported no recording block at all now has nothing true to
+              say here, and a heading over nothing reads as a group that
+              failed to load. */}
+          {recordsLocally || recordingModeRow ? (
           <Group title="Storage">
             {recordsLocally ? (
               <RowReading
@@ -952,13 +966,25 @@ export function CameraSettingsPanel({
                     : undefined
                 }
               />
-            ) : (
-              /* The one row a mast with no disk still answers, because "where
-                 is my footage" is a real question and the answer is short. */
-              <RowReading label="Footage" value="Recorded at the hub" last />
-            )}
-            {recordsLocally && recordingModeRow ? (
-              <RowReading label="Recording" value={recordingModeRow} />
+            ) : null}
+            {/* ⚠ THE ROW THAT USED TO READ "Footage · Recorded at the hub" IS
+                THIS ONE NOW. It was shown instead of a disk figure on a mast
+                that records nothing, and it claimed the hub held the footage.
+                See the note on `recordingModeRow`: it does not. A device
+                that has reported no recording block at all is a different
+                thing again and gets no row — absence of a field is not a
+                value whose meaning is unknown. */}
+            {recordingModeRow ? (
+              <RowReading
+                label="Recording"
+                value={recordingModeRow}
+                /* A SITE KEEPING NOTHING IS A FAULT, not a setting. Every
+                   other reading on this panel can be green and the evidence
+                   still is not being kept, which is exactly the case this
+                   colour exists to interrupt. */
+                tone={recordingModeRow === "Not recording" ? "text-critical" : undefined}
+                last={!recordsLocally}
+              />
             ) : null}
             {recordsLocally && retentionRow.value ? (
               <RowReading
@@ -969,6 +995,7 @@ export function CameraSettingsPanel({
               />
             ) : null}
           </Group>
+          ) : null}
 
           {/* ── POWER ────────────────────────────────────────────────────
 
@@ -1809,89 +1836,6 @@ function RowSlider({
         aria-label={label}
         className="w-full accent-white"
       />
-    </div>
-  );
-}
-
-/**
- * One camera's profiles.
- *
- * Three states, and only one of them is a choice:
- *
- *  - **no list** — the tower advertised none. Says so, and offers nothing. An
- *    older agent still serves its default stream perfectly well, so this is
- *    not an error and must not read as one.
- *  - **one profile** — shown, and shown as unavailable to change. Drawing a
- *    single radio button would be a choice-shaped thing that cannot be chosen.
- *  - **several** — the real selector.
- *
- * The camera's name appears only when there is more than one camera; on a
- * single-camera tower it would be a heading over the only thing on screen.
- */
-function StreamChoice({
-  feed,
-  multiple,
-  chosen,
-  onPick,
-}: {
-  feed: CameraFeed;
-  multiple: boolean;
-  chosen?: string;
-  onPick: (profileId: string) => void;
-}) {
-  const list = feed.profiles ?? [];
-  /* What is PLAYING, which is not always what was picked: a remembered id the
-     tower no longer advertises falls through to the default, and this has to
-     mark the stream the operator is actually watching. */
-  const current =
-    list.find((p) => p.id === chosen) ??
-    list.find((p) => p.default) ??
-    list[0];
-
-  return (
-    <div className="flex flex-col gap-[4px]">
-      {multiple && (
-        <span className="px-[10px] font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.1px] text-dim">
-          {deviceName(feed.name)}
-        </span>
-      )}
-      {list.length < 2 ? (
-        /* ⚠ ONE WORD, NOT A SENTENCE. This used to explain that the camera
-           "reports no stream profiles" and is "served at its default", which
-           tells a customer about our inventory format. There is one quality
-           and this is its name. */
-        <p className="px-[10px] py-[6px] text-[0.875rem] leading-[18px] text-muted">
-          {list.length === 1 ? profileLabel(list[0], list) : "Standard"}
-        </p>
-      ) : (
-        <div role="radiogroup" aria-label={`${deviceName(feed.name)} quality`} className="flex flex-col">
-          {list.map((p) => {
-            const picked = p.id === current?.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                role="radio"
-                aria-checked={picked}
-                onClick={() => onPick(p.id)}
-                className={`flex items-center gap-[8px] rounded-[6px] px-[10px] py-[8px] text-left text-[0.875rem] text-body-ink transition-colors ${
-                  picked ? "bg-panel" : "hover:bg-panel/60"
-                }`}
-              >
-                {/* ⚠ NO SECOND LINE. Each option carried a sentence about the
-                    uplink and the battery; two options meant two paragraphs
-                    under a choice between two words. The words are the
-                    choice. */}
-                <span
-                  aria-hidden
-                  className={`size-[8px] shrink-0 rounded-full ${picked ? "bg-action" : "bg-overlay/20"}`}
-                />
-                {profileLabel(p, list)}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

@@ -240,52 +240,93 @@ describe("a hub mast's Network group", () => {
 });
 
 /* ======================================================================
- *  PICTURE QUALITY
+ *  WHAT A PICTURE QUALITY IS CALLED
+ *
+ *  The picker that used to sit on this panel is gone — live video is
+ *  standard on every tier and a mast advertises one profile, so it chose
+ *  between one thing. `profileLabel` stays, because the RECORDING
+ *  resolution row is named by it, and that row is a reading rather than a
+ *  choice.
  * ====================================================================== */
 
-describe("a hub mast's Picture quality", () => {
-  const bare = { id: "kln_hub_kaduna:1", name: "HUB MAST" };
-  const twoProfiles = {
-    id: "kln_northgate_000001:1",
-    name: "GATE",
-    profiles: [
-      { id: "sub", resolution: { width: 704, height: 576 }, default: true },
-      { id: "main", resolution: { width: 2560, height: 1440 } },
-    ],
-  };
+describe("profileLabel names a camera's picture quality", () => {
+  const SOLE = { id: "sub", resolution: { width: 704, height: 576 } };
+  const PAIR = [
+    { id: "sub", resolution: { width: 704, height: 576 }, default: true },
+    { id: "main", resolution: { width: 2560, height: 1440 } },
+  ];
 
-  test("⭐ a camera advertising no profiles is Standard, not blank", () => {
-    /* The hub mast's row, and the whole of point 8: it showed nothing while
-       the choices under it said "Standard" for the same camera. */
-    assert.equal(rows.pictureQualitySummary([bare]), "Standard");
+  test("⭐ ONE profile with a resolution is Standard, not HD", () => {
+    /* THE BUG. "The smallest is Standard" only ran on a set of two or more,
+       so a sole profile fell through to `tierFor`, which has no tier below
+       1920 and answers "HD" for everything under it. A tower advertising one
+       704x576 profile — which is every tower now — therefore had its
+       Recording resolution row read "HD", over footage 704 pixels wide. That
+       is the same over-claim as the "4K HD" that row was written to remove.
+
+       One profile IS the smallest one. The rule was simply not being asked. */
+    assert.equal(rows.profileLabel(SOLE, [SOLE]), "Standard");
   });
 
-  test("and the choices under it say the same word", () => {
-    /* Both now come from `profileLabel`, so they cannot drift. A profile with
-       no resolution is the single-quality case stated on the wire. */
+  test("and so is one profile at any other size", () => {
+    /* Not a special case for 704x576. A mast that offers exactly one quality
+       has one quality, and its name does not depend on its numbers — which
+       is what stops this coming back the first time a camera ships at a
+       different resolution. */
+    const big = { id: "main", resolution: { width: 2560, height: 1440 } };
+    assert.equal(rows.profileLabel(big, [big]), "Standard");
+  });
+
+  test("a profile with no resolution at all is Standard", () => {
     assert.equal(rows.profileLabel({ id: "sub" }, []), "Standard");
   });
 
-  test("a tower's two profiles still read Standard and the resolution", () => {
-    assert.equal(rows.pictureQualitySummary([twoProfiles]), "Standard");
-    assert.equal(
-      rows.pictureQualitySummary([twoProfiles], { "kln_northgate_000001:1": "main" }),
-      "2K",
-    );
+  test("two profiles still read Standard and the resolution", () => {
+    /* The case the rule was written for, unchanged: the light one is named
+       for being the lightest and the heavy one for what it is. */
+    assert.equal(rows.profileLabel(PAIR[0], PAIR), "Standard");
+    assert.equal(rows.profileLabel(PAIR[1], PAIR), "2K");
   });
 
-  test("two cameras that agree speak as one, two that disagree say so", () => {
-    assert.equal(rows.pictureQualitySummary([bare, { ...bare, id: "b" }]), "Standard");
-    assert.equal(
-      rows.pictureQualitySummary([bare, twoProfiles], {
-        "kln_northgate_000001:1": "main",
-      }),
-      "2 cameras",
-    );
+  test("and the sizes above Standard are named by resolution", () => {
+    assert.equal(rows.tierFor(3840, 2160), "4K");
+    assert.equal(rows.tierFor(2560, 1440), "2K");
+    assert.equal(rows.tierFor(1920, 1080), "1080p");
+    assert.equal(rows.tierFor(1280, 720), "HD");
   });
 
-  test("no cameras at all is blank, which hides the row", () => {
-    assert.equal(rows.pictureQualitySummary([]), "");
+  test("⭐ the panel offers no picture-quality CHOICE any more", async () => {
+    /* It only ever decided which stream THIS browser pulled — `chooseProfile`
+       wrote one field of view state and nothing reached a server. With one
+       profile advertised it was a menu of one, so it is gone, and so is the
+       `cameraProfiles` preference behind it. What a site RECORDS is
+       `FOOTAGE_STREAM`, set on the hub, and no screen picks it. */
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const src = join(process.cwd(), "src");
+    const panel = await readFile(
+      join(src, "components/CameraSettingsPanel.tsx"), "utf8");
+    const app = await readFile(join(src, "App.tsx"), "utf8");
+    const prefs = await readFile(join(src, "lib/prefs.ts"), "utf8");
+
+    assert.ok(!/label="Picture quality"/.test(panel), "the row is back");
+    assert.ok(!/function StreamChoice/.test(panel), "the picker is back");
+    assert.ok(!/onChooseProfile/.test(panel + app), "the choice is back");
+    assert.ok(!/cameraProfiles:/.test(prefs), "the preference is back");
+
+    /* And nothing asks for a profile as a REQUIREMENT on the way in, so
+       drilling into a tower reuses the session the wall already holds. */
+    assert.ok(!/\{ profile: chosen \}/.test(app), "a target names a profile");
+  });
+
+  test("the RECORDING resolution row is still named by it", async () => {
+    /* The row that survives, and the one the bug above was visible on. */
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const panel = await readFile(
+      join(process.cwd(), "src/components/CameraSettingsPanel.tsx"), "utf8");
+    assert.match(panel, /const recordingResolution = \(\) => \{|const recordingResolution = \(\(\) => \{/);
+    assert.match(panel, /profileLabel\(match, list\)/);
   });
 });
 

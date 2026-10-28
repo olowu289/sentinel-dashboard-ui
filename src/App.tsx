@@ -501,33 +501,27 @@ export function SentinelApp() {
      the order has to exist before the targets below are built. */
   const wallIds = useMemo(() => wallOrder(towers, feeds), [towers, feeds]);
 
-  /**
-   * Which profile each camera is being watched at, by feed id.
-   *
-   * Lives here for the same reason the wall arrangement does: `TowerView`
-   * unmounts on every drill-out, and a choice owned by it would be forgotten
-   * the moment an operator glanced at the fleet. Undefined means "no choice
-   * made" and opens the camera's default — which is distinct from choosing the
-   * default explicitly only in that nothing is sent.
-   *
-   * ⚠ THE TOWER VIEW'S ONLY. The fleet wall never consults this: see the note
-   * on `fleetTargets` below.
-   */
   /* Whether Footage's clips drawer is open. Up here with the other remembered
      view preferences, and restored from ViewPrefs on sign-in. */
   const [footageClips, setFootageClips] = useState(false);
 
-  const [cameraProfiles, setCameraProfiles] = useState<Record<string, string>>(
-    {},
-  );
+  /* ── THERE IS NO CHOSEN PROFILE ANY MORE ───────────────────────
 
-  const chooseProfile = useCallback((feedId: string, profile: string) => {
-    /* No mutation wrapper. This writes nothing to a server — it changes which
-       stream THIS browser pulls, and the confirmation is the feed reopening,
-       which `usePlayback` already reports through its own honest phases. A
-       spinner here would be a second, competing account of the same wait. */
-    setCameraProfiles((prev) => ({ ...prev, [feedId]: profile }));
-  }, []);
+     `cameraProfiles` lived here, remembered per account, and fed the Picture
+     quality row in the tower's settings. The row is gone (see the note where
+     it was, in `CameraSettingsPanel`): live video is standard on every tier
+     now and a mast advertises one profile, so it chose between one thing.
+
+     What that leaves is simpler than what it replaced, and it is the
+     behaviour the session manager already preferred. No open names a profile
+     as a REQUIREMENT, so drilling into a tower always reuses the session the
+     wall already holds for that camera rather than renegotiating it — which
+     is exactly the rule in CLAUDE.md, now true by construction instead of by
+     an operator happening not to have picked anything.
+
+     `defaultProfileField` below stays, and is a different thing: it tells the
+     manager what "opened with nothing" resolves to, so it can tell that case
+     apart from a deliberate open of the same stream. */
 
   /* Whether the Playback screen is open.
      ⚠ IT DOES NOT CALL show(null), AND THAT IS THE REQUIREMENT, NOT AN
@@ -646,22 +640,16 @@ export function SentinelApp() {
         f.index !== undefined,
     )
     .map((f) => {
-      /* Only send a profile the camera actually advertises. A remembered id can
-         outlive the tower that offered it, and coordination refuses one it does
-         not recognise — a stale preference would become a feed that will not
-         start. Falling through to the default is the honest recovery. */
-      const chosen = cameraProfiles[f.id];
-      const known = f.profiles?.some((p) => p.id === chosen);
+      /* ⚠ NO `profile` FIELD, EVER, AND THAT IS THE WHOLE OF IT NOW. It was
+         set when an operator picked one in the tower's settings, and that
+         picker is gone with the single-profile mast. A target that names no
+         profile attaches to whatever the camera is already streaming —
+         usually the session the wall opened — instead of renegotiating the
+         camera the operator has just clicked on. */
       return {
         id: f.id,
         towerId: f.towerId,
         index: f.index!,
-        /* A REQUIREMENT, and only when the operator made one. With no choice
-           the tower attaches to whatever the camera is already streaming —
-           usually the wall's sub stream — rather than renegotiating on the
-           way in. The quality selector says which, and choosing one there is
-           the one deliberate way to change it. */
-        ...(chosen && known ? { profile: chosen } : {}),
         ...defaultProfileField(f),
       };
     });
@@ -765,23 +753,12 @@ export function SentinelApp() {
     phases: playback,
     retry: retryPlayback,
     sessionFor,
-    profileOf,
   } = usePlayback({
     attached: attachedTargets,
     eligible: eligibleCameras,
     focusTower: open?.id ?? null,
     reach: reachOf,
   });
-
-  /* What each camera is ACTUALLY streaming, wherever a session is held — a
-     reused wall session may be sub though nobody in the tower chose it, and a
-     quality selector showing the operator's last pick over it would describe a
-     stream that is not the one playing. The pick shows where nothing is held. */
-  const shownProfiles: Record<string, string> = { ...cameraProfiles };
-  for (const f of feeds) {
-    const running = profileOf(f.id);
-    if (running !== undefined) shownProfiles[f.id] = running;
-  }
 
   /* Looked up once, so the render below and the guard above cannot disagree. */
   const openTowerRecord = open ? towers.find((t) => t.id === open.id) : undefined;
@@ -1426,9 +1403,6 @@ export function SentinelApp() {
     if (Object.keys(stored.cameraSettings).length > 0) {
       setSettings(stored.cameraSettings);
     }
-    if (Object.keys(stored.cameraProfiles).length > 0) {
-      setCameraProfiles(stored.cameraProfiles);
-    }
     setFootageClips(stored.footageClips);
   }, [accountId]);
 
@@ -1439,13 +1413,12 @@ export function SentinelApp() {
     savePrefs(accountId, {
       dismissedNotices: [...dismissedNotices],
       cameraSettings: settings,
-      cameraProfiles,
       footageClips,
     });
     /* Deliberately no mirrored `prefs` state. It would be a second copy of
        what the three sources already say, and the first time it drifted the
        stale one would be what got written to disk. */
-  }, [accountId, dismissedNotices, settings, cameraProfiles, footageClips]);
+  }, [accountId, dismissedNotices, settings, footageClips]);
 
   const dismissNotice = useCallback((towerId: string) => {
     setDismissedNotices((prev) => new Set(prev).add(towerId));
@@ -2069,8 +2042,6 @@ export function SentinelApp() {
           onToggleSettings={() => setSettingsOpen((o) => !o)}
           onCloseSettings={() => setSettingsOpen(false)}
           onChangeSettings={changeSettings}
-          cameraProfiles={shownProfiles}
-          onChooseProfile={chooseProfile}
           settingsMutation={routine}
           recordMutation={routine}
           rejectMutation={deliberate}

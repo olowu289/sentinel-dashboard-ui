@@ -682,6 +682,71 @@ It opens over the alerts rail rather than beside it. The operator has to see the
 pictures the settings are about, and the rail is the one thing on that screen
 they are not reading at that moment — it is a list of what already happened.
 
+### The hub does not have your footage
+
+The Storage group had two rows that read as reassurance and are now false.
+"Recording · At the hub", and on a mast with no disk of its own, "Footage ·
+Recorded at the hub". Both were true while the hub recorded every tower's live
+stream as it arrived.
+
+It records nothing from a tower now. A tower records to its own SSD and a
+pipeline moves the finished 15-minute files up to the hub, which is what makes
+a radio outage stop being a hole in the record — the footage was always on the
+mast, and nothing used to move it. The consequence for this panel is the
+opposite of reassuring: **a tower that is not recording has no footage
+anywhere** once the hub's existing archive ages out. Two rows were telling an
+operator their evidence was safe somewhere it is not, which is the worst shape
+a wrong reading can take here — every other row on the panel green, and
+nothing being kept.
+
+One row answers in both cases now. `mode: "tower"` is "On this tower", a hub
+mast is "On this hub" (§6.4: it records its own cameras over a LAN cable, so
+"the hub" is its own disk and not somewhere else), and a tower that is not
+recording reads **"Not recording"**, in red, because a site keeping nothing is
+a fault and not a setting. A device that has reported no recording block at
+all gets no row, and the Storage group goes with it: absence of a field and a
+field whose value is unknown are different things.
+
+⚠ **It says "Not recording" and not "Not recording: no disk", and the shorter
+claim is the point.** `health.recording.mode` is read off `RECORD_ENABLE` and
+nothing else, so "hub" means recording is switched *off* and says nothing about
+whether an SSD is fitted — and "tower" means it is switched *on*, which on a
+diskless mast is the `no_recording_disk` fault rather than proof of a disk.
+Naming the reason needs `footage.sync.reason`, which the SDK does not parse.
+Until it does, the row states the part the wire supports.
+
+### Picture quality is not a row
+
+It let an operator pick which of a tower's two live streams this browser
+pulled, and it is the only control on the panel that was removed for being
+*inert* rather than wrong.
+
+Live video is standard everywhere now — on a tower, on a hub, at the data
+centre, on sentri.watch — and 2K travels only on the footage lane, which
+nobody watches. A mast advertises one profile, so the row was a menu of one: a
+label, a chevron, and a single word under it that could not be changed.
+
+It never wrote to a server, which is why removing it takes nothing away. The
+pick set one field of browser state, that field became the `profile` on a
+WebRTC open, and the whole effect was which stream this tab pulled. What a site
+*records* is `FOOTAGE_STREAM`, decided on the hub and applied by every tower,
+and the Recording resolution row reads it — that row stays, and it is the one
+a customer was looking for in that space.
+
+The removal improved the session manager. No open names a profile as a
+requirement any more, so drilling into a tower always reuses the session the
+wall already holds for that camera instead of renegotiating the one the
+operator has just clicked on. That was already the rule; it is now true by
+construction rather than by nobody having picked anything.
+
+And the naming bug behind it was worse than the row. `profileLabel` applied
+"the smallest is Standard" only to a set of two or more, so a *sole* profile
+fell through to `tierFor`, which has no tier below 1920 and answers "HD" for
+everything under it. A tower advertising one 704×576 profile — which is every
+tower now — had its Recording resolution row read **HD**, over footage 704
+pixels wide: the same over-claim as the "4K HD" that row was written to
+replace. One profile is the smallest one; the rule was simply never asked.
+
 ### What eufy got right, and what it did not
 
 The shape follows [eufy's per-camera menu](https://smarteufy.com/how-to-set-eufy-camera/):

@@ -448,6 +448,14 @@ export function toTower(raw: TowerInfo | TowerDetail, now?: number): {
     asOf,
     healthAsOf: parseStamp(detail.health_as_of),
     ...(toHealth(detail.health) ? { health: toHealth(detail.health) } : {}),
+    /* THE FOOTAGE BLOCK, STRAIGHT THROUGH. The SDK already validated it and
+       `lib/footageStatus.ts` is its only reader, so there is nothing for a
+       mapper to decide here -- and a mapper that touched it would be a second
+       place the five-value `sync.reason` verdict is interpreted. Spread
+       conditionally like everything else: a tower that reported no footage
+       block must stay distinguishable from one that reported an empty one,
+       because the first means "said nothing" and the rows hide for it. */
+    ...(raw.footage ? { footage: raw.footage } : {}),
     /* STORAGE, in the units a person reads. `health.disk.freePct` already
        crosses in `toHealth`; these are the same disk stated the other way, and
        both are carried because neither answers the other's question — see

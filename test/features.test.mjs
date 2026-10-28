@@ -367,7 +367,13 @@ describe("an operator can open tower settings", () => {
          takes its place here, and it is the better guard — whether a site is
          keeping its footage is the reading on this panel an operator with no
          tuning rights most needs. */
-      'label="Recording"',
+      /* ⭐ AND IT IS A PUSH NOW, NOT A `label=` ATTRIBUTE. The Storage
+         group grew to five optional rows and the `last` hairline could no
+         longer be derived in the markup, so each row is pushed onto
+         `storageRows` and the group maps over it. The guard this test is
+         making -- the reading is not behind `camera_tuning` -- is unchanged,
+         and so is the position in the file that proves it. */
+      'label: "Recording"',
       "Home position",
       "<Group title=\"Storage\">",
       "<Group title=\"About Device\">",

@@ -86,6 +86,37 @@ filter and the timeline deltas both need to compare them.
 missing (`Not acknowledged`, `Not scored`, `No footage — feed was down`). Never
 blank a row or substitute a zero.
 
+**A tower's footage block is a sibling of `health`, and only one module reads
+it.** `tower.footage` is the SDK's own `DeviceFootage`, straight through the
+mapper, and `src/lib/footageStatus.ts` is the only thing that interprets it.
+The Towers board's Footage and Waiting cells and the settings panel's Footage
+and Waiting rows both call the same two functions, so the board cannot say a
+site is up to date while its own settings say it cannot reach the hub.
+
+⚠ `sync.reason` IS THE HUB'S VERDICT, NOT THE TOWER'S REFUSAL CODE. It
+changed meaning in SDK 0.13.0: the five values are `ok`, `behind`,
+`unreachable`, `no_recording_disk` and `recording_off`, and the tower's own
+codes moved aside to `sync.blocked_by`. Two of the five cannot come from a
+tower at all — `unreachable` needs a link state only the hub observes and
+`behind` needs a clock — so **a tower that reported footage and no `sync` block
+has said nothing, and silence renders as no row rather than as "Up to date"**.
+A monitoring screen that reports a site as fine because it failed to answer is
+the one direction this product may never guess in. Do not fold `blocked_by` a
+second time on this side; that is how two builds end up disagreeing about one
+tower in front of a customer.
+
+**The timeline's tail is not a gap, and undated footage is not on the
+timeline.** A tower records to its own SSD and ships finished fifteen-minute
+files up, so the newest 15 to 30 minutes of every camera is always still on the
+mast: `towerSpans` draws it as its own hatched band with a legend, in neither
+green (which on that bar means "playable") nor a hue of its own. And a recorder
+that started before its clock synced writes a complete file whose start nothing
+can establish — `timeUnknown`, rendered as a list UNDER the timeline with the
+arrival labelled as an arrival, never a position on it. Placing one at the
+moment it arrived would show footage at a time it was not recorded *and* cut
+the real segment before it short to the invented gap in front of it. Its
+download carries no time at all (`undatedFilename`).
+
 **Motion lives in `src/lib/motion.ts`.** `ENTER` / `EXIT` / `FADE`, all tweens.
 Springs overshoot, which on a wall of cameras reads as the stream glitching.
 There are deliberately no CSS motion tokens — the standing keyframes in

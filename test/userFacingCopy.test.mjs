@@ -223,7 +223,7 @@ describe("rule 4: the guards are in place", () => {
        reported" under one heading look like three broken things. */
     assert.match(panel, /const recordsLocally =/);
     assert.match(panel, /\{recordsLocally && recordingResolution \?/);
-    assert.match(panel, /\{recordsLocally && retentionRow\.value \?/);
+    assert.match(panel, /if \(recordsLocally && retentionRow\.value\)/);
 
     /* ⚠ THE RECORDING ROW IS THE EXCEPTION, AND IT IS DELIBERATE. It used
        to be gated the same way, and a mast that records nothing got a
@@ -231,10 +231,20 @@ describe("rule 4: the guards are in place", () => {
        The hub records nothing from a tower now, so that row was telling an
        operator their evidence was safe somewhere it is not. The Recording
        row is what answers in both cases, which is why it is gated on having
-       been TOLD something rather than on recording locally — and the Storage
-       group goes entirely when neither it nor a disk figure has anything. */
-    assert.match(panel, /\{recordingModeRow \? \(/);
-    assert.match(panel, /\{recordsLocally \|\| recordingModeRow \?/);
+       been TOLD something rather than on recording locally.
+
+       ⭐ THE GUARDS MOVED OUT OF THE JSX. The Storage group had five
+       optional rows and a `last` flag that had to know which of them was
+       the final one, which was already wrong once. They are pushed onto
+       `storageRows` now and the group renders when the array has anything,
+       so these assertions read the pushes rather than the markup. */
+    assert.match(panel, /if \(recordingModeRow && !recordingRowIsRedundant\(tower\.footage\)\)/);
+    assert.match(panel, /\{storageRows\.length > 0 \? \(/);
+    /* AND THE NEW TWO ARE GUARDED THE SAME WAY: `null` from
+       `footageReading` is a tower that never said, and a tower that never
+       said gets no row rather than a row reading "Up to date". */
+    assert.match(panel, /if \(footageRow\)/);
+    assert.match(panel, /if \(waitingRow\)/);
     /* ⚠ OVER THE STRIPPED SOURCE. The house comment style writes the old
        wording down to explain why it went, so a raw search finds the phrase
        in the very note that killed it. */

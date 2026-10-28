@@ -411,7 +411,10 @@ describe("the panel wires those answers in, and only once", () => {
   test("⭐ a hub's archive disk is called Disk", () => {
     /* "Memory" is what a phone calls its storage. A hub writes the site's
        footage to a disk and that is the word on the invoice for it. */
-    assert.match(panel, /label=\{isHub \? "Disk" : "Memory"\}/);
+    /* The label moved from a `label=` attribute into the `storageRows`
+       push when the group became an array; the word is the assertion, not
+       the syntax around it. */
+    assert.match(panel, /label: isHub \? "Disk" : "Memory"/);
   });
 
   test("⭐ no location means no line, not a line about the gap", () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import type { TowerSpan, UndatedSegment } from "@kallon/sentry-sdk";
 import { ENTER, FADE } from "@/lib/motion";
 import { MaskIcon } from "./Icon";
 import { useReviewableTowers } from "@/lib/useReviewableTowers";
@@ -11,12 +12,14 @@ import {
   segmentsCovering,
   type FootageTimeline,
 } from "@/lib/footageTimeline";
-import { clipFilename } from "@/lib/snapshot";
+import { clipFilename, undatedFilename } from "@/lib/snapshot";
 import { deviceName } from "@/lib/deviceName";
 import {
+  formatBytes,
   formatClock24,
   formatDayLabel,
   formatDuration,
+  formatSiteStamp,
   siteDayOf,
   siteToday,
   siteTzLabel,
@@ -127,6 +130,11 @@ export function FootageView({
   const [own, setOwn] = useState<Record<string, Clock>>({});
   const [lastTouched, setLastTouched] = useState<string | null>(null);
   const [enlarged, setEnlarged] = useState<string | null>(null);
+  /* The undated file open in its own small player, or null. Held HERE and not
+     in the list, because the list is under the timeline and the player is over
+     the picture -- and because a file with no time cannot be a position on the
+     shared clock, which is the only state the panes know how to hold. */
+  const [undated, setUndated] = useState<UndatedSegment | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -505,6 +513,7 @@ export function FootageView({
           <TimelineLanes
             cameras={day.cameras}
             timelineFor={day.timelineFor}
+            towerSpans={day.towerSpans}
             dayFrom={day.dayFrom}
             dayTo={day.dayTo}
             at={clock.at}
@@ -512,7 +521,24 @@ export function FootageView({
             onSeek={(at) => seekTo(driven, at)}
           />
         )}
+        {/* UNDER the timeline, never on it. See `TimeUnknownList`. */}
+        <TimeUnknownList
+          items={day.timeUnknown}
+          towerName={towerLabel}
+          onPlay={setUndated}
+        />
       </motion.div>
+
+      <AnimatePresence>
+        {undated && (
+          <UndatedPlayer
+            key={undated.key}
+            item={undated}
+            towerName={towerLabel}
+            onClose={() => setUndated(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {notice && (
@@ -970,10 +996,21 @@ function Transport({
  * a pixel wide, which is not something anybody can click on.
  */
 function TimelineLanes({
-  cameras, timelineFor, dayFrom, dayTo, at, range, onSeek,
+  cameras, timelineFor, towerSpans, dayFrom, dayTo, at, range, onSeek,
 }: {
   cameras: CameraKey[];
   timelineFor: (c: CameraKey) => FootageTimeline;
+  /**
+   * What the tower holds and the hub has not got, per camera.
+   *
+   * ⚠ THE TAIL IS NOT A GAP, AND DRAWING IT AS ONE IS THE BUG THIS FIXES.
+   * A tower records to its own SSD and ships finished fifteen-minute files up,
+   * so the newest quarter of an hour of every camera is always still on the
+   * mast. On a bar whose only two states were "footage" and "the dead surface
+   * showing through", that permanent tail read as an outage at the right-hand
+   * edge of every lane, all day, on a healthy site.
+   */
+  towerSpans: TowerSpan[];
   dayFrom: number;
   dayTo: number;
   at: number;
@@ -987,6 +1024,21 @@ function TimelineLanes({
   const dragging = useRef(false);
   const span = view.to - view.from;
   const pct = (t: number) => ((t - view.from) / span) * 100;
+
+  /* Grouped once per render rather than filtered inside the lane loop: two
+     cameras and a handful of spans is nothing, but the loop is also the hot
+     path for a wheel-zoom. */
+  const spansByCamera = useMemo(() => {
+    const out = new Map<string, TowerSpan[]>();
+    for (const s of towerSpans) {
+      const k = String(s.camera);
+      const list = out.get(k);
+      if (list) list.push(s);
+      else out.set(k, [s]);
+    }
+    return out;
+  }, [towerSpans]);
+  const spansFor = (camera: string): TowerSpan[] => spansByCamera.get(camera) ?? [];
 
   const timeAt = (clientX: number): number => {
     const r = lanes.current?.getBoundingClientRect();
@@ -1089,6 +1141,32 @@ function TimelineLanes({
                     style={{ left: `${b.start * 100}%`, width: `${(b.end - b.start) * 100}%` }}
                   />
                 ))}
+                {/* ON TOWER: drawn last so it paints over the dead surface, and
+                    in NEITHER of the lane's two existing treatments.
+
+                    ⚠ NOT GREEN. Green on this bar means "there is footage here
+                    and you can scrub to it", and this stretch fails the second
+                    half: the hub has nothing to serve and the player cannot go
+                    there. Painting it green would be a click that does nothing,
+                    which is worse than the gap it replaced. And not a hue of its
+                    own either — the colour rule spends green, amber and red on
+                    readings about the SITE, and "the file has not finished
+                    uploading" is not news about a yard. So it is the neutral
+                    overlay, hatched, which reads as structure rather than as a
+                    signal. */}
+                {spansFor(String(camera)).map((span, i) => (
+                  <span
+                    key={`tower-${i}`}
+                    title="On tower, not at the hub yet"
+                    className="absolute inset-y-0 bg-overlay/12"
+                    style={{
+                      left: `${pct(span.startEpoch)}%`,
+                      width: `${Math.max(0, pct(span.startEpoch + span.duration) - pct(span.startEpoch))}%`,
+                      backgroundImage:
+                        "repeating-linear-gradient(135deg, transparent 0 3px, rgba(255,255,255,0.10) 3px 6px)",
+                    }}
+                  />
+                ))}
               </div>
             </div>
           );
@@ -1108,11 +1186,214 @@ function TimelineLanes({
           style={{ left: `${pct(at)}%` }}
         />
       </div>
+
+      {/* The key, and ONLY when there is something on the bar it explains. A
+          permanent legend for a state most sites never show is chrome; a
+          legend that appears with the band it names is the label for it. */}
+      {towerSpans.length > 0 && (
+        <div
+          data-tower-legend
+          className="flex items-center gap-[6px] pt-[4px]"
+          style={{ marginLeft: LANE_GUTTER + 6 }}
+        >
+          <span
+            aria-hidden
+            className="size-[8px] shrink-0 rounded-[2px] bg-overlay/12"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(135deg, transparent 0 2px, rgba(255,255,255,0.10) 2px 4px)",
+            }}
+          />
+          <span className="text-[0.6875rem] leading-[14px] text-muted">
+            On tower. Not at the hub yet, so it cannot be played here.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ====================================================================== */
+
+/**
+ * TIME UNKNOWN — the footage that arrived whole and could not be placed.
+ *
+ * ══════════════════════════════════════════════════════════════════════
+ *  A LIST, UNDER THE TIMELINE, BECAUSE THERE IS NOWHERE ON IT TO PUT THEM
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A tower whose clock had not synced when the recorder started writes a
+ * segment whose beginning nothing can work out afterwards (sentry-core
+ * docs/footage-sync.md §4.4.2). The file is complete and the pictures in it
+ * are real; what is missing is the one property the whole screen above is
+ * organised by.
+ *
+ * There were three ways to handle that and two of them are wrong:
+ *
+ *   · DROP THEM. Real footage, deleted from the only screen that can reach
+ *     it, because of a clock. The commonest cause is a power cut, which is
+ *     also when somebody most wants the tape.
+ *   · DRAW THEM AT THE TIME THEY ARRIVED. Puts footage on the timeline at a
+ *     moment it was not recorded — and worse, the segment genuinely before it
+ *     gets cut short against the intruder, so a real recording is shortened to
+ *     accommodate a guess.
+ *   · A LIST WITH NO CLOCK ON IT. What this is.
+ *
+ * So: camera, when the HUB received it, how big it is, play, download. The
+ * stamp is labelled "Arrived" and never sits where a start time sits, and the
+ * download carries no time at all — see `undatedFilename`.
+ *
+ * Renders nothing at all when the list is empty, which is every healthy site.
+ */
+/**
+ * When the HUB received an undated file, in site time, with the zone in it.
+ *
+ * Full date AND clock, unlike every other stamp on this screen: the rest of
+ * them sit inside a day the operator chose, and this list is deliberately not
+ * filtered by day — a file with no time belongs to no day — so a bare clock
+ * here would be the one stamp on the page whose date nobody could infer.
+ *
+ * ⚠ THE HUB CAN ALSO HAVE NOT SAID. `arrived` is carried by the SDK only
+ * when the server sent it, so there is a third case, and it reads as the
+ * absence it is rather than as a zero or as today.
+ */
+function arrivedLabel(item: UndatedSegment): string {
+  if (item.arrivedEpoch === undefined) return "at a time nobody recorded";
+  const stamp = formatSiteStamp(item.arrivedEpoch * 1000);
+  return `${stamp.date} ${stamp.time}`;
+}
+
+function TimeUnknownList({
+  items,
+  towerName,
+  onPlay,
+}: {
+  items: UndatedSegment[];
+  towerName: string;
+  onPlay: (item: UndatedSegment) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section
+      data-time-unknown
+      aria-label="Time unknown"
+      className="border-t border-line bg-ink px-[12px] py-[8px]"
+    >
+      <header className="flex items-baseline gap-[8px] pb-[6px]">
+        <h3 className="font-display text-[0.6875rem] tracking-[0.11px] text-muted uppercase">
+          Time unknown
+        </h3>
+        {/* ONE short line of help, and this is the row that would be got wrong
+            without it: a list of recordings under a timeline reads as more of
+            the timeline unless it says why it is not. */}
+        <p className="text-[0.6875rem] leading-[14px] text-body-ink/35">
+          Recorded, but the start time could not be established.
+        </p>
+      </header>
+      <ul className="flex flex-col">
+        {items.map((item) => {
+          const camera = deviceName(cameraLabel(item.camera));
+          const size = formatBytes(item.size);
+          return (
+            <li
+              key={item.key}
+              className="flex items-center gap-[10px] border-t border-row-line py-[5px] text-[0.75rem] leading-[18px] first:border-t-0"
+            >
+              <span className="w-[68px] shrink-0 truncate font-display text-[0.6875rem] tracking-[0.1px] text-muted uppercase">
+                {camera}
+              </span>
+              {/* ⚠ LABELLED "Arrived", NEVER LEFT BARE. An unlabelled stamp in
+                  a row of recordings is read as the recording's own time,
+                  which is the single claim this list exists to not make. */}
+              <span className="min-w-0 flex-1 truncate text-body-ink/70 tabular-nums">
+                Arrived {arrivedLabel(item)}
+              </span>
+              <span className="w-[72px] shrink-0 text-right text-muted tabular-nums">
+                {size || ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => onPlay(item)}
+                aria-label={`Play undated footage from ${camera}`}
+                className="shrink-0 rounded-[4px] px-[8px] py-[2px] text-body-ink/70 transition-colors hover:bg-overlay/8 hover:text-body-ink"
+              >
+                Play
+              </button>
+              <a
+                href={item.downloadUrl}
+                download={undatedFilename({ towerName, cameraName: cameraLabel(item.camera) })}
+                rel="noopener"
+                aria-label={`Download undated footage from ${camera}`}
+                className="shrink-0 rounded-[4px] px-[8px] py-[2px] text-body-ink/70 transition-colors hover:bg-overlay/8 hover:text-body-ink"
+              >
+                Download
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * One undated file, played on its own.
+ *
+ * It gets its own player rather than a pane on the wall for the reason the
+ * list exists: every pane is addressed by the shared clock, and this file has
+ * no position on it. The browser's own controls are enough — there is no
+ * timeline to seam to, no next segment to preload and no gap to skip.
+ */
+function UndatedPlayer({
+  item,
+  towerName,
+  onClose,
+}: {
+  item: UndatedSegment;
+  towerName: string;
+  onClose: () => void;
+}) {
+  const camera = deviceName(cameraLabel(item.camera));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={FADE}
+      role="dialog"
+      aria-label={`Undated footage from ${camera}`}
+      data-undated-player
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-[10px] bg-black/85 px-[16px]"
+    >
+      <div className="flex w-full max-w-[720px] items-center gap-[8px]">
+        <span className="font-display text-[0.6875rem] tracking-[0.11px] text-muted uppercase">
+          {towerName ? `${deviceName(towerName)} · ` : ""}{camera}
+        </span>
+        <span className="text-[0.6875rem] text-body-ink/35">Time unknown</span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="ml-auto rounded-[4px] px-[8px] py-[2px] text-[0.75rem] text-body-ink/70 transition-colors hover:bg-overlay/8 hover:text-body-ink"
+        >
+          Close
+        </button>
+      </div>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <video
+        src={item.url}
+        controls
+        autoPlay
+        className="max-h-[70%] w-full max-w-[720px] rounded-[8px] bg-tile"
+      />
+    </motion.div>
+  );
+}
 
 /**
  * The clip list, as a drawer rather than a page.

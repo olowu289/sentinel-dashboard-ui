@@ -707,13 +707,78 @@ a fault and not a setting. A device that has reported no recording block at
 all gets no row, and the Storage group goes with it: absence of a field and a
 field whose value is unknown are different things.
 
-⚠ **It says "Not recording" and not "Not recording: no disk", and the shorter
-claim is the point.** `health.recording.mode` is read off `RECORD_ENABLE` and
+⚠ **It said "Not recording" and not "Not recording: no disk", and the shorter
+claim was the point.** `health.recording.mode` is read off `RECORD_ENABLE` and
 nothing else, so "hub" means recording is switched *off* and says nothing about
 whether an SSD is fitted — and "tower" means it is switched *on*, which on a
 diskless mast is the `no_recording_disk` fault rather than proof of a disk.
-Naming the reason needs `footage.sync.reason`, which the SDK does not parse.
-Until it does, the row states the part the wire supports.
+Naming the reason needs `footage.sync.reason`.
+
+**It arrived, and the sentence it answers is on a different row.** SDK 0.13.0
+parses the device's `footage` block, so the panel and the Towers board both
+gained two readings:
+
+| row | says |
+| --- | --- |
+| **Footage** | Up to date · Behind *n* h · Can't reach hub · Not recording: no disk · Recording off |
+| **Waiting** | *n* files · *size*, or "Nothing waiting" |
+
+"Behind 2 h" is measured from `oldest_unconfirmed_start`, which sentry-core
+added to the projection for this row, and reads "Behind **about** 2 h" when
+`oldest_unconfirmed_exact` is false — a segment whose start could not be
+established is stamped when it *arrived*, so the hours are a floor and not a
+measurement, and one word is the whole of the difference. "Recording off" is
+deliberately **not** red: somebody turned it off, which is a decision, and
+painting a decision as a fault teaches an operator to stop reading the colour.
+
+The Recording row stands down when Footage can name the reason, so a diskless
+mast reads "Not recording: no disk" once rather than twice at two levels of
+confidence.
+
+⚠ **And a tower that has said nothing gets neither row.** Two of the five
+verdicts are the hub's rather than the tower's — `unreachable` needs a link
+state only the hub observes, `behind` needs a clock — so a site whose hub never
+reached a verdict is silent, and silence is **not** rendered as "Up to date".
+That is the one direction a monitoring screen may never guess in: a site
+reported as fine because it failed to answer. The Waiting row is what tells
+the two apart on screen, which is why a measured backlog of nothing says
+"Nothing waiting" rather than hiding.
+
+### What is on the mast, and what has no time
+
+Playback gained two things it could not show before, and each of them used to
+read as something worse than it is.
+
+**The last half hour is not an outage.** The tower holds the segment it is
+still writing and the one or two behind it, so the newest 15 to 30 minutes of
+every camera is always on the mast and not at the hub. On a timeline whose
+only two states were "footage" and "the dead surface showing through", that
+permanent tail drew as a gap at the right-hand edge of every lane, all day, on
+a healthy site. `towerSpans` draws it as its own hatched band with a legend
+that says what it is and that it cannot be played from here.
+
+It is deliberately not green. Green on that bar means two things at once —
+there is footage here, and you can scrub to it — and the second half is false
+for a span the hub does not hold. A band that looks playable and is not is
+worse than the gap it replaced. It is not a new hue either: the colour rule
+spends green, amber and red on readings about the *site*, and "the file has
+not finished uploading" is not news about a yard.
+
+**Some footage has no time, and it still has to be reachable.** A recorder
+that starts before its clock has synced writes a complete file whose beginning
+nothing can work out afterwards. The pictures in it are real; the commonest
+cause is a power cut, which is also when somebody most wants the tape.
+
+There were three ways to handle that and two of them are wrong. Dropping them
+deletes real footage from the only screen that can reach it. Drawing them at
+the moment they *arrived* puts footage on the timeline at a time it was not
+recorded — and worse, cuts the genuine segment before it short against the
+intruder, so a real recording is shortened to accommodate a guess. So: a list,
+under the timeline, with no clock on it. Camera, when the hub received it
+(labelled **Arrived**, never left bare), size, play, download. The download
+carries no time in its name at all, because a file that states a time it is
+not of survives longest exactly where it does the most damage — on a disk, in
+an evidence folder, long after the screen that explained it is closed.
 
 ### Picture quality is not a row
 

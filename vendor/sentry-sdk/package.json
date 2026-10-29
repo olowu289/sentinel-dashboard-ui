@@ -1,6 +1,6 @@
 {
   "name": "@kallon/sentry-sdk",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Typed TypeScript client and data-contract library for the Sentry v2 coordination service (viewer-facing API, session-protocol v1 + the §A inventory contract).",
   "license": "UNLICENSED",
   "private": false,

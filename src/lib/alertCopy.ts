@@ -291,6 +291,12 @@ export function alertTitle(
  * has not arrived or has emptied. Absence here is a line that is not drawn,
  * not a line reading "unknown" — the title already says footage is being
  * recovered, and a progress line with no progress in it adds nothing.
+ *
+ * ⚠ A `progress` BLOCK IS NOT A PROMISE OF NUMBERS. An answered `HUB_OFFLINE`
+ * carries exactly `{footage: "none"}` and nothing else: a verdict, not a
+ * measurement. So the presence of the block decides nothing here, and every
+ * field is tested on its own — which is why this reads each one rather than
+ * branching on `if (p)` and trusting what is inside.
  */
 export function recoveryDetail(alert: SiteAlert): string | undefined {
   const p = alert.progress;
@@ -319,6 +325,12 @@ export function recoveryDetail(alert: SiteAlert): string | undefined {
  * side does not: a bar computed from a falling file count against a total
  * nobody told us would run backwards the moment the tower wrote a new segment
  * while the old ones drained.
+ *
+ * ⚠ AND NOT DEFAULTED TO 0 WHEN THE BLOCK HOLDS NO NUMBER. `{footage: "none"}`
+ * is the whole of `progress` on a hub alert that was answered, and a bar drawn
+ * at 0% over it would say "a transfer is under way and has moved nothing" —
+ * which is the opposite of what was answered. The field has to be a finite
+ * number of its own before anything is drawn.
  */
 export function recoveryProgress(alert: SiteAlert): number | undefined {
   const p = alert.progress?.progress;
@@ -376,27 +388,24 @@ export function expectsClip(type: string): boolean {
 /**
  * The hub's own answer about the footage for this moment, when it gave one.
  *
- * ⚠ THIS FIELD DOES NOT REACH US YET, AND THE GAP IS IN THE SDK. `progress`
- * is parsed by `@kallon/sentry-sdk` as four NUMBERS (`files_left`,
- * `bytes_left`, `progress`, `eta_sec`) and anything else in the block is
- * dropped on the floor — so `progress.footage: "none"`, which docs/alerts.md
- * §3b says is how a hub reports that it has no recording covering the
- * instant, never arrives. The SDK is vendored from a repository that is the
- * source of truth and is not edited here (`scripts/check-vendored-sdk.mjs`
- * fails the build if it is), so the change belongs there: one optional
- * `footage?: string` on `AlertProgress` and one line in `progress()` to carry
- * it through.
+ * ⚠ ITS ABSENCE IS NOT "THERE IS FOOTAGE", which is the only way to read this
+ * field wrongly. Nothing answered yet is also absent, and that is where every
+ * `HUB_OFFLINE` alert starts and may sit for weeks while its hub is away.
+ * Only `"none"` is a statement: the hub was asked, looked, and had no
+ * recording covering that instant (docs/alerts.md §3b). So this returns the
+ * verdict and nothing else, and {@link clipState} is the one place that turns
+ * "no verdict" into `pending`.
  *
- * The cast is what lets this side be finished and correct in the meantime:
- * the field is read if it is there, "No footage of that moment" is written,
- * and the day the SDK passes it along nothing here has to change. Until then
- * {@link clipState} answers `pending` for a hub alert with no clips, which is
- * the true reading — the hub has not answered yet, as far as anything on this
- * side can tell.
+ * A code like `type` and `colour`, carried as a plain string, so a verdict
+ * this bundle was built before still arrives. It is compared here and never
+ * shown: `clipWords` owns the sentence.
+ *
+ * SDK 0.13.1 is what made this readable. Before it, `progress` was parsed as
+ * four numbers and anything else in the block was dropped, so the whole block
+ * arrived as `{}` and the distinction never crossed the wire.
  */
 export function footageAnswer(alert: SiteAlert): string | undefined {
-  const value = (alert.progress as { footage?: unknown } | undefined)?.footage;
-  return typeof value === "string" ? value : undefined;
+  return alert.progress?.footage;
 }
 
 /**

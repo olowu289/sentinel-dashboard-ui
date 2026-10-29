@@ -206,7 +206,11 @@ const UNKNOWN_ALERT = {
  *  lookup cannot answer and the name comes from the cells list.
  * ────────────────────────────────────────────────────────────────────── */
 const HUB = "hub-kln-lab";
-const HUB_NAMES = { [HUB]: "North camp" };
+/* A second one, so the alert that was ANSWERED has a title of its own and
+   the browser tests below cannot open the wrong row. An organization with
+   two sites has two hubs, which is ordinary. */
+const HUB2 = "hub-kln-river";
+const HUB_NAMES = { [HUB]: "North camp", [HUB2]: "River camp" };
 
 /** `cameras` is usually empty here: the DC knows the hub, not its mast. */
 const HUB_OFFLINE_ALERT = {
@@ -427,7 +431,7 @@ describe("every word an alert is read in", () => {
    *  THE HUB PAIR, AND THE FOUR WAYS A CLIP CAN BE
    * ================================================================ */
 
-  test('\u2b50 a HUB is offline too, and "down" is wronger here than for a tower', () => {
+  test('⭐ a HUB is offline too, and "down" is wronger here than for a tower', () => {
     /* docs/alerts.md 1a: the data centre cannot tell a dead hub from a dead
        internet link. The box on the other end may be serving its own site
        perfectly over the LAN -- recording, watching, raising its own alerts
@@ -440,7 +444,7 @@ describe("every word an alert is read in", () => {
     assert.equal(copy.alertTitle(HUB_ONLINE_ALERT, nameOf), "NORTH CAMP back online");
   });
 
-  test("\u2b50 and the hub's name does NOT come from the tower lookup", () => {
+  test("⭐ and the hub's name does NOT come from the tower lookup", () => {
     /* THE BUG THIS GUARDS. A hub is not in the fleet under any id: the fleet
        holds its MAST, which is a different box with a different name. A
        resolver that only knows towers answers `undefined` and the row reads
@@ -462,7 +466,7 @@ describe("every word an alert is read in", () => {
     assert.deepEqual(asked, [[HUB, "HUB_OFFLINE"]]);
   });
 
-  test("\u2b50 the hub's name is in CAPITALS, like every other device's", () => {
+  test("⭐ the hub's name is in CAPITALS, like every other device's", () => {
     /* A hub is a box at a site with a label on it, read across a control
        room and said out loud on a radio. The organization that owns it is
        not, and is left exactly as somebody wrote it. */
@@ -473,7 +477,7 @@ describe("every word an alert is read in", () => {
     assert.ok(!copy.isHubAlert(undefined));
   });
 
-  test("\u2b50 a hub that stopped answering is a FAULT, like a tower", () => {
+  test("⭐ a hub that stopped answering is a FAULT, like a tower", () => {
     /* And it is the worse one: a tower going quiet loses a mast, a hub going
        quiet loses the site's whole link to anybody watching it. */
     assert.equal(copy.alertKind("HUB_OFFLINE"), "fault");
@@ -481,7 +485,7 @@ describe("every word an alert is read in", () => {
     assert.equal(copy.alertKind("HUB_ONLINE"), "alert");
   });
 
-  test("\u2b50 the four clip states are four different situations", () => {
+  test("⭐ the four clip states are four different situations", () => {
     /* ⚠ AND "NO CLIP" FOR ALL OF THEM WOULD BE ONE SCREEN FOR FOUR, three
        of which somebody should act on. */
     const withClips = (clips, extra = {}) => ({ ...HUB_OFFLINE_ALERT, clips, ...extra });
@@ -509,7 +513,7 @@ describe("every word an alert is read in", () => {
     assert.equal(copy.clipState(RECOVERING_ALERT), "never");
   });
 
-  test("\u2b50 one clip with a url makes the alert playable, not half of one", () => {
+  test("⭐ one clip with a url makes the alert playable, not half of one", () => {
     /* A mast with two cameras where only one cut reached the bucket shows
        that one. Refusing both because of the other is a blank screen over a
        file that is sitting right there. */
@@ -522,7 +526,7 @@ describe("every word an alert is read in", () => {
     assert.equal(story.alertClipCards(mixed).length, 2, "the urlless clip is not described");
   });
 
-  test("\u2b50 each absence SAYS WHY, in one line and one of help", () => {
+  test("⭐ each absence SAYS WHY, in one line and one of help", () => {
     const words = ["hubOnly", "pending", "none", "coming"].map(copy.clipWords);
     for (const w of words) {
       assert.ok(w.headline.length > 0 && w.help.length > 0);
@@ -540,7 +544,7 @@ describe("every word an alert is read in", () => {
     assert.equal(copy.clipWords("never"), null);
   });
 
-  test("\u2b50 the hub's timeline is the hub's own sequence", () => {
+  test("⭐ the hub's timeline is the hub's own sequence", () => {
     const steps = story.alertStory(
       {
         ...HUB_OFFLINE_ALERT,
@@ -562,7 +566,7 @@ describe("every word an alert is read in", () => {
     assert.equal(steps[3].at, null);
   });
 
-  test("\u2b50 and a hub that answered with nothing says so, on the timeline too", () => {
+  test("⭐ and a hub that answered with nothing says so, on the timeline too", () => {
     const steps = story.alertStory(
       { ...HUB_OFFLINE_ALERT, progress: { footage: "none" } },
       nameOf,
@@ -575,7 +579,7 @@ describe("every word an alert is read in", () => {
     assert.equal(steps[2].title, copy.clipWords("none").headline);
   });
 
-  test("\u2b50 HUB_ONLINE's first step is the good news, because the event IS the return", () => {
+  test("⭐ HUB_ONLINE's first step is the good news, because the event IS the return", () => {
     const steps = story.alertStory(HUB_ONLINE_ALERT, nameOf);
     assert.equal(steps[0].title, "Back online");
     assert.equal(steps[1].title, "Alert raised");
@@ -589,7 +593,7 @@ describe("every word an alert is read in", () => {
     assert.ok(!titles.includes("Footage attached"), titles.join(" | "));
   });
 
-  test("\u2b50 a hub's cameras appear on its clips, side by side like a tower's", () => {
+  test("⭐ a hub's cameras appear on its clips, side by side like a tower's", () => {
     /* The DC names neither the mast nor its cameras in the pending row and
        cannot -- an empty list means "every mast camera you have", resolved
        by the hub when it is asked. So the cameras arrive WITH the clips. */
@@ -605,7 +609,7 @@ describe("every word an alert is read in", () => {
     assert.deepEqual(panes.map((x) => x.clip.camera), [1, 2]);
   });
 
-  test("\u2b50 a clip that cannot be fetched is still DESCRIBED", () => {
+  test("⭐ a clip that cannot be fetched is still DESCRIBED", () => {
     /* docs/alerts.md 4: every other clip field is still there, so the clip
        can be described. That is the whole point of the state -- the alert
        says what exists and where, rather than looking like an alert with no
@@ -762,7 +766,7 @@ describe("what survives the SDK parser", () => {
 
   const nameOf = (id, type) => (copy.isHubAlert(type) ? HUB_NAMES[id] : NAMES[id]);
 
-  test("\u2b50 a type this SDK predates still arrives, and reads", () => {
+  test("⭐ a type this SDK predates still arrives, and reads", () => {
     /* `AlertType` lists five and ends in `(string & {})`, and `colour` is
        parsed as a plain string -- so a hub pair the SDK was built before
        passes through it untouched. That openness is the whole reason the
@@ -777,7 +781,7 @@ describe("what survives the SDK parser", () => {
     assert.equal(copy.alertColour(event.alert.colour).strip, "bg-critical");
   });
 
-  test("\u2b50 an empty camera list survives as an empty list", () => {
+  test("⭐ an empty camera list survives as an empty list", () => {
     /* `cameras` is usually [] on a HUB_OFFLINE: the data centre knows the
        hub and not its mast, and an empty list means "every mast camera you
        have", resolved by the hub when it is asked. It must not become
@@ -787,7 +791,7 @@ describe("what survives the SDK parser", () => {
     assert.equal(copy.clipState(alert), "pending");
   });
 
-  test("\u2b50 a clip with NO url survives, which is the hub-only state", () => {
+  test("⭐ a clip with NO url survives, which is the hub-only state", () => {
     /* The field rule is "absent, never null", and the parser honours it by
        omitting rather than emitting. A clip is still a clip without its
        tickets -- camera, quality, key, start, duration and size are all
@@ -807,7 +811,7 @@ describe("what survives the SDK parser", () => {
     assert.equal(cards[0].attachment.durationSec, 52.7);
   });
 
-  test("\u2b50 and the same clips WITH urls are playable, side by side", () => {
+  test("⭐ and the same clips WITH urls are playable, side by side", () => {
     const { alert } = overTheWire("alert.updated", {
       ...HUB_OFFLINE_ALERT,
       rev: 3,
@@ -823,7 +827,7 @@ describe("what survives the SDK parser", () => {
     );
   });
 
-  test("\u2b50 a hub coming back reads, and recovers the open alert", () => {
+  test("⭐ a hub coming back reads, and recovers the open alert", () => {
     const { alert } = overTheWire("alert.updated", {
       ...HUB_OFFLINE_ALERT,
       rev: 4,
@@ -838,73 +842,96 @@ describe("what survives the SDK parser", () => {
     assert.equal(copy.alertColour(back.alert.colour).strip, "bg-terra");
   });
 
-  test('\u26a0 THE SDK DROPS `progress.footage`, SO "No footage of that moment" CANNOT ARRIVE', () => {
-    /* ══════════════════════════════════════════════════════════════════
-       THIS TEST IS A PENDING DEPENDENCY, AND IT IS MEANT TO FAIL ONE DAY.
+  test('⭐ "No footage of that moment" ARRIVES, and it is a verdict not a number', () => {
+    /* ⭐ THIS IS THE TEST THAT USED TO BE TWO.
 
-       docs/alerts.md 3b: a hub with no recording covering the instant
-       answers with an empty clip list, and the data centre writes
-       `progress.footage = "none"` so the website can say so. That is an
-       ANSWER, not a failure, and it is the difference between "stop waiting
-       for this" and "this may still arrive in a fortnight".
+       One of them asserted that the parser DROPPED `progress.footage` and
+       said in its own message to delete itself the day it stopped: the SDK
+       took `progress` as four numbers and copied them by name, so the block
+       reached this side as `{}` and the hub's answer never crossed the wire.
+       The other stood behind it, feeding the field in by hand so the reading
+       was written and tested before it could arrive. SDK 0.13.1 carries it,
+       the first failed exactly as designed, and this is the pair collapsed
+       into the real path: the payload the data centre publishes, through the
+       real framing and the real parser, into the words on the screen.
 
-       It does not reach this side. `AlertProgress` in the SDK is four
-       NUMBERS, and `progress()` copies `files_left`, `bytes_left`,
-       `progress` and `eta_sec` by name -- so the whole block arrives as `{}`
-       and the distinction is lost on the wire.
-
-       The SDK is vendored from a repository that is the source of truth and
-       is not edited here; `scripts/check-vendored-sdk.mjs` fails the build
-       if it is. The change belongs there, and it is two lines:
-
-         interface AlertProgress { ...; readonly footage?: string }
-
-         if (o.footage !== undefined && o.footage !== null) {
-           put(out, "footage", c.str(`${path}.footage`, o.footage));
-         }
-
-       Everything on THIS side is already written for it: `footageAnswer`
-       reads the field, `clipState` answers "none" when it is there, and
-       both the clip area and the timeline say the sentence. When the SDK
-       ships it this test fails, and the right fix is to delete it and turn
-       on the one below it.
-       ══════════════════════════════════════════════════════════════════ */
+       docs/alerts.md 3b: a hub with no recording covering the instant answers
+       with an EMPTY clip list, the alert gets `progress.footage = "none"`,
+       and the pending row is deleted so nothing waits for ever. That is an
+       answer, not a failure, and the difference between it and `pending` is
+       the difference between "stop waiting" and "this may still arrive in a
+       fortnight". */
     const { alert } = overTheWire("alert.updated", {
       ...HUB_OFFLINE_ALERT,
       rev: 5,
       progress: { footage: "none" },
     });
+    /* ⚠ EXACTLY THAT, AND NOTHING BESIDE IT. The SDK's own note: a block
+       holding only this is the whole shape of an answered HUB_OFFLINE, so
+       nothing downstream may assume a number was seen first. */
+    assert.deepEqual(alert.progress, { footage: "none" });
+    assert.equal(copy.footageAnswer(alert), "none");
+    assert.equal(copy.clipState(alert), "none");
+    assert.equal(copy.clipWords("none").headline, "No footage of that moment");
     assert.deepEqual(
-      alert.progress,
-      {},
-      "the SDK now carries `progress.footage`: delete this test and enable the next",
-    );
-    assert.equal(copy.footageAnswer(alert), undefined);
-    /* And the reading in the meantime is the honest one: as far as anything
-       on this side can tell, the hub has not answered yet. */
-    assert.equal(copy.clipState(alert), "pending");
-  });
-
-  test('\u2b50 ...and the moment it does arrive, the screen says it', () => {
-    /* The same payload, parsed and then given the field the parser dropped.
-       This is what the test above is waiting for, and it is here so that
-       the day the SDK carries it, nothing on this side has to be written. */
-    const { alert } = overTheWire("alert.updated", {
-      ...HUB_OFFLINE_ALERT,
-      rev: 5,
-      progress: { footage: "none" },
-    });
-    const asItWillBe = { ...alert, progress: { footage: "none" } };
-    assert.equal(copy.footageAnswer(asItWillBe), "none");
-    assert.equal(copy.clipState(asItWillBe), "none");
-    assert.equal(
-      copy.clipWords("none").headline,
-      "No footage of that moment",
-    );
-    assert.deepEqual(
-      story.alertStory(asItWillBe, nameOf).map((x) => x.title),
+      story.alertStory(alert, nameOf).map((x) => x.title),
       ["Hub stopped connecting", "Alert raised", "No footage of that moment"],
     );
+  });
+
+  test("\⭐ and a progress block with no numbers in it draws NO BAR", () => {
+    /* ⚠ THE FAILURE THIS GUARDS IS A BAR AT 0%, which would say "a
+       transfer is under way and has moved nothing" over an alert whose whole
+       content is that there is nothing to transfer. A block that exists
+       decides nothing; every field is read on its own. */
+    const { alert } = overTheWire("alert.updated", {
+      ...HUB_OFFLINE_ALERT,
+      rev: 5,
+      progress: { footage: "none" },
+    });
+    assert.equal(copy.recoveryProgress(alert), undefined, "a 0% bar was drawn");
+    assert.equal(copy.recoveryDetail(alert), undefined, "an empty count line was drawn");
+    /* And the one that genuinely is a transfer still reports itself. */
+    const moving = overTheWire("alert.updated", RECOVERING_ALERT);
+    assert.equal(copy.recoveryProgress(moving.alert), 0.25);
+    assert.equal(copy.recoveryDetail(moving.alert), "6 files, about 29 min left");
+  });
+
+  test("\⭐ and NO progress block at all is still pending, because absence is not a verdict", () => {
+    /* ⚠ THE OTHER WAY TO READ THIS FIELD WRONGLY, and the SDK's release
+       note says it first: its absence is not "there is footage". Nothing
+       answered yet is also absent, and that is where every HUB_OFFLINE
+       starts and may sit for weeks while its hub is away. Only "none" is a
+       statement. */
+    const { alert } = overTheWire("alert.new", HUB_OFFLINE_ALERT);
+    assert.equal(alert.progress, undefined);
+    assert.equal(copy.footageAnswer(alert), undefined);
+    assert.equal(copy.clipState(alert), "pending");
+    assert.equal(
+      copy.clipWords("pending").headline,
+      "Footage pending, the hub is away",
+    );
+    /* An EMPTY block answers nothing either, which is the shape an older
+       data centre's `progress` arrives in. */
+    const empty = overTheWire("alert.updated", {
+      ...HUB_OFFLINE_ALERT,
+      rev: 2,
+      progress: {},
+    });
+    assert.equal(copy.clipState(empty.alert), "pending");
+  });
+
+  test("\⭐ a verdict this build has never heard of is not read as \"none\"", () => {
+    /* `footage` is a code left as a plain string so a later verdict needs no
+       SDK release to pass through. It must not be guessed at here: anything
+       that is not "none" has not told this bundle that the waiting is over. */
+    const { alert } = overTheWire("alert.updated", {
+      ...HUB_OFFLINE_ALERT,
+      rev: 6,
+      progress: { footage: "partial" },
+    });
+    assert.equal(copy.footageAnswer(alert), "partial");
+    assert.equal(copy.clipState(alert), "pending");
   });
 });
 
@@ -2423,7 +2450,7 @@ describe("the alert feed, end to end", () => {
    *  THE HUB ITSELF, ON THE SCREEN
    * ================================================================ */
 
-  test("\u2b50 a hub going offline is a row, named from the CELLS and red", async () => {
+  test("⭐ a hub going offline is a row, named from the CELLS and red", async () => {
     /* The row that would otherwise read HUB-KLN-LAB. The fleet cannot name
        this box: it holds the hub's MAST, under a different id. */
     await page.evaluate((a) => {
@@ -2439,7 +2466,7 @@ describe("the alert feed, end to end", () => {
     assert.ok(!/ down/i.test(text.split("NORTH CAMP")[1]?.slice(0, 20) ?? ""));
   });
 
-  test("\u2b50 and it raises a toast in the colour the DC chose", async () => {
+  test("⭐ and it raises a toast in the colour the DC chose", async () => {
     const card = await page.evaluate(() => {
       const g = [...document.querySelectorAll("[role='group']")].find((x) =>
         /NORTH CAMP offline/.test(x.textContent ?? ""),
@@ -2452,7 +2479,7 @@ describe("the alert feed, end to end", () => {
     assert.match(card.strip, /bg-critical/);
   });
 
-  test('\u2b50 its detail says the footage is PENDING, not "coming"', async () => {
+  test('⭐ its detail says the footage is PENDING, not "coming"', async () => {
     /* ⚠ THE DISTINCTION THIS STATE EXISTS FOR. "Clip coming" is a promise
        about the next minute. A HUB_OFFLINE clip is on the box that went
        away: nothing polls for it, nothing expires, and the hub cuts it when
@@ -2474,7 +2501,7 @@ describe("the alert feed, end to end", () => {
     assert.deepEqual(steps, ["Hub stopped connecting", "Alert raised"]);
   });
 
-  test("\u2b50 clips that cannot be fetched are DESCRIBED, side by side, not pressable", async () => {
+  test("⭐ clips that cannot be fetched are DESCRIBED, side by side, not pressable", async () => {
     /* docs/alerts.md 3a: the data centre stores no video, and with no bucket
        configured there is no URL to give. The clip exists, is named, has a
        length -- and the screen in the control room is the thing that can
@@ -2530,7 +2557,7 @@ describe("the alert feed, end to end", () => {
     await page.evaluate(() => { window.__refreshed = null; });
   });
 
-  test("\u2b50 and when the bucket can serve them, the same two play on one transport", async () => {
+  test("⭐ and when the bucket can serve them, the same two play on one transport", async () => {
     /* A 2K upgrade, which is how better cuts land: new keys, so the feed
        asks again rather than trusting the fingerprint it already answered.
        This time the mint succeeds and the hub alert gets the same player a
@@ -2568,7 +2595,75 @@ describe("the alert feed, end to end", () => {
     await closePlayer();
   });
 
-  test("\u2b50 a hub dialling back in is its own alert, in green", async () => {
+  test('⭐ a hub that was asked and had nothing says so, and draws no bar', async () => {
+    /* ⭐ THE STATE THAT COULD NOT ARRIVE UNTIL SDK 0.13.1. The hub cut
+       nothing because there was nothing to cut -- the disk was full, the
+       camera was not recording, the box was rebuilt -- and answering is what
+       ends the waiting. `progress` is exactly `{footage: "none"}`: a verdict,
+       with no transfer numbers beside it and no bar to draw. */
+    const raise = {
+      id: "jjjj7777",
+      type: "HUB_OFFLINE",
+      colour: "red",
+      device_id: HUB2,
+      cameras: [],
+      started_at: "2026-10-28T13:20:00Z",
+      started_epoch: 1793193600,
+      acknowledged: false,
+      rev: 1,
+    };
+    await page.evaluate(
+      (a) => {
+        window.__push("alert.new", a);
+        /* Back to back, as the answer arrives on the hub's reconnect. */
+        window.__push("alert.updated", { ...a, rev: 2, progress: { footage: "none" } });
+      },
+      raise,
+    );
+    await page.waitForFunction(
+      () => /RIVER CAMP offline/.test(document.body.innerText),
+      { timeout: 5000 },
+    );
+    await openRow("RIVER CAMP offline");
+    await page.waitForFunction(
+      () => /No footage of that moment/.test(document.body.innerText),
+      { timeout: 5000 },
+    );
+    const shape = await page.evaluate(() => ({
+      text: document.body.innerText,
+      /* ⚠ THE FAILURE THIS GUARDS: a 0% bar over an alert whose whole
+         content is that there is nothing to transfer. */
+      bars: document.querySelectorAll("[data-alert-detail] [data-recovery]").length,
+      clips: document.querySelectorAll("[data-alert-detail] [data-alert-clips]").length,
+      steps: [...document.querySelectorAll("[data-alert-story] li")].map(
+        (li) => li.querySelector("p")?.textContent ?? "",
+      ),
+      /* The ROW draws the same pair, from the same two functions, and it is
+         the one an operator sees without opening anything. */
+      rowBars: (() => {
+        const row = [...document.querySelectorAll("button")].find((b) =>
+          /RIVER CAMP offline/.test(b.textContent ?? ""),
+        );
+        return row ? row.querySelectorAll("[data-recovery]").length : -1;
+      })(),
+    }));
+    assert.equal(shape.rowBars, 0, "the row drew a bar over an empty answer");
+    assert.equal(shape.bars, 0, "a progress bar was drawn over an empty answer");
+    assert.equal(shape.clips, 0, "a clip grid was drawn with no clips");
+    assert.match(shape.text, /The hub had no recording covering it/);
+    /* And it is no longer waiting: the pending sentence is gone. */
+    assert.ok(
+      !/Footage pending, the hub is away/.test(shape.text),
+      "an answered alert is still telling somebody to wait",
+    );
+    assert.deepEqual(shape.steps, [
+      "Hub stopped connecting",
+      "Alert raised",
+      "No footage of that moment",
+    ]);
+  });
+
+  test("⭐ a hub dialling back in is its own alert, in green", async () => {
     await page.evaluate((a) => window.__push("alert.new", a), HUB_ONLINE_ALERT);
     await page.waitForFunction(
       () => /NORTH CAMP back online/.test(document.body.innerText),

@@ -343,16 +343,29 @@ help. They are NOT interchangeable, which is the whole reason this is a state:
 | `coming` | a tower alert with no clips yet | the ordinary minute |
 | `never` | the recovery pair | no clip area at all |
 
-⚠ **`progress.footage` DOES NOT REACH THIS SIDE YET, AND THE GAP IS IN THE
-SDK.** `AlertProgress` is four NUMBERS and `progress()` copies them by name, so
-the whole block arrives as `{}` and "No footage of that moment" can never be
-shown. Everything here is written for it — `footageAnswer` reads the field,
-`clipState` answers `none`, both surfaces say the sentence — and the SDK is
-vendored from a repository that is the source of truth and is NOT edited here
-(`npm run check:sdk` fails the build if it is). The change belongs there and is
-two lines: `readonly footage?: string` on `AlertProgress`, and one `put(out,
-"footage", ...)` in `progress()`. `test/siteAlerts.test.mjs` holds a test that
-fails the day it lands, which is how the next person finds out.
+⚠ **`progress` IS NOT A PROMISE OF NUMBERS, AND AN EMPTY ANSWER MUST NOT DRAW
+A 0% BAR.** An answered `HUB_OFFLINE` carries exactly `{footage: "none"}` —
+a verdict, with no `files_left`, no fraction and nothing to draw. So
+`recoveryDetail` and `recoveryProgress` test every field on its own and never
+branch on the block existing: a bar at 0% over that alert would say "a
+transfer is under way and has moved nothing", which is the opposite of what
+the hub answered. Both the row and the detail draw from those two functions,
+so getting it right once gets it right in both places.
+
+⚠ **AND ITS ABSENCE IS NOT "THERE IS FOOTAGE".** Nothing answered yet is also
+absent, and that is where every `HUB_OFFLINE` starts and may sit for weeks
+while its hub is away. Only `"none"` is a statement; anything else, including
+a verdict this bundle was built before, leaves the alert `pending`.
+
+This field arrived in `@kallon/sentry-sdk` **0.13.1**. Before it, `progress`
+was parsed as four numbers and everything else in the block was dropped, so
+the whole thing reached this side as `{}` and the distinction never crossed
+the wire. The reading here was written and tested first, with a
+pending-dependency test asserting the parser dropped it — which failed the
+moment 0.13.1 was vendored and said in its own message to delete itself. That
+is the shape to copy when this side is finished before the SDK is: write the
+reading, test it against the field fed in by hand, and leave a test that
+fails the day the real one arrives.
 
 **Motion lives in `src/lib/motion.ts`.** `ENTER` / `EXIT` / `FADE`, all tweens.
 Springs overshoot, which on a wall of cameras reads as the stream glitching.

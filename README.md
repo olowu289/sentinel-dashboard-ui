@@ -931,11 +931,24 @@ recording, the box was rebuilt — answers with an empty list, which is an
 **answer**. "No footage of that moment" ends the waiting, which is the thing
 the other three sentences cannot do.
 
-⚠ That last one cannot reach the screen yet. The server says it with
-`progress.footage = "none"`, and the SDK parses `progress` as four numbers and
-drops anything else in the block, so it arrives as `{}`. Everything on this
-side is written and tested for it; the two-line change belongs in the SDK's own
-repository, and a test here fails the day it lands.
+That last one is a `progress` block with no numbers in it at all: just
+`{footage: "none"}`, a verdict rather than a measurement. Which is the one
+thing worth saying about it on this side, because every other `progress` block
+in this product drives a bar, and a bar drawn at 0% over this one would say "a
+transfer is under way and has moved nothing" over an alert whose entire content
+is that there is nothing to transfer. The row and the detail both read the
+block field by field and draw nothing when there is no number, rather than
+branching on whether the block is there.
+
+And its absence says nothing either. An alert whose hub has not answered yet
+also has no `footage`, which is where every one of them starts, so only the
+word `"none"` ends the waiting.
+
+It took an SDK release to arrive: `progress` was parsed as four numbers and
+anything else in the block was dropped, so the verdict reached this side as
+`{}`. The reading was built and tested before it could arrive, behind a test
+that asserted the field was being dropped and failed the day it stopped being
+— which is how the next person found out it was time to turn the real one on.
 
 ### Two things the stream does not do for you
 

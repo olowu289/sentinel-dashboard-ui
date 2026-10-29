@@ -15,7 +15,14 @@
     "checked against it.",
     "",
     "Specs: docs/alerts.md 4 and 8; docs/footage-sync.md 3.3, 3.4, 3.4.1, 3.5,",
-    "4.4.2."
+    "4.4.2.",
+    "",
+    "The alert_hub_offline_* blocks were added later, from sentry-core 775fe7b:",
+    "  registry/site_alerts.py  SiteAlertStore.raise_alert -> set_progress ->",
+    "                           SiteAlert.to_wire",
+    "which is the path stub/server.py _on_hub_footage_result takes when a hub",
+    "answers a pending footage request with an empty clip list. Spec:",
+    "docs/alerts.md 2 \"No footage of that moment\"."
   ],
   "alert_acked_with_clip": {
     "acknowledged": true,
@@ -209,5 +216,28 @@
       "arrived": "2026-10-26T05:12:44.000Z",
       "arrived_epoch": 1792991564
     }
-  ]
+  ],
+  "alert_hub_offline_no_footage": {
+    "acknowledged": false,
+    "colour": "red",
+    "device_id": "hub-kln-lab",
+    "id": "1bbc0002b22e4ef687c2bd3ed1b89fb6",
+    "progress": {
+      "footage": "none"
+    },
+    "rev": 2,
+    "started_at": "2026-10-28T11:59:03Z",
+    "started_epoch": 1793188743,
+    "type": "HUB_OFFLINE"
+  },
+  "alert_hub_offline_progress_cleared": {
+    "acknowledged": false,
+    "colour": "red",
+    "device_id": "hub-kln-lab",
+    "id": "1bbc0002b22e4ef687c2bd3ed1b89fb6",
+    "rev": 3,
+    "started_at": "2026-10-28T11:59:03Z",
+    "started_epoch": 1793188743,
+    "type": "HUB_OFFLINE"
+  }
 }

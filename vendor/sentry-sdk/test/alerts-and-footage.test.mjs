@@ -8,11 +8,12 @@
  * `test/fixtures/alerts_and_footage.json` is the OUTPUT of coordination's own
  * code at sentry-core 8a5b019 — `project_footage`, `SiteAlert.to_wire`,
  * `timeline_extras`, `COLOURS` — dumped to JSON, not a transcription of the
- * docs. That matters for exactly the failure this round of work exists to
- * prevent: a field the server sends and the SDK drops. A fixture I typed by
- * hand would agree with the type I wrote beside it and prove nothing, which is
- * how `label` and `patrol` were both lost — the type was right and the
- * VALIDATOR never read the field.
+ * docs, with the `alert_hub_offline_*` rows added later from 775fe7b
+ * (`raise_alert` → `set_progress` → `to_wire`). That matters for exactly the
+ * failure this round of work exists to prevent: a field the server sends and
+ * the SDK drops. A fixture I typed by hand would agree with the type I wrote
+ * beside it and prove nothing, which is how `label` and `patrol` were both
+ * lost — the type was right and the VALIDATOR never read the field.
  *
  * So every assertion below goes through an exported parser or through
  * `SentryClient` over an injected `fetch`, against bytes the server produced.
@@ -195,6 +196,40 @@ test("an unknown alert type still parses, and carries grey", () => {
   assert.equal(a.colour, "grey");
 });
 
+test("\"No footage of that moment\": progress carries footage with NO numbers", () => {
+  // The real HUB_OFFLINE row after the hub dialled back in and answered with an
+  // empty clip list — raise_alert -> set_progress({footage:"none"}) -> to_wire.
+  // Note `rev: 2`: the answer IS a change to the row, which is what gets the
+  // update onto the live channel.
+  const a = parseSiteAlert(F.alert_hub_offline_no_footage);
+
+  assert.equal(a.type, "HUB_OFFLINE");
+  assert.equal(a.colour, "red");
+  assert.equal(a.device_id, "hub-kln-lab");
+  assert.equal(a.rev, 2);
+  assert.equal(a.progress.footage, "none");
+  // ⚠ THE BLOCK HAS NOTHING ELSE IN IT. A reader that treated `progress` as a
+  // transfer meter — "files_left of ...", a bar at `progress * 100` — renders
+  // this alert as 0% for ever. It is a verdict, and the only one here.
+  assert.deepEqual(a.progress, { footage: "none" });
+  assert.equal("files_left" in a.progress, false);
+  assert.equal("clips" in a, false);
+});
+
+test("ABSENT IS NOT \"there is footage\" — and a null footage is dropped", () => {
+  // The same row with its progress block cleared, from the same store. Nothing
+  // answered yet looks exactly like this, which is where every HUB_OFFLINE
+  // alert starts and may sit for weeks while its hub is away.
+  const cleared = parseSiteAlert(F.alert_hub_offline_progress_cleared);
+  assert.equal("progress" in cleared, false);
+
+  const nulled = parseSiteAlert({
+    ...F.alert_hub_offline_no_footage,
+    progress: { footage: null },
+  });
+  assert.equal("footage" in nulled.progress, false);
+});
+
 test("getSiteAlert reads one alert by id", async () => {
   const f = fakeFetch(() => json(F.alert_acked_with_clip));
   const a = await client(f).getSiteAlert("26ba7dd47c66402e9f1a0c8e4b1d3f55");
@@ -338,6 +373,18 @@ test("alertEventOf parses alert.new and alert.updated off real frames", () => {
   assert.equal(events[1].kind, "alert.updated");
   assert.equal(events[1].alert.acknowledged, true);
   assert.equal(events[1].id, "13");
+});
+
+test("the footage verdict rides the live channel the DC publishes it on", () => {
+  // The stub publishes `alert.updated` with this very body immediately after
+  // set_progress, so the dashboard learns there is no footage without polling.
+  const [frame] = new SseBuffer().push(
+    frameFor("alert.updated", F.alert_hub_offline_no_footage, 21),
+  );
+  const event = alertEventOf(frame);
+  assert.equal(event.kind, "alert.updated");
+  assert.equal(event.alert.progress.footage, "none");
+  assert.equal(event.id, "21");
 });
 
 test("an unknown event kind is ignored rather than thrown on", () => {

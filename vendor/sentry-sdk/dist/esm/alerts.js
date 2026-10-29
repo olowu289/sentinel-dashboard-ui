@@ -136,6 +136,12 @@ function progress(c, path, raw) {
             put(out, key, c.num(`${path}.${key}`, o[key]));
         }
     }
+    // The one non-numeric key, carried beside them. A block holding ONLY this is
+    // the whole shape of a `HUB_OFFLINE` answer, so nothing here may assume a
+    // number was seen first.
+    if (o.footage !== undefined && o.footage !== null) {
+        put(out, "footage", c.str(`${path}.footage`, o.footage));
+    }
     return out;
 }
 function alert(c, path, raw) {

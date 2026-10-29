@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.13.1
+
+Additive. One field.
+
+`AlertProgress.footage`, a string beside the four numbers, from
+`sentry-core/docs/alerts.md` section 2 "No footage of that moment" at
+sentry-core `775fe7b`.
+
+`"none"` means the hub **answered** and has no recording covering that moment
+-- the disk was full, the camera was not recording, the box was rebuilt. It is
+a verdict, not a measurement, and it is the whole of `progress` on a
+`HUB_OFFLINE` alert that got one: no `files_left`, no bar to draw. A screen
+reading it says "No footage of that moment" and stops waiting.
+
+Its ABSENCE is not "there is footage" -- nothing answered yet is also absent,
+which is where every `HUB_OFFLINE` alert starts and may sit for weeks while its
+hub is away. Only `"none"` is a statement. Left as a plain string, like `type`
+and `colour`, so a later verdict needs no SDK release to pass through.
+
+Tested on the row coordination's own store produces (`raise_alert` ->
+`set_progress` -> `to_wire`), both as a parsed alert and as the `alert.updated`
+frame the data centre publishes the moment it is set.
+
 ## 0.13.0
 
 Additive. Nothing in 0.12.0 changed shape.

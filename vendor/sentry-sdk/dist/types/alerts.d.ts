@@ -89,6 +89,21 @@ export interface AlertProgress {
     /** 0…1. */
     readonly progress?: number;
     readonly eta_sec?: number;
+    /**
+     * A verdict rather than a measurement, and the reason this block can appear
+     * with no numbers in it at all: `"none"` means the hub **answered** and has
+     * no recording covering that moment — the disk was full, the camera was not
+     * recording, the box was rebuilt (§2 "No footage of that moment"). A screen
+     * reading it says "No footage of that moment" and stops waiting.
+     *
+     * ⚠ ITS ABSENCE IS NOT "THERE IS FOOTAGE". Nothing has been answered yet is
+     * also absent, which is the state every `HUB_OFFLINE` alert starts in and
+     * may sit in for weeks while its hub is away. Only `"none"` is a statement.
+     *
+     * A code, like {@link SiteAlert.type} and {@link SiteAlert.colour}, left as
+     * a plain string so a later verdict needs no SDK release to pass through.
+     */
+    readonly footage?: string;
 }
 /**
  * One alert, exactly as §4 "One alert" documents it — and the same shape the

@@ -70,13 +70,19 @@ describe("featureSet", () => {
     ...(features === undefined ? {} : { features }),
   });
 
-  test("NO list falls back to the five real features, never everything", () => {
+  test("NO list falls back to the backed features, never everything", () => {
     /* ⚠ THE HEADLINE. An older coordination, a failed fetch, or a session
        stored before this shipped sends no list. If that fell back to "all",
-       the first customer on a stale session would see six invented alerts. */
+       the first customer on a stale session would see the demo.
+
+       ⭐ `alerts` IS NO LONGER ON THE FORBIDDEN LIST BELOW, and it left for
+       the only reason that counts: it is backed end to end now. It used to be
+       the example in this very comment -- "six invented alerts" -- because the
+       feed was fixtures naming towers no account has. The rest of the list is
+       still fixture data or local state. */
     const set = mod.f.featureSet(acct(undefined));
     assert.deepEqual([...set].sort(), [...mod.f.DEFAULT_FEATURES].sort());
-    for (const demo of ["alerts", "watchlist", "siren", "simulator", "clip_export"]) {
+    for (const demo of ["watchlist", "siren", "simulator", "clip_export"]) {
       assert.equal(set.has(demo), false, demo);
     }
   });
@@ -89,10 +95,18 @@ describe("featureSet", () => {
   });
 
   test("a malformed list is treated as no list", () => {
+    /* Compared against the defaults rather than against one feature that
+       happens to be off: `alerts` was that feature, and it stopped being off
+       the moment there was a server behind it -- so the assertion passed for
+       a reason that had nothing to do with what it was checking. */
     for (const junk of ["alerts", 42, {}, true]) {
       const set = mod.f.featureSet(acct(junk));
-      assert.equal(set.has("alerts"), false, String(junk));
-      assert.equal(set.has("live"), true, String(junk));
+      assert.deepEqual(
+        [...set].sort(),
+        [...mod.f.DEFAULT_FEATURES].sort(),
+        String(junk),
+      );
+      assert.equal(set.has("watchlist"), false, String(junk));
     }
   });
 
@@ -110,14 +124,36 @@ describe("featureSet", () => {
     assert.deepEqual([...set].sort(), ["alerts", "live"]);
   });
 
-  test("the defaults are exactly the five that are backed", () => {
+  test("⭐ the defaults are exactly what `registry/features.py` DEFAULT_ON is", () => {
+    /* ⚠ WRITTEN OUT, NOT DERIVED, AND THAT IS THE WHOLE VALUE OF IT. The two
+       lists live in two languages with no shared schema, so the only thing
+       that can hold them together is somebody having to edit this literal when
+       they edit the other one. A test that read `DEFAULT_FEATURES` back to
+       itself would pass whatever either side said.
+
+       While both were default-OFF for `alerts`, a drift here was free: this
+       file was merely fussier than the server. It is not free now. A copy that
+       still said OFF would hide a real feed from an account the server is
+       serving, and an empty alert screen looks exactly like a quiet night. */
     assert.deepEqual([...mod.f.DEFAULT_FEATURES].sort(), [
+      "alerts",
       "live",
       "playback",
       "ptz",
       "settings",
       "towers",
     ]);
+  });
+
+  test("⭐ and an account told it may NOT see alerts still does not", () => {
+    /* Default-on is a default. An empty or explicit list is a real answer and
+       beats it -- which is what makes "no, not this customer" expressible at
+       all, and is the one thing the gate in `App.tsx` is still for. */
+    assert.equal(mod.f.featureSet(acct([])).has("alerts"), false);
+    assert.equal(
+      mod.f.featureSet(acct(["live", "playback"])).has("alerts"),
+      false,
+    );
   });
 
   test("every default is a known feature", () => {
@@ -140,14 +176,19 @@ describe("featureSet", () => {
  * ================================================================== */
 
 describe("navAllowed", () => {
-  test("the customer set opens exactly the five real destinations", () => {
-    const set = new Set(["live", "playback", "ptz", "towers", "settings"]);
+  test("the default set opens exactly the backed destinations", () => {
+    /* ⚠ BUILT FROM `DEFAULT_FEATURES` RATHER THAN HAND-LISTED, because this
+       test is about what a customer who was told nothing can reach -- and a
+       literal here went stale the moment that list changed, while still
+       passing and still reading as though it had checked. */
+    const set = new Set(mod.f.DEFAULT_FEATURES);
     assert.equal(mod.f.navAllowed(set, "dashboard"), true);  // needs `live`
     assert.equal(mod.f.navAllowed(set, "towers"), true);
     assert.equal(mod.f.navAllowed(set, "playback"), true);
     assert.equal(mod.f.navAllowed(set, "settings"), true);
-    /* And refuses the demo ones. */
-    assert.equal(mod.f.navAllowed(set, "alerts"), false);
+    /* And the alert feed, which is backed now. */
+    assert.equal(mod.f.navAllowed(set, "alerts"), true);
+    /* And still refuses the ones that are fixtures or local state. */
     assert.equal(mod.f.navAllowed(set, "poi"), false);
     assert.equal(mod.f.navAllowed(set, "add"), false);
   });
@@ -323,7 +364,7 @@ describe("an operator can open tower settings", () => {
       join(ROOT, "src/components/CameraSettingsPanel.tsx"), "utf8");
   });
 
-  test("the five real features include settings and not tuning", () => {
+  test("the default features include settings and not tuning", () => {
     /* The operator's set, as a server that says nothing sends it. */
     const set = mod.f.featureSet(null);
     assert.equal(mod.f.can(set, "settings"), true);

@@ -6,6 +6,7 @@ import { AlertNotifications } from "@/components/AlertNotifications";
 import { FootageView } from "@/components/FootageView";
 import { useSession } from "@/components/AuthProvider";
 import { can, navAllowed, navVisible } from "@/lib/features";
+import { isHubAlert } from "@/lib/alertCopy";
 import {
   clearSection,
   sectionFromHash,
@@ -30,7 +31,7 @@ import {
 import { FleetFeedProvider } from "@/lib/useFleetFeed";
 import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
-import { useCapabilities } from "@/lib/useSites";
+import { useCapabilities, useCells } from "@/lib/useSites";
 import { hasSites, isHubMode } from "@/lib/hubMode";
 import { setPatrol } from "@/lib/api/fleet";
 import type { PatrolEdit } from "@/lib/patrol";
@@ -181,6 +182,19 @@ export function SentinelApp() {
      runtime toggle, because half a screen of each would be worse than either. */
   const seededFleet = isSeededFleet();
 
+  /* WHAT THIS SERVER IS, and whether this account administers it. `null` from
+     `useCapabilities` means "not answered yet", and is treated as NO: showing
+     the destinations and then removing them a moment later looks like a bug
+     even though it is only a race.
+
+     ⚠ READ UP HERE RATHER THAN BESIDE THE SCREENS IT GATES, which is where
+     it used to sit. The alert feed is built a few lines below and it needs
+     the cells, and the cells are a data centre route — so the thing that
+     says which tier this is has to be known before the read is made rather
+     than after the screens are chosen. */
+  const caps = useCapabilities();
+  const sitesEnabled = hasSites(caps);
+
   const [feeds, setFeeds] = useState<CameraFeed[]>(seededFleet ? FEEDS : []);
   /*
    * ⭐⭐ THE ALERT FEED IS REAL. ⭐⭐
@@ -237,6 +251,31 @@ export function SentinelApp() {
      A REAL tower reports no battery at all, so nothing moves and the card says
      so. See the note on `Tower`. */
   const [towers, setTowers] = useState<Tower[]>(seededFleet ? TOWERS : []);
+  /**
+   * THE HUBS, NAMED. `GET /v1/cells` is the only place a hub's label lives.
+   *
+   * ⚠ NOT `site.hubs`, WHICH IS A LIST OF IDS, and not the fleet, which holds
+   * a hub's MAST rather than the hub. A cell is a hub with the name somebody
+   * chose on it, and the two alert types the data centre raises about a hub
+   * are the only reason this read is here.
+   *
+   * Gated on both: no alerts means nothing to name, and no sites means a HUB
+   * alert cannot reach this browser at all — those are raised by the data
+   * centre about a hub that has gone off the internet, so a hub serving its
+   * own control room has nothing to say about itself and the route is not
+   * there to ask. A failed read is left as it falls: `useLoader` holds the
+   * error, nothing on screen reads it, and the title falls back to the id,
+   * which is the same answer this screen gave before hubs had names at all.
+   */
+  const cells = useCells(sitesEnabled && alertsEnabled);
+  const hubNames = useMemo(
+    () =>
+      new Map(
+        (cells.value?.cells ?? []).map((cell) => [cell.hub_id, cell.name]),
+      ),
+    [cells.value],
+  );
+
   /* ── THE FEED, AND THE NAMES IT IS READ IN ────────────────────────────
 
      An alert names a tower, and the wire carries only a device id. The fleet
@@ -249,8 +288,17 @@ export function SentinelApp() {
      ref: a stream rebuilt every time the fleet re-renders is a stream the
      server closes for being the 64th. */
   const nameOf = useCallback(
-    (deviceId: string) => towers.find((t) => t.id === deviceId)?.site,
-    [towers],
+    (deviceId: string, type?: string) =>
+      /* ⚠ A HUB IS NOT IN THE FLEET, AND ASKING THE FLEET FOR ONE IS HOW A
+         ROW ENDS UP READING `HUB-KLN-LAB OFFLINE`. `HUB_OFFLINE` and
+         `HUB_ONLINE` are raised by the data centre and carry the HUB's id in
+         `device_id`; the fleet holds that hub's MAST, under a different id
+         and with a different name. Two lists, and the alert's type is the
+         only thing that says which one to ask. */
+      isHubAlert(type)
+        ? hubNames.get(deviceId)
+        : towers.find((t) => t.id === deviceId)?.site,
+    [towers, hubNames],
   );
 
   /* Newest first and bounded. Each entry is handed to `AlertNotifications`,
@@ -600,14 +648,10 @@ export function SentinelApp() {
      `lib/api/sites.ts` for why that is not a build flag. */
   const [onShares, setOnShares] = useState(false);
   const [onAdmin, setOnAdmin] = useState(false);
-  /* WHAT THIS SERVER IS, and whether this account administers it. `null` from
-     `useCapabilities` means "not answered yet", and is treated as NO: showing
-     the destinations and then removing them a moment later looks like a bug
-     even though it is only a race. */
-  const caps = useCapabilities();
-  const sitesEnabled = hasSites(caps);
   /* THE WHOLE PRODUCT DECISION, from `GET /v1/capabilities`. See
-     `lib/hubMode.ts` for why this is the server's answer and not a flag. */
+     `lib/hubMode.ts` for why this is the server's answer and not a flag.
+     `caps` itself is read at the top of this component, beside the alert
+     feed, because the hub names that feed needs are gated on it. */
   const hubMode = isHubMode(caps);
   const isAdmin = sitesEnabled && isAdminRole(account?.role);
   /* THE SHARES THEMSELVES LIVE IN `ShareFeedProvider` (see main.tsx), which
@@ -1985,6 +2029,7 @@ export function SentinelApp() {
           problem={alertFeed.phase.kind === "error" ? alertFeed.phase.message : null}
           paused={alertFeed.paused}
           openAlertId={openAlertId}
+          nameOf={nameOf}
           cameraNameOf={cameraNameOf}
           onRefreshAlert={alertFeed.refresh}
         />

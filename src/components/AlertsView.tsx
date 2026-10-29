@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { AlertDetail } from "@/components/AlertDetail";
 import { AlertRow } from "@/components/AlertRow";
 import { deviceName } from "@/lib/deviceName";
-import type { CameraNameOf } from "@/lib/alertCopy";
+import type { CameraNameOf, NameOf } from "@/lib/alertCopy";
 import { alertPanes } from "@/lib/alertStory";
 import { AlertsEmpty } from "@/components/AlertsEmpty";
 import { PausedNotice } from "@/components/PausedNotice";
@@ -55,6 +55,7 @@ export function AlertsView({
   problem,
   paused,
   openAlertId,
+  nameOf: resolveName,
   cameraNameOf,
   onRefreshAlert,
 }: {
@@ -114,6 +115,13 @@ export function AlertsView({
    * for "what is this camera called" across the wall, the panel and here.
    */
   cameraNameOf?: CameraNameOf;
+  /**
+   * Names one DEVICE, tower or hub, by id and alert type.
+   *
+   * Optional, and the fleet lookup stands behind it: a tower alert reads the
+   * same with or without this, and a hub alert is the one that needs it.
+   */
+  nameOf?: NameOf;
   /** Re-read one alert for fresh clip URLs. See `useClipHealth`. */
   onRefreshAlert?: (id: string) => Promise<void>;
 }) {
@@ -183,10 +191,19 @@ export function AlertsView({
     return () => window.removeEventListener("keydown", onKey);
   }, [visible, selectedId]);
 
-  const siteOf = (towerId: string) =>
-    deviceName(towers.find((t) => t.id === towerId)?.site) || towerId;
-  /* The RAW site name, for the copy layer, which capitalises on its own. */
-  const nameOf = (towerId: string) => towers.find((t) => t.id === towerId)?.site;
+  /* ⚠ THE SHELL'S RESOLVER FIRST, AND THE FLEET ONLY AS A FALLBACK. A
+     `HUB_OFFLINE` row's device is a HUB, which is not in `towers` under any
+     id — the fleet holds its MAST — so the lookup below answers `undefined`
+     for a box with a name somebody chose, and the row would read
+     `hub-kln-lab`. The shell knows both lists; this screen is handed the one
+     function that asks the right one. See `NameOf`.
+
+     The RAW name, for the copy layer, which capitalises on its own. */
+  const nameOf: NameOf = (deviceId, type) =>
+    resolveName?.(deviceId, type) ??
+    towers.find((t) => t.id === deviceId)?.site;
+  const siteOf = (alert: Alert) =>
+    deviceName(nameOf(alert.towerId, alert.site?.type) || alert.towerId);
 
   /* Unclaimed is the count that means anything on a fleet feed. The total is
      every alert these towers have ever raised, which on a wall that has been
@@ -352,7 +369,7 @@ export function AlertsView({
                   <AlertRow
                     key={alert.id}
                     alert={alert}
-                    site={siteOf(alert.towerId)}
+                    site={siteOf(alert)}
                     selected={alert.id === selectedId}
                     onSelect={() => setSelectedId(alert.id)}
                     onPlay={
@@ -435,7 +452,7 @@ export function AlertsView({
               : {})}
             at={playing.at}
             alert={playing.alert}
-            towerName={siteOf(playing.alert.towerId)}
+            towerName={siteOf(playing.alert)}
             onNavigate={onNavigate}
             onClose={() => setPlaying(null)}
           />

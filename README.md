@@ -879,6 +879,64 @@ The detail shows both, in separate cells, with separate labels.
 to: no ticket, no rota, no recipient. A button removed is a feature forgotten,
 and this one has to be wired the day there is one.
 
+### The hub itself, and footage that arrives later
+
+Two more types, raised a tier up. The data centre watches every hub's uplink
+the way a hub watches its towers' links, with the same state machine and the
+same sixty-second debounce, and `HUB_OFFLINE` and `HUB_ONLINE` are what it says
+when one stops answering and when it dials back in. Red and green, the same
+colours as the tower pair, deliberately: one incident type, one colour,
+whichever tier noticed it.
+
+"Offline", never "down", and the reason is stronger than a tower's. All the
+data centre observed is a socket that stopped answering. The hub on the other
+end may be serving its own site perfectly over the LAN, recording and watching
+and raising its own alerts, with nothing gone but the link to the internet.
+"Down" would be a claim about the hub; "offline" is a claim about the link,
+which is all there is evidence for.
+
+**A hub is not in the fleet, and that is what had to change on this side.**
+`device_id` carries the hub's id on these rows, and the fleet holds that hub's
+MAST, under a different id and with a different name on it. Asking the fleet
+gets `undefined`, and the row then reads `HUB-KLN-LAB OFFLINE` — a code on the
+one line somebody reads out over a radio. So the name resolver takes the
+alert's TYPE as well as its id, and the shell asks the cells list for a hub and
+the fleet for everything else. One function decides which is which.
+
+### Four ways to have no picture, and they are not the same thing
+
+The clip area used to ask one question: is there something to play? That was
+enough while every alert's clip was cut at the moment it was raised. A hub's is
+not, and the gap between the states is now the information.
+
+`HUB_OFFLINE` is the one alert whose clip **cannot** be cut when it is raised.
+The footage is on the hub, which is the thing that just went away, and the data
+centre keeps no video at all. Nothing polls for it and nothing expires: the
+hub cuts it from its own archive when it dials back in, and a hub can be away
+for weeks — off a mast for maintenance, a site without power, a SIM to replace.
+So "Clip coming", which promises the next minute, would be the wrong sentence
+for a wait that may outlast the month. It says **"Footage pending, the hub is
+away"**.
+
+When the clips do arrive they may arrive with no URL, and that is not a
+failure either. The data centre stores no video by design; the URLs it hands
+out are presigned into a bucket, and where no bucket is configured there is
+nothing to presign. The clip still has a camera, a quality, a length and a
+start, so it is drawn: two boxes side by side with their labels, not pressable,
+and one line underneath saying **"Clip on the hub only"** and where it can be
+watched, which is the screen in the control room.
+
+And a hub that is asked and has nothing — the disk was full, the camera was not
+recording, the box was rebuilt — answers with an empty list, which is an
+**answer**. "No footage of that moment" ends the waiting, which is the thing
+the other three sentences cannot do.
+
+⚠ That last one cannot reach the screen yet. The server says it with
+`progress.footage = "none"`, and the SDK parses `progress` as four numbers and
+drops anything else in the block, so it arrives as `{}`. Everything on this
+side is written and tested for it; the two-line change belongs in the SDK's own
+repository, and a test here fails the day it lands.
+
 ### Two things the stream does not do for you
 
 The event channel works, and watching it in DevTools on the lab hub showed

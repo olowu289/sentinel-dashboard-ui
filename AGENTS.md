@@ -312,6 +312,48 @@ one of those is the best news on the screen and the other is the worst. It is
 gated on the grace period because drops are ORDINARY on this channel, and a
 notice that blinks all day is a notice nobody reads.
 
+**A HUB IS NOT A TOWER, AND TWO ALERT TYPES ARE ABOUT ONE.** `HUB_OFFLINE`
+(red) and `HUB_ONLINE` (green) are raised by the DATA CENTRE from the uplink
+monitoring it already does, and `device_id` carries the HUB's id on those rows
+— docs/alerts.md §1a, "a hub is not a device, and that is the one thing the
+alert table had to absorb". The fleet cannot name one: it holds that hub's
+MAST, which is a different box with a different id and a different name. So
+`NameOf` takes the alert's TYPE as a second argument and the shell's resolver
+asks the cells (`GET /v1/cells`, the only place a hub's chosen name lives) for
+a hub and the fleet for everything else. `isHubAlert` is the one place that
+decides. Fall back to the id rather than to a blank, same as a tower.
+
+The wording is the same two sentences one tier up, and **"offline" matters more
+here than it does for a tower**: all the data centre saw was a socket stop
+answering, and the hub on the other end may be serving its own control room
+perfectly over the LAN. "Down" would be a claim about the hub.
+
+**A CLIP HAS SIX STATES AND FOUR OF THEM HAVE NO PICTURE.** `clipState` in
+`alertCopy.ts` answers, `clipWords` says it, and the two are shared by the clip
+area and the timeline so they cannot disagree. `playable` and `hubOnly` both
+have clips to draw per camera, side by side; the rest are one line and one of
+help. They are NOT interchangeable, which is the whole reason this is a state:
+
+| state | when | and so |
+| --- | --- | --- |
+| `playable` | a clip carries a `url` | the player, as always |
+| `hubOnly` | clips, none with a `url` | described, not pressable. The data centre keeps no video (§3a) and with no bucket there is nothing to mint, so the screen says where the footage IS: the dashboard at the site plays it |
+| `pending` | a HUB alert with no clips | **not "in a minute".** `HUB_OFFLINE` is the one alert whose clip cannot be cut at the raise: the footage is on the box that went away, nothing polls, nothing expires, and a hub can be off a mast for WEEKS |
+| `none` | `progress.footage == "none"` | the hub looked and had none. An ANSWER, so stop waiting |
+| `coming` | a tower alert with no clips yet | the ordinary minute |
+| `never` | the recovery pair | no clip area at all |
+
+⚠ **`progress.footage` DOES NOT REACH THIS SIDE YET, AND THE GAP IS IN THE
+SDK.** `AlertProgress` is four NUMBERS and `progress()` copies them by name, so
+the whole block arrives as `{}` and "No footage of that moment" can never be
+shown. Everything here is written for it — `footageAnswer` reads the field,
+`clipState` answers `none`, both surfaces say the sentence — and the SDK is
+vendored from a repository that is the source of truth and is NOT edited here
+(`npm run check:sdk` fails the build if it is). The change belongs there and is
+two lines: `readonly footage?: string` on `AlertProgress`, and one `put(out,
+"footage", ...)` in `progress()`. `test/siteAlerts.test.mjs` holds a test that
+fails the day it lands, which is how the next person finds out.
+
 **Motion lives in `src/lib/motion.ts`.** `ENTER` / `EXIT` / `FADE`, all tweens.
 Springs overshoot, which on a wall of cameras reads as the stream glitching.
 There are deliberately no CSS motion tokens — the standing keyframes in

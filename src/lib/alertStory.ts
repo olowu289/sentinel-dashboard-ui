@@ -1,12 +1,16 @@
 import type { AlertClip, SiteAlert } from "@kallon/sentry-sdk";
 import {
+  alertDeviceName,
   cameraLabel,
   cameraSubject,
+  clipState,
+  clipWords,
+  expectsClip,
+  isHubAlert,
   qualityLabel,
   type CameraNameOf,
   type NameOf,
 } from "./alertCopy";
-import { deviceName } from "./deviceName";
 import type { AlertAttachment } from "./types";
 
 /**
@@ -72,7 +76,7 @@ function subjectOf(
   nameOf?: NameOf,
   cameraNameOf?: CameraNameOf,
 ): string {
-  const tower = deviceName(nameOf?.(alert.device_id) || alert.device_id);
+  const tower = alertDeviceName(alert, nameOf);
   const camera = alert.cameras?.[0];
   if (alert.type === "CAMERA_STOPPED" && camera !== undefined) {
     /* ⚠ THROUGH `cameraSubject`, LIKE THE TITLE. This line appended the noun
@@ -115,6 +119,20 @@ export function alertStory(
     case "TOWER_ONLINE":
       steps.push({ at: started, title: `${subject} answered again` });
       break;
+    /* ⚠ NO NAME IN EITHER OF THESE, UNLIKE EVERY STEP ABOVE. A tower alert's
+       first line has to say WHICH mast, because a site has several and the
+       timeline is read beside a title that names only one of them. A hub
+       alert is about the box the whole site hangs off: there is one, the
+       header already names it, and "HUB-KLN-LAB stopped connecting" under a
+       heading reading "NORTH CAMP offline" is the same fact twice in two
+       different words for it. */
+    case "HUB_OFFLINE":
+      steps.push({ at: started, title: "Hub stopped connecting" });
+      break;
+    case "HUB_ONLINE":
+      /* The event IS the return, so the first step is the good news. */
+      steps.push({ at: started, title: "Back online" });
+      break;
     case "FOOTAGE_RECOVERING":
       steps.push({ at: started, title: `${subject} started sending its backlog` });
       break;
@@ -133,7 +151,12 @@ export function alertStory(
   if (back !== null) {
     steps.push({
       at: back,
-      title: alert.type === "CAMERA_STOPPED" ? "Frames arriving again" : "Back",
+      title:
+        alert.type === "CAMERA_STOPPED"
+          ? "Frames arriving again"
+          : isHubAlert(alert.type)
+            ? "Back online"
+            : "Back",
     });
   }
 
@@ -147,6 +170,25 @@ export function alertStory(
       at: acked,
       title: who ? `Acknowledged by ${who}` : "Acknowledged",
     });
+  }
+
+  /* ⭐ WHETHER THE FOOTAGE EVER CAME, AND ONLY FOR A HUB. Every other alert
+     is cut at the moment it is raised, so "Footage attached" under it would
+     be a step on every row saying what the picture above it already shows. A
+     hub's clip is the one that arrives SEPARATELY and may take weeks: the
+     footage is on the box that went away, nothing polls for it, and the hub
+     cuts it when it dials back in. Whether that has happened is a real event
+     in this incident's sequence, and the answer "it looked and had nothing"
+     is just as much one. No stamp for either: the row carries no time for
+     when the clips were attached, and an invented one would be the single
+     line on a handoff that nothing can corroborate. */
+  if (isHubAlert(alert.type)) {
+    const state = clipState(alert);
+    if (state === "playable" || state === "hubOnly") {
+      steps.push({ at: null, title: "Footage attached" });
+    } else if (state === "none") {
+      steps.push({ at: null, title: clipWords("none").headline });
+    }
   }
 
   if (alert.best_quality === "2k") {
@@ -188,12 +230,39 @@ export function alertPanes(
   alert: SiteAlert,
   cameraNameOf?: CameraNameOf,
 ): AlertPane[] {
+  return panesOf(alert, cameraNameOf, true);
+}
+
+/**
+ * The same list, including clips this browser CANNOT play.
+ *
+ * ⚠ FOR DESCRIBING A CLIP, NEVER FOR PLAYING ONE — a pane from here can
+ * carry an empty `src`. A clip with no `url` still has a camera, a quality, a
+ * length and a start (docs/alerts.md §4: "every other clip field is still
+ * there, so the clip can be described"), and that is the whole point of the
+ * "Clip on the hub only" state: the alert can say what exists and where,
+ * rather than looking like an alert with no evidence at all. Two cameras lay
+ * out side by side here exactly as they do when they play, because the thing
+ * being said about them is per camera.
+ */
+export function alertClipCards(
+  alert: SiteAlert,
+  cameraNameOf?: CameraNameOf,
+): AlertPane[] {
+  return panesOf(alert, cameraNameOf, false);
+}
+
+function panesOf(
+  alert: SiteAlert,
+  cameraNameOf: CameraNameOf | undefined,
+  playableOnly: boolean,
+): AlertPane[] {
   const clips = alert.clips ?? [];
   if (clips.length === 0) return [];
   const want = alert.best_quality;
   const byCamera = new Map<number, AlertClip>();
   for (const clip of clips) {
-    if (!clip.url) continue;
+    if (playableOnly && !clip.url) continue;
     const have = byCamera.get(clip.camera);
     if (!have) {
       byCamera.set(clip.camera, clip);
@@ -215,7 +284,10 @@ export function alertPanes(
            Empty rather than a placeholder image, which `ClipPlayer` reads as
            "no poster" and skips. */
         thumbnail: "",
-        src: clip.url,
+        /* Empty for a clip that is only on its hub. `alertPanes` never
+           returns one; `alertClipCards` does, and nothing hands those to a
+           player. */
+        src: clip.url ?? "",
         ...(clip.download_url ? { downloadUrl: clip.download_url } : {}),
         ...(clip.filename ? { filename: clip.filename } : {}),
         ...(clip.duration !== undefined ? { durationSec: clip.duration } : {}),
@@ -224,7 +296,9 @@ export function alertPanes(
     }));
 }
 
-/** Does this alert ever get a clip? §9: the recovery pair never does. */
-export function expectsClip(type: string): boolean {
-  return type !== "FOOTAGE_RECOVERING" && type !== "FOOTAGE_RECOVERED";
-}
+/* `expectsClip` moved to `alertCopy` when `clipState` was written: the six
+   states are one decision and one of them is "this kind never has a clip",
+   so keeping the predicate in a second module was keeping half of a switch
+   away from the other half. Re-exported because this is where the clip
+   helpers are imported from. */
+export { expectsClip };

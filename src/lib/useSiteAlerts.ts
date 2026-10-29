@@ -272,6 +272,32 @@ export function useSiteAlerts(options: {
 }): SiteAlertFeed {
   const { enabled, nameOf, cameraNameOf, onArrived } = options;
   const [raws, setRaws] = useState<Map<string, SiteAlert>>(() => new Map());
+  /**
+   * THE SAME MAP, READABLE RIGHT NOW.
+   *
+   * ⚠ A `useState` UPDATER DOES NOT RUN WHEN YOU CALL `setState`, AND THAT
+   * COST THIS FEATURE A LAB ROUND. The decision "do these clips need URLs?"
+   * was made inside the updater and the ids were pushed onto an array read
+   * on the next line — so the loop ran before the updater did, found it
+   * empty, and no request was ever made. Zero `site-alerts` calls after an
+   * `alert.updated`, which is exactly what DevTools showed.
+   *
+   * It LOOKED right in isolation because React has an eager-state bailout:
+   * when a hook's update queue is empty it runs the reducer immediately to
+   * see whether the state actually changed. One frame at a time takes that
+   * path and the array is populated in time. Two frames back to back — a
+   * raise and its clip, which is every real incident — leave an update
+   * pending, the bailout is skipped, the updater is deferred to the render
+   * phase, and the side effect reads nothing. A test that pushes one frame
+   * and waits cannot see it.
+   *
+   * So the store is a ref and the state is its mirror. Every decision is
+   * made here, synchronously, against what is actually held; `setRaws` is
+   * handed a finished value and is only how the screen hears about it. An
+   * updater that has to be pure and a decision that has to happen now do
+   * not belong in the same function.
+   */
+  const store = useRef<Map<string, SiteAlert>>(new Map());
   const [phase, setPhase] = useState<AlertsPhase>({ kind: "off" });
   const [reconnecting, setReconnecting] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -316,41 +342,44 @@ export function useSiteAlerts(options: {
   /** Upsert, dropping anything we already have at this revision or newer. */
   const upsert = useCallback((incoming: readonly SiteAlert[]) => {
     if (incoming.length === 0) return;
-    /* Collected inside the updater and acted on outside it: a state updater
-       must be pure, and React may run it twice. */
+    /* ⚠ AGAINST THE REF, NOT INSIDE AN UPDATER. See the note on `store`:
+       the decision below has to be made NOW, and a `setState` updater does
+       not run when you call it. */
+    const next = new Map(store.current);
     const toFetch: string[] = [];
-    setRaws((prev) => {
-      let changed = false;
-      const next = new Map(prev);
-      for (const a of incoming) {
-        const have = next.get(a.id);
-        /* Equal revs are rejected too: a row that has not changed has nothing
-           to apply, and re-rendering it is work for no new fact. */
-        if (have && a.rev <= have.rev) continue;
-        /* Keep the URLs we already have for the same clips -- see
-           `withKnownUrls`. A later frame carrying the same clip list without
-           them would otherwise take a playable clip back off the screen. */
-        const merged = withKnownUrls(a, have);
-        next.set(a.id, merged);
-        changed = true;
-        /* ⭐ AND IF ANY CLIP STILL CANNOT BE PLAYED, GO AND GET IT. The push
-           carries clips without URLs on purpose; the browser's half of that
-           bargain is to ask. Once per set of clips, so an alert whose URLs
-           never arrive costs one request rather than a loop. */
-        if (!needsFreshUrls(merged)) continue;
-        const print = clipFingerprint(merged);
-        if (asked.current.get(a.id) === print) continue;
-        asked.current.set(a.id, print);
-        toFetch.push(a.id);
-      }
-      return changed ? next : prev;
-    });
+    let changed = false;
+    for (const a of incoming) {
+      const have = next.get(a.id);
+      /* Equal revs are rejected too: a row that has not changed has nothing
+         to apply, and re-rendering it is work for no new fact. */
+      if (have && a.rev <= have.rev) continue;
+      /* Keep the URLs we already have for the same clips -- see
+         `withKnownUrls`. A later frame carrying the same clip list without
+         them would otherwise take a playable clip back off the screen. */
+      const merged = withKnownUrls(a, have);
+      next.set(a.id, merged);
+      changed = true;
+      /* ⭐ AND IF ANY CLIP STILL CANNOT BE PLAYED, GO AND GET IT. The push
+         carries clips without URLs on purpose; the browser's half of that
+         bargain is to ask. Once per set of clips, so an alert whose URLs
+         never arrive costs one request rather than a loop. */
+      if (!needsFreshUrls(merged)) continue;
+      const print = clipFingerprint(merged);
+      if (asked.current.get(a.id) === print) continue;
+      asked.current.set(a.id, print);
+      toFetch.push(a.id);
+    }
+    if (!changed) return;
+    store.current = next;
+    setRaws(next);
     for (const id of toFetch) scheduleRefreshRef.current?.(id);
   }, []);
 
   /* ── THE READ, AND THEN THE STREAM ─────────────────────────────────── */
   useEffect(() => {
     if (!enabled) {
+      store.current = new Map();
+      asked.current.clear();
       setRaws(new Map());
       setPhase({ kind: "off" });
       setReconnecting(false);
@@ -436,11 +465,12 @@ export function useSiteAlerts(options: {
 
   const refresh = useCallback(async (id: string) => {
     const again = await getSiteAlert(id);
-    setRaws((prev) => {
-      const next = new Map(prev);
-      next.set(again.id, again);
-      return next;
-    });
+    /* Through the ref, so the next frame to arrive sees these URLs and
+       `withKnownUrls` can carry them forward rather than asking again. */
+    const next = new Map(store.current);
+    next.set(again.id, again);
+    store.current = next;
+    setRaws(next);
   }, []);
 
   /**

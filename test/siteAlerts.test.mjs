@@ -1675,6 +1675,149 @@ describe("the alert feed, end to end", () => {
     assert.equal(mine.length, 1, `one fetch per burst, got ${mine.length}`);
   });
 
+  test("⭐ THE LAB'S OWN PAYLOAD, through the real parser, fetches once", async () => {
+    /* ⚠ THE PREVIOUS VERSION OF THIS TEST PASSED AND THE BUG WAS STILL
+       THERE, so this one is shaped by what hid it.
+
+       The fetch list was built inside a `setRaws` updater and read on the
+       next line. React does not run an updater when you call `setState` --
+       it has an eager-state bailout that runs the reducer immediately ONLY
+       when the hook's update queue is empty. One frame at a time takes that
+       path and the list is populated in time; two frames back to back leave
+       an update pending, the bailout is skipped, the updater is deferred to
+       the render phase, and the side effect reads an empty array. Which is
+       every real incident, and is why DevTools showed zero `site-alerts`
+       requests after an `alert.updated`.
+
+       So this pushes the raise and the clip WITHOUT awaiting between them,
+       which is how they arrive, and uses the hub's own payload verbatim --
+       including a fractional `start_epoch` and a clip with no `url`. */
+    const LAB = {
+      acknowledged: false,
+      best_quality: "standard",
+      cameras: [1],
+      clips: [
+        {
+          camera: 1,
+          duration: 60.0,
+          key: "clips/kln_lab_000002/cam1/2026-10-29/labclip.mp4",
+          quality: "standard",
+          size: 7918500,
+          start: "2026-10-29T03:43:04Z",
+          start_epoch: 1793245384.595009,
+        },
+      ],
+      colour: "orange",
+      device_id: WEST,
+      id: "a51acfc7000000000000000000000000",
+      rev: 2,
+      started_at: "2026-10-29T03:44:04Z",
+      started_epoch: 1793245444.595009,
+      type: "CAMERA_STOPPED",
+    };
+    const raise = { ...LAB, rev: 1, best_quality: undefined, clips: undefined };
+
+    await page.evaluate(
+      ([first, second]) => {
+        window.__gets = [];
+        /* ⚠ BACK TO BACK, NO AWAIT. The gap between these two is the whole
+           difference between a test that catches this and one that does
+           not. */
+        window.__push("alert.new", first);
+        window.__push("alert.updated", second);
+      },
+      [raise, LAB],
+    );
+
+    /* ONE single-alert GET, which is the request the lab never saw. */
+    await page.waitForFunction(
+      () => (window.__gets ?? []).some((u) => u.includes("a51acfc7")),
+      { timeout: 8000 },
+    );
+    await page.waitForTimeout(600);
+    const mine = (await page.evaluate(() => window.__gets)).filter((u) =>
+      u.includes("a51acfc7"),
+    );
+    assert.equal(mine.length, 1, `one fetch for the burst, got ${mine.length}`);
+
+    /* And the clip is playable, without a refresh. */
+    await openRow("NORTH GATE camera stopped working");
+    await page.waitForSelector("[data-alert-clip-hero]", { timeout: 8000 });
+    assert.match(
+      await page.getAttribute("[data-alert-clip-hero] video", "src"),
+      /labclip\.mp4/,
+    );
+    await openPlayer(0);
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.getAttribute("aria-label") === "Play",
+      );
+      b?.click();
+    });
+    await page.waitForFunction(
+      () => {
+        const v = document.querySelector("[data-clip-stage] video");
+        return v && !v.paused && v.currentTime > 0.2;
+      },
+      { timeout: 10_000 },
+    );
+    await closePlayer();
+  });
+
+  test("⭐ and a third frame with no clips at all does not undo it", async () => {
+    /* The lab's id 6: `recovered_at`, same alert, higher revision. It
+       carries the clip list again on a real hub and sometimes does not; in
+       either case the clip must stay playable and nothing must be asked
+       for a second time. */
+    await page.evaluate(() => { window.__gets = []; });
+    await page.evaluate(
+      (dev) =>
+        window.__push("alert.updated", {
+          acknowledged: false,
+          best_quality: "standard",
+          cameras: [1],
+          clips: [
+            {
+              camera: 1,
+              duration: 60.0,
+              key: "clips/kln_lab_000002/cam1/2026-10-29/labclip.mp4",
+              quality: "standard",
+              size: 7918500,
+              start: "2026-10-29T03:43:04Z",
+              start_epoch: 1793245384.595009,
+            },
+          ],
+          colour: "orange",
+          device_id: dev,
+          id: "a51acfc7000000000000000000000000",
+          recovered_at: "2026-10-29T03:46:00Z",
+          rev: 3,
+          started_at: "2026-10-29T03:44:04Z",
+          started_epoch: 1793245444.595009,
+          type: "CAMERA_STOPPED",
+        }),
+      WEST,
+    );
+    await page.waitForFunction(
+      () => /Back at/.test(document.body.innerText),
+      { timeout: 5000 },
+    );
+    await page.waitForTimeout(600);
+    assert.equal(
+      (await page.evaluate(() => window.__gets)).filter((u) =>
+        u.includes("a51acfc7"),
+      ).length,
+      0,
+      "asked again for URLs it already had",
+    );
+    assert.ok(
+      await page.evaluate(
+        () => document.querySelectorAll("[data-alert-clip-hero]").length > 0,
+      ),
+      "the recovery frame took the clip back off the screen",
+    );
+  });
+
   test("⭐ the same urlless clips arriving again do NOT cause a second fetch", async () => {
     /* ⚠ THE DEBOUNCE IS NOT THE GUARD, AND CANNOT BE. The lab's own capture
        is three frames, and the third (`recovered_at`) carries the SAME clip

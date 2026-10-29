@@ -245,6 +245,43 @@ right of the viewport and the detail ends in that same corner at lg, so the
 the overlay: the overlay is global and correct, and the panel is what chose to
 end in an occupied corner. If the chip moves, re-measure.
 
+**The event stream sends clips WITHOUT urls, and that is the server being
+correct.** `url` and `download_url` are minted per request and must not be
+cached — a presigned bucket URL lives fifteen minutes and a pushed frame can
+sit in a queue — so the hub mints them on `GET` and leaves them off the push.
+The browser's half of that bargain is to ask: `useSiteAlerts` re-reads an alert
+whose clips lack URLs, debounced (`REFETCH_DEBOUNCE_MS`) so a burst of frames
+about one incident is one request, and once per clip fingerprint so a clip
+whose URLs never arrive costs one request rather than a loop. Without it the
+detail sits on "Clip coming" until a reload, because only the LIST mints.
+
+⚠ **AND A LATER FRAME MUST NOT ERASE THE URLS ALREADY FETCHED.**
+`withKnownUrls` carries them forward by clip key. The recovery frame carries
+the same clip list as the one that announced it, so applying it verbatim takes
+a playable clip back off the screen — a recovery un-playing the clip of the
+incident it is recovering from. That is not caching a URL: the alert in the
+store already held it, `key` is still the identity, and the 403 path re-mints
+an expired one.
+
+⚠ **A NOTIFICATION'S LIFETIME IS MEASURED FROM WHEN IT ARRIVED, NOT FROM
+`at`.** `Notification.at` is when the thing HAPPENED; `Held.addedAt` is when
+the stack received it, and the expiry timer uses the second. They were one
+field, and the hub stamps an alert at the event and raises it 60 s later after
+the debounce — so every alert card was already older than the nine-second
+default before it was created: added, retired on the next tick, straight into
+"Recent" marked "passed", with no toast ever on screen. Share cards had the
+same bug waiting for any share older than nine seconds when the poll found it.
+A card that carries a button takes `ACTIONABLE_TTL_MS`, because nine seconds is
+less than the time it takes to look up from a camera wall.
+
+**A stopped stream says so.** `useSiteAlerts` exposes `paused` — `reconnecting`
+held for longer than `PAUSED_AFTER_MS` (8 s, two failed attempts) — and both
+alert surfaces draw the same `PausedNotice`. A feed that has stopped and a
+quiet night are both a list that is not changing, and on a monitoring product
+one of those is the best news on the screen and the other is the worst. It is
+gated on the grace period because drops are ORDINARY on this channel, and a
+notice that blinks all day is a notice nobody reads.
+
 **Motion lives in `src/lib/motion.ts`.** `ENTER` / `EXIT` / `FADE`, all tweens.
 Springs overshoot, which on a wall of cameras reads as the stream glitching.
 There are deliberately no CSS motion tokens — the standing keyframes in

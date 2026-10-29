@@ -18,6 +18,7 @@ import { AlertDetail } from "./AlertDetail";
 import { AlertRow } from "./AlertRow";
 import { ClipPlayer } from "./ClipPlayer";
 import { AlertsEmpty } from "./AlertsEmpty";
+import { PausedNotice } from "./PausedNotice";
 import { DateFilterPopover } from "./DateFilterPopover";
 import { MaskIcon } from "./Icon";
 
@@ -40,6 +41,7 @@ export function AlertsPanel({
   nameOf,
   cameraNameOf,
   onRefreshAlert,
+  paused,
   className = "",
 }: {
   alerts: Alert[];
@@ -76,6 +78,8 @@ export function AlertsPanel({
   cameraNameOf?: CameraNameOf;
   /** Re-read one alert for fresh clip URLs. See `useClipHealth`. */
   onRefreshAlert?: (id: string) => Promise<void>;
+  /** The live channel has been down long enough to say so. See `PausedNotice`. */
+  paused?: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   /* The clip open in the review player. It lives here rather than in the feed
@@ -251,6 +255,14 @@ export function AlertsPanel({
           </span>
         </div>
       )}
+
+      {/* ⭐ THE SAME NOTICE AS THE FLEET FEED, from the same component. This
+          panel shows one tower's alerts and is the screen an operator
+          watching that site has open, so it is at least as likely as the
+          fleet feed to be the place where a stopped stream is mistaken for a
+          quiet night. A second copy of the sentence is a second copy that
+          can be reworded alone. */}
+      {paused && <PausedNotice />}
 
       {/* Extra bottom padding clears the fixed view bar; the last alert in the
           feed must be scrollable clear of it, not trapped underneath. */}

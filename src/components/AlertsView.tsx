@@ -6,6 +6,7 @@ import { deviceName } from "@/lib/deviceName";
 import type { CameraNameOf } from "@/lib/alertCopy";
 import { alertPanes } from "@/lib/alertStory";
 import { AlertsEmpty } from "@/components/AlertsEmpty";
+import { PausedNotice } from "@/components/PausedNotice";
 import { ClipPlayer } from "@/components/ClipPlayer";
 import { DateFilterPopover } from "@/components/DateFilterPopover";
 import { IconRail } from "@/components/IconRail";
@@ -52,7 +53,7 @@ export function AlertsView({
   onWatchPerson,
   onRejectMatch,
   problem,
-  reconnecting,
+  paused,
   openAlertId,
   cameraNameOf,
   onRefreshAlert,
@@ -80,14 +81,20 @@ export function AlertsView({
    */
   problem?: string | null;
   /**
-   * The live channel is between connections.
+   * The live channel has been down long enough to tell somebody.
    *
-   * A reading, not an error: the list on screen is still the last thing the
-   * server said and the SDK is already reconnecting. Drops are ORDINARY here
-   * -- a slow reader is closed rather than waited for -- so this is a quiet
-   * line and never a banner.
+   * ⭐ A FEED THAT HAS STOPPED LOOKS EXACTLY LIKE A QUIET NIGHT. Both are a
+   * list that is not changing, and one of those is the best news on this
+   * screen while the other is the worst. Nothing else here can tell them
+   * apart, so this is the only thing standing between a silent failure and
+   * an operator believing their site is calm.
+   *
+   * A reading, not an error: the rows on screen are still the last thing the
+   * server said and the SDK is already reconnecting, so it is a quiet line
+   * and never a banner. It is gated on a grace period in `useSiteAlerts` --
+   * a routine reconnect must not blink it, or it stops being read.
    */
-  reconnecting?: boolean;
+  paused?: boolean;
   /**
    * An alert to open on arrival, from somewhere outside this screen.
    *
@@ -319,16 +326,7 @@ export function AlertsView({
             {problem}
           </p>
         )}
-        {!problem && reconnecting && (
-          /* Below the count and above the list, in the quietest ink on the
-             screen. It is not news: the rows are still true. */
-          <p
-            data-alert-reconnecting
-            className="shrink-0 border-b border-line px-[15px] py-[8px] text-[0.75rem] leading-[16px] text-muted"
-          >
-            Reconnecting to the site.
-          </p>
-        )}
+        {!problem && paused && <PausedNotice />}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[15px] pb-[20px] pt-[20px]">
           {visible.length === 0 ? (

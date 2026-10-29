@@ -101,6 +101,28 @@ const clip = (camera, quality, key) => ({
   download_url: `https://clips.test/${key}.mp4?dl=1`,
 });
 
+/**
+ * A clip EXACTLY as the event stream sends one, from the lab's own capture:
+ *
+ *   id 5  alert.updated  {rev 2, clips:[{camera, duration, key, quality,
+ *                         size, start, start_epoch}]}
+ *
+ * ⚠ NO `url` AND NO `download_url`, AND THAT IS THE SERVER BEING CORRECT.
+ * Both are minted per request and must not be cached — a presigned bucket
+ * URL lives fifteen minutes, and a pushed frame can sit in a queue. So the
+ * hub mints them on `GET` and leaves them off the push, and the browser's
+ * half of that bargain is to go and ask.
+ */
+const pushedClip = (camera, quality, key) => ({
+  camera,
+  quality,
+  key,
+  start: "2026-10-28T12:09:00Z",
+  start_epoch: EPOCH - 60,
+  duration: 52.7,
+  size: 6_800_000,
+});
+
 const OFFLINE_ALERT = {
   id: "aaaa0000",
   type: "TOWER_OFFLINE",
@@ -569,6 +591,29 @@ describe("the alert feed, end to end", () => {
            real element and was therefore unobservable here by construction.
            The clips are a real four-second mp4 now, served by `page.route`. */
         w.__cameraNames = window.__CAMERA_NAMES;
+        /* ⚠ THE SERVER MINTS CLIP URLS ON `GET` AND NOT ON THE PUSH, and the
+           harness has to do the same or it cannot show the bug. `url` and
+           `download_url` are per-request credentials that live fifteen
+           minutes; a frame sitting in a queue carrying one would hand out a
+           dead link, so the hub leaves them off a push and puts them on an
+           answer. The browser's half of that is to go and ask, which is what
+           is under test. */
+        w.mint = (alert) => {
+          if (!alert?.clips) return alert;
+          return {
+            ...alert,
+            clips: alert.clips.map((c) =>
+              c.url
+                ? c
+                : {
+                    ...c,
+                    url: `https://clips.test/${c.key}.mp4`,
+                    download_url: `https://clips.test/${c.key}.mp4?dl=1`,
+                    filename: `${c.key}.mp4`,
+                  },
+            ),
+          };
+        };
 
         const json = (body, status = 200) =>
           new Response(JSON.stringify(body), {
@@ -619,15 +664,19 @@ describe("the alert feed, end to end", () => {
           const one = path.match(/\/v1\/viewer\/site-alerts\/([^/?]+)$/);
           if (one && method === "GET") {
             w.__gets.push(path);
-            return json(w.__refreshed ?? w.__alerts.get(one[1]));
+            return json(w.__refreshed ?? w.mint(w.__alerts.get(one[1])));
           }
 
           if (path.includes("/v1/viewer/site-alerts")) {
             w.__listUrls = w.__listUrls ?? [];
             w.__listUrls.push(path);
+            for (const [k, v] of w.__alerts) w.__alerts.set(k, v);
             w.__listAuth = w.__listAuth ?? [];
             w.__listAuth.push((init.headers ?? {}).Authorization ?? null);
-            return json({ alerts: [...w.__alerts.values()], colours: list.colours });
+            return json({
+              alerts: [...w.__alerts.values()].map(w.mint),
+              colours: list.colours,
+            });
           }
           throw new Error(`unrouted: ${method} ${path}`);
         };
@@ -1166,8 +1215,22 @@ describe("the alert feed, end to end", () => {
     );
 
     if (door === "toast") {
+      /* ⚠ THE CARD FOR THIS ALERT, not whichever is last in the DOM. Cards
+         live 45 seconds now (they carry a button, and the nine-second
+         default retired them before anybody could look up), so several are
+         on screen at once and the stack orders them newest-nearest-the-
+         corner. Picking by position was picking the OLDEST one. */
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll("[role='group']")].some((g) =>
+            /EAST TOWER back online/.test(g.textContent ?? ""),
+          ),
+        { timeout: 5000 },
+      );
       await page.evaluate(() => {
-        const card = [...document.querySelectorAll("[role='group']")].at(-1);
+        const card = [...document.querySelectorAll("[role='group']")].find((g) =>
+          /EAST TOWER back online/.test(g.textContent ?? ""),
+        );
         const open = [...(card?.querySelectorAll("button") ?? [])].find(
           (b) => b.textContent?.trim() === "Open",
         );
@@ -1526,6 +1589,230 @@ describe("the alert feed, end to end", () => {
     assert.equal(state, "acknowledged", "a stale read un-acknowledged an alert");
   });
 
+  /* ================================================================
+   *  THE LAB'S EVENT PAYLOADS, EXACTLY AS CAPTURED
+   * ================================================================ */
+
+  test("⭐ clips pushed WITHOUT urls are fetched, and become playable", async () => {
+    /* The lab's three frames for one incident, verbatim:
+         id 4  alert.new      {type CAMERA_STOPPED, rev 1, no clips}
+         id 5  alert.updated  {rev 2, clips:[{...}]}   <- NO url
+         id 6  alert.updated  {rev 3, recovered_at}
+       The clip sat on "Clip coming" until a hard refresh, because the push
+       carries no URL and nothing on this side went and asked for one. The
+       reload worked only because the LIST mints them. */
+    const id = "pushed-0001";
+    const base = {
+      id,
+      type: "CAMERA_STOPPED",
+      colour: "orange",
+      device_id: WEST,
+      cameras: [1],
+      started_at: "2026-10-28T12:09:30Z",
+      started_epoch: EPOCH + 3000,
+      acknowledged: false,
+      rev: 1,
+    };
+
+    await page.evaluate((a) => {
+      window.__gets = [];
+      window.__push("alert.new", a);
+    }, base);
+    await page.waitForFunction(
+      (alertId) => (window.__feed.alerts ?? []).some((a) => a.id === alertId),
+      id,
+      { timeout: 5000 },
+    );
+    await openRow("NORTH GATE camera stopped working");
+    assert.match(await page.textContent("body"), /Clip coming/);
+
+    /* id 5 and id 6, back to back, as they arrived. */
+    await page.evaluate(
+      ([a, c]) => {
+        window.__push("alert.updated", { ...a, rev: 2, best_quality: "standard", clips: [c] });
+        window.__push("alert.updated", {
+          ...a,
+          rev: 3,
+          best_quality: "standard",
+          clips: [c],
+          recovered_at: "2026-10-28T12:12:00Z",
+        });
+      },
+      [base, pushedClip(1, "standard", "pushed-c1")],
+    );
+
+    /* ⚠ WITHOUT A REFRESH. The hero appears because the feed went and got
+       the URLs, not because anybody reloaded the tab. */
+    await page.waitForSelector("[data-alert-clip-hero]", { timeout: 8000 });
+    const src = await page.getAttribute("[data-alert-clip-hero] video", "src");
+    assert.match(src, /pushed-c1\.mp4/);
+
+    /* And it genuinely plays, which is the only assertion that means
+       anything here. */
+    await openPlayer(0);
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.getAttribute("aria-label") === "Play",
+      );
+      b?.click();
+    });
+    await page.waitForFunction(
+      () => {
+        const v = document.querySelector("[data-clip-stage] video");
+        return v && !v.paused && v.currentTime > 0.2;
+      },
+      { timeout: 10_000 },
+    );
+    await closePlayer();
+  });
+
+  test("⭐ and a burst of those frames causes ONE fetch, not three", async () => {
+    /* A raise, a clip and a recovery arrive within seconds of each other on
+       a real incident. Re-reading on each is three requests for one answer,
+       and the first two are thrown away by the third. */
+    const gets = await page.evaluate(() => window.__gets);
+    const mine = gets.filter((u) => u.includes("pushed-0001"));
+    assert.equal(mine.length, 1, `one fetch per burst, got ${mine.length}`);
+  });
+
+  test("⭐ the same urlless clips arriving again do NOT cause a second fetch", async () => {
+    /* ⚠ THE DEBOUNCE IS NOT THE GUARD, AND CANNOT BE. The lab's own capture
+       is three frames, and the third (`recovered_at`) carries the SAME clip
+       list as the second. On a real incident those can be seconds apart --
+       well outside any debounce window -- so without a record of what has
+       already been asked for, every later frame about the same alert buys
+       another round trip for URLs this browser already has.
+
+       And it is the only thing standing between here and a loop in the case
+       that matters: a clip whose URLs never arrive. */
+    const id = "pushed-0001";
+    await page.evaluate(() => { window.__gets = []; });
+    await page.evaluate(
+      ([alertId, dev, c]) =>
+        window.__push("alert.updated", {
+          id: alertId,
+          type: "CAMERA_STOPPED",
+          colour: "orange",
+          device_id: dev,
+          cameras: [1],
+          started_at: "2026-10-28T12:09:30Z",
+          started_epoch: 1793192400,
+          acknowledged: false,
+          best_quality: "standard",
+          /* The same clip, with no url, on a HIGHER revision -- which is
+             what the recovery frame looks like. */
+          clips: [c],
+          recovered_at: "2026-10-28T12:30:00Z",
+          rev: 9,
+        }),
+      [id, WEST, pushedClip(1, "standard", "pushed-c1")],
+    );
+    /* Longer than the debounce, so a second fetch would have landed. */
+    await page.waitForTimeout(1200);
+    const mine = (await page.evaluate(() => window.__gets)).filter((u) =>
+      u.includes(id),
+    );
+    assert.equal(mine.length, 0, `asked again for urls it already had (${mine.length})`);
+    /* And the clip is still playable, from the URLs fetched the first time. */
+    assert.ok(
+      await page.evaluate(
+        () => document.querySelectorAll("[data-alert-clip-hero]").length > 0,
+      ),
+    );
+  });
+
+  test("⭐ THE TOAST SURVIVES ITS OWN ARRIVAL", async () => {
+    /* ⚠ THE BUG, AND IT HAD NO SYMPTOM EXCEPT ABSENCE. The stack retired a
+       card when `now - at` passed the TTL, and `at` is when the thing
+       HAPPENED. The hub stamps an alert at the event and raises it 60 s
+       later after the debounce, so every alert card was already older than
+       the nine-second default before it was created: added, retired on the
+       next tick, straight into "Recent" marked "passed". Which is exactly
+       how it was reported -- the alert was under Recent and no toast ever
+       appeared.
+
+       The payload here is the lab's `alert.new`: an event stamped a minute
+       and a half ago, which is ordinary and not an edge case. */
+    const started = Math.floor(Date.now() / 1000) - 95;
+    await page.evaluate(
+      ([dev, epoch]) =>
+        window.__push("alert.new", {
+          id: "staletoast",
+          type: "CAMERA_STOPPED",
+          colour: "orange",
+          device_id: dev,
+          cameras: [2],
+          started_at: new Date(epoch * 1000).toISOString(),
+          started_epoch: epoch,
+          acknowledged: false,
+          rev: 1,
+        }),
+      [WEST, started],
+    );
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("[role='group']")].some((g) =>
+          /YARD camera stopped working/.test(g.textContent ?? ""),
+        ),
+      { timeout: 5000 },
+    );
+    /* It is STILL THERE after the expiry tick that used to take it. */
+    await page.waitForTimeout(1600);
+    const card = await page.evaluate(() => {
+      const g = [...document.querySelectorAll("[role='group']")].find((x) =>
+        /YARD camera stopped working/.test(x.textContent ?? ""),
+      );
+      return g ? { text: g.textContent, strip: g.querySelector("div")?.className } : null;
+    });
+    assert.ok(card, "the toast was retired before it could be seen");
+    assert.match(card.strip, /bg-detect/);
+    /* And the corner still reads the EVENT's own age, which is the thing
+       `at` is for -- the two were one field and should never have been. */
+    /* No word boundary in the pattern: the stamp abuts the title in
+       `textContent`, so there is no boundary between them. */
+    assert.match(card.text, /[12]m/);
+  });
+
+  test("⭐ and it raises on the Alerts screen too, with a detail open", async () => {
+    /* "Suppressed on the Alerts screen" and "suppressed when a detail is
+       open" were two of the candidate explanations. Neither was true, and
+       this is what keeps them untrue: the harness IS the Alerts screen, and
+       a detail is open from the test above. */
+    assert.ok(
+      await page.evaluate(() => document.querySelectorAll("[data-alert-story]").length > 0),
+      "no detail is open, so this test is not checking what it says",
+    );
+    await page.evaluate(
+      (dev) =>
+        window.__push("alert.new", {
+          id: "whiledetailopen",
+          type: "TOWER_OFFLINE",
+          colour: "red",
+          device_id: dev,
+          cameras: [1, 2],
+          started_at: "2026-10-28T12:55:00Z",
+          started_epoch: Math.floor(Date.now() / 1000) - 120,
+          acknowledged: false,
+          rev: 1,
+        }),
+      EAST,
+    );
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("[role='group']")].some((g) =>
+          /EAST TOWER offline/.test(g.textContent ?? ""),
+        ),
+      { timeout: 8000 },
+    );
+    const strip = await page.evaluate(() => {
+      const g = [...document.querySelectorAll("[role='group']")].find((x) =>
+        /EAST TOWER offline/.test(x.textContent ?? ""),
+      );
+      return g?.querySelector("div")?.className ?? "";
+    });
+    assert.match(strip, /bg-critical/);
+  });
+
   test("⭐ a dropped stream re-reads with `since`, and keeps the feed", async () => {
     /* A slow reader is CLOSED rather than waited for, because the publisher is
        the loop watching the fleet, and a node holds at most 64 streams. Drops
@@ -1552,6 +1839,7 @@ describe("the alert feed, end to end", () => {
 describe("what the screen says when the read fails", () => {
   let api;
   let view;
+  let hook;
 
   before(async () => {
     await mkdir(SCRATCH, { recursive: true });
@@ -1569,6 +1857,7 @@ describe("what the screen says when the read fails", () => {
     });
     api = await import(`file://${out.replace(/\\/g, "/")}`);
     view = await readFile(join(SRC, "components/AlertsView.tsx"), "utf8");
+    hook = await readFile(join(SRC, "lib/useSiteAlerts.ts"), "utf8");
   });
 
   test("⭐ each failure is short, and has no code in it", () => {
@@ -1613,16 +1902,34 @@ describe("what the screen says when the read fails", () => {
     assert.match(view, /data-alert-problem/);
   });
 
-  test("and reconnecting is a quiet line, not a banner", () => {
-    /* Drops are ordinary: a slow reader is closed rather than waited for,
-       because the publisher is the loop watching the fleet. The rows on
-       screen are still the last thing the server said. */
-    assert.match(view, /data-alert-reconnecting/);
-    assert.ok(view.includes("Reconnecting to the site."));
-    /* The quietest ink on the screen, not the alarm red the row above it
-       uses: the rows are still true and nothing is wrong with the site. */
-    const at = view.indexOf("data-alert-reconnecting");
-    assert.match(view.slice(at, at + 400), /text-muted/);
+  test("⭐ a stopped stream says so, quietly, and not as a banner", async () => {
+    /* A FEED THAT HAS STOPPED LOOKS EXACTLY LIKE A QUIET NIGHT. Both are a
+       list that is not changing, and on a monitoring product one of those is
+       the best news on the screen and the other is the worst. */
+    const notice = await readFile(join(SRC, "components/PausedNotice.tsx"), "utf8");
+    assert.match(notice, /Live updates paused/);
+    assert.match(notice, /data-alert-paused/);
+    /* The quietest ink, and NOT the alarm red: nothing is wrong with the
+       SITE, which is what red means here, and spending the fault colour on a
+       browser's connection teaches an operator to discount it. */
+    assert.match(notice, /text-muted/);
+    assert.ok(!/text-critical/.test(notice));
+    /* Both alert surfaces draw the same one. A second copy of the sentence
+       is a second copy that can be reworded alone. */
+    assert.match(view, /<PausedNotice \/>/);
+    const panel = await readFile(join(SRC, "components/AlertsPanel.tsx"), "utf8");
+    assert.match(panel, /<PausedNotice \/>/);
+  });
+
+  test("⭐ and it waits, so an ordinary reconnect never blinks it", () => {
+    /* The SDK retries every 3 s and a drop is ORDINARY on this channel -- a
+       slow reader is closed rather than waited for. A notice that blinks all
+       day is a notice nobody reads, which is the same failure arrived at
+       from the other side. */
+    assert.match(hook, /const PAUSED_AFTER_MS = 8000;/);
+    assert.match(hook, /setTimeout\(\(\) => setPaused\(true\), PAUSED_AFTER_MS\)/);
+    /* And cleared the instant the stream opens, not on the next tick. */
+    assert.match(hook, /setPaused\(false\)/);
   });
 });
 

@@ -64,6 +64,7 @@ export function TowerView({
   onWatchPerson,
   onRejectMatch,
   onRefreshAlert,
+  alertsPaused,
   liveViewWarning = false,
   onDismissLiveViewWarning,
   onToggleLiveViewWarning,
@@ -136,6 +137,8 @@ export function TowerView({
   onRejectMatch?: (id: string) => void;
   /** Re-read one alert for fresh clip URLs. Owned by the feed, in the shell. */
   onRefreshAlert?: (id: string) => Promise<void>;
+  /** The live alert channel has been down long enough to say so. */
+  alertsPaused?: boolean;
   /** This tower has been streaming for long enough to be worth mentioning —
    *  the shell keeps the clock, because this view remounts on every drill-in.
    *  See `LIVE_VIEW_WARNING_SEC` in App. */
@@ -450,6 +453,7 @@ export function TowerView({
            filtered to this site. */
         nameOf={(deviceId) => (deviceId === tower.id ? tower.site : undefined)}
         onRefreshAlert={onRefreshAlert}
+        paused={alertsPaused}
         cameraNameOf={(deviceId, camera) =>
           deviceId === tower.id
             ? feeds.find((f) => f.index === camera)?.label

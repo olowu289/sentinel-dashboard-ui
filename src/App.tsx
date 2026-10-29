@@ -1983,7 +1983,7 @@ export function SentinelApp() {
              alerts" over a request that was refused is the fake-green failure
              in the one place it costs most. */
           problem={alertFeed.phase.kind === "error" ? alertFeed.phase.message : null}
-          reconnecting={alertFeed.reconnecting}
+          paused={alertFeed.paused}
           openAlertId={openAlertId}
           cameraNameOf={cameraNameOf}
           onRefreshAlert={alertFeed.refresh}
@@ -2090,6 +2090,7 @@ export function SentinelApp() {
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
           onRefreshAlert={alertFeed.refresh}
+          alertsPaused={alertFeed.paused}
           playback={playback}
           sessionFor={sessionFor}
           onRetryPlayback={retryPlayback}

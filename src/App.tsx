@@ -196,16 +196,17 @@ export function SentinelApp() {
    * `GET /v1/viewer/site-alerts` once and then holds the event stream open;
    * every row below this line was raised by a hub watching a mast.
    *
-   * ⚠ STILL GATED AT THE SOURCE, and that has not changed for the better
-   * reason now. It was gated so a customer would not see somebody else's
-   * invented yard; it is gated now because `alerts` is a default-off feature
-   * on both tiers (`registry/features.py`, DEFAULT_ON) and an account that has
-   * not been granted it would otherwise put a request on the wire that the
-   * server refuses. The gate is at the SOURCE rather than at the screens for
-   * the original reason, which stands: the tower cards, the banner and the
-   * badge totals all read `alerts` rather than asking the rail what is
-   * reachable, so hiding only the screen would leave a card counting rows its
-   * owner may not see.
+   * ⚠ STILL GATED AT THE SOURCE, and the gate now does almost nothing.
+   * `alerts` is DEFAULT-ON on both tiers (`registry/features.py` DEFAULT_ON,
+   * mirrored in `lib/features.ts`), so every account that has not been
+   * explicitly stripped of it reads the feed. What is left is the explicit
+   * revoke, which is a row in the server's own table and a real answer: an
+   * account told it may not see alerts must not have one on the wire.
+   *
+   * The gate is at the SOURCE rather than at the screens for the original
+   * reason, which stands: the tower cards, the banner and the badge totals all
+   * read `alerts` rather than asking the rail what is reachable, so hiding
+   * only the screen would leave a card counting rows its owner may not see.
    */
   const alertsEnabled = can(features, "alerts");
   /*

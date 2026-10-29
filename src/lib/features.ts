@@ -31,7 +31,7 @@
  * ── THE FALLBACK IS RESTRICTIVE, DELIBERATELY ──────────────────────────
  *
  * No list (an old server, a failed fetch, a session from before this shipped)
- * means `DEFAULT_FEATURES` — the five that are really backed. Not "everything":
+ * means `DEFAULT_FEATURES` — the ones that are really backed. Not "everything":
  * a missing list must not be the thing that shows a customer the demo. The cost
  * of being wrong in this direction is a feature we have to turn on; the cost of
  * the other direction is the bug this file exists to prevent.
@@ -70,6 +70,27 @@ export type Feature = (typeof FEATURES)[number];
  * loosens, this is merely fussier than it needs to be. If the server tightens,
  * the server still refuses the request; the only cost is a visible control that
  * fails, which is noisy rather than dangerous.
+ *
+ * ⭐ `alerts` JOINED THE LIST, and the test for membership here has always
+ * been the same one: is it backed END TO END? It was not. The feed was six
+ * fixtures in `lib/data.ts` naming towers no account has, which is precisely
+ * the thing this module was written to keep off a customer's screen, and the
+ * entry sat in the catalogue below as a name that could be granted rather than
+ * as a default.
+ *
+ * It is backed now — `listSiteAlerts`, the event stream, the ack route and the
+ * clips behind them (sentry-core docs/alerts.md §4) — so sentry-core moved it
+ * into DEFAULT_ON and this follows. Nothing about the FALLBACK's logic changed:
+ * the rule is still "the ones that are really backed", and a feature joins this
+ * list on the day a server answers for it and not before.
+ *
+ * ⚠ THE DIRECTION OF THE DRIFT IS NO LONGER FREE FOR THIS ONE. While `alerts`
+ * was default-OFF on both sides, a stale copy here cost nothing: this file was
+ * merely fussier than the server. Now that both say ON, a copy here that still
+ * said OFF would hide a real feed from an account the server is happily serving
+ * — which is the quieter of the two failures and the harder to notice, because
+ * an empty alert screen looks exactly like a quiet night. `test/features.test.mjs`
+ * pins the list, so the two cannot part company silently.
  */
 export const DEFAULT_FEATURES: readonly Feature[] = [
   "live",
@@ -77,6 +98,7 @@ export const DEFAULT_FEATURES: readonly Feature[] = [
   "ptz",
   "towers",
   "settings",
+  "alerts",
 ];
 
 /**

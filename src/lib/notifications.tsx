@@ -151,6 +151,21 @@ export interface Notification {
   readonly ttlMs?: number;
   /** The body and the controls. Given `dismiss` so a control can close itself. */
   readonly render?: (api: { dismiss: () => void }) => ReactNode;
+  /**
+   * A strip class for a kind whose colour THE SERVER decides.
+   *
+   * ⚠ THE ONE EXCEPTION TO "ONE TOKEN PER KIND", AND IT IS ARGUED RATHER
+   * THAN TAKEN. Every other kind's colour is a product decision and belongs in
+   * `KINDS` above, where there is exactly one of it. An alert's is not: the
+   * hub decides it and sends a `colours` map with every list, precisely so a
+   * type this bundle was built before still renders in the colour the hub
+   * picked for it. Hard-coding the five here would make this build the
+   * authority on which alert is red and would overrule a newer server.
+   *
+   * It is still ONE class and still only the 2px strip. A caller that wants a
+   * second coloured pixel is a caller about to put a tint back on the card.
+   */
+  readonly strip?: string;
 }
 
 /** What a dismissed card becomes: a line in the history, with no body. */

@@ -245,6 +245,7 @@ export function AlertsPanel({
         {selected && (
           <AlertDetail
             alert={selected}
+            towerName={towerName}
             onClose={() => onSelect(null)}
             onAcknowledge={() => onAcknowledge(selected.id)}
             onResolve={() => onResolve(selected.id)}

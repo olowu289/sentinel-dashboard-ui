@@ -512,7 +512,17 @@ describe("no card in the family wears its colour anywhere but the strip", () => 
 
   test("and the frame draws the strip from the kind", async () => {
     const src = await readFile(join(ROOT, "src/components/NotificationStack.tsx"), "utf8");
-    assert.match(src, /h-\[2px\] w-full \$\{style\.strip\}/);
+    /* ⭐ `strip`, NOT `style.strip`, AND STILL ONE CLASS ON ONE 2px BAR. An
+       alert card's colour is the SERVER's: the hub decides it and sends a
+       `colours` map with every list so a type this bundle was built before
+       still renders in the colour the hub picked. So `Notification` grew a
+       `strip` override, which `KINDS` cannot supply and which this line now
+       reads. What the test is actually guarding -- that a kind's colour is
+       exactly one strip and never a tint, a border or a heading -- is
+       unchanged, and the next test over still proves it over the whole
+       family. */
+    assert.match(src, /h-\[2px\] w-full \$\{strip\}/);
+    assert.match(src, /const strip = n\.strip \?\? KINDS\[n\.kind\]\.strip;/);
     assert.match(src, /\$\{CARD_SKIN\}/);
     assert.match(src, /\$\{CARD_TITLE\}/);
   });

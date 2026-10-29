@@ -182,22 +182,32 @@ const LIST = {
 
 describe("every word an alert is read in", () => {
   let copy;
+  let story;
 
   before(async () => {
     await mkdir(SCRATCH, { recursive: true });
     const dir = await mkdtemp(join(SCRATCH, "alert-copy-"));
     scratch.push(dir);
-    const out = join(dir, "alertCopy.mjs");
-    await build({
-      entryPoints: [join(SRC, "lib/alertCopy.ts")],
-      outfile: out,
-      bundle: true,
-      format: "esm",
-      platform: "neutral",
-      alias: { "@": SRC, "@kallon/sentry-sdk": SDK },
-      define: { "import.meta.env": ENV },
-    });
-    copy = await import(`file://${out.replace(/\\/g, "/")}`);
+    /* Both modules, because the title and the timeline's first step write
+       the same clause and the bug was that only one of them knew the rule. */
+    for (const [name, entry] of [
+      ["alertCopy", "lib/alertCopy.ts"],
+      ["alertStory", "lib/alertStory.ts"],
+    ]) {
+      const out = join(dir, `${name}.mjs`);
+      await build({
+        entryPoints: [join(SRC, entry)],
+        outfile: out,
+        bundle: true,
+        format: "esm",
+        platform: "neutral",
+        alias: { "@": SRC, "@kallon/sentry-sdk": SDK },
+        define: { "import.meta.env": ENV },
+      });
+      const mod = await import(`file://${out.replace(/\\/g, "/")}`);
+      if (name === "alertCopy") copy = mod;
+      else story = mod;
+    }
   });
 
   const nameOf = (id) => NAMES[id];
@@ -251,6 +261,66 @@ describe("every word an alert is read in", () => {
     assert.equal(
       copy.alertTitle(live, nameOf, cameraNameOf),
       "NORTH GATE camera stopped working",
+    );
+  });
+
+  test('⭐ a name that ALREADY says "camera" does not get it twice', () => {
+    /* The third case, and the one the fallback hid. "CAMERA 1" is not the
+       only value that can contain the noun: somebody naming a camera TEST
+       GATE CAMERA is ordinary, and a branch on "was it named?" rather than
+       on the name itself brings the doubled noun straight back wearing a
+       customer's own label. */
+    const named = (label) => (id, n) =>
+      id === STOPPED_ALERT.device_id && n === 1 ? label : undefined;
+    const subject = (label) =>
+      copy.alertTitle(STOPPED_ALERT, nameOf, named(label)).split(". ")[0];
+
+    assert.equal(subject("Test gate camera"), "TEST GATE CAMERA stopped working");
+    assert.equal(subject("TEST GATE CAMERA"), "TEST GATE CAMERA stopped working");
+    /* Anywhere in the name, not only at the end. */
+    assert.equal(subject("Camera by the gate"), "CAMERA BY THE GATE stopped working");
+    /* And the ordinary case is untouched. */
+    assert.equal(subject("North gate"), "NORTH GATE camera stopped working");
+  });
+
+  test("⭐ and it is a WHOLE word, so a name that merely contains the letters is not", () => {
+    /* `includes` would read CAMERAMAN HILL as already saying it and leave
+       "CAMERAMAN HILL stopped working", which is a sentence about a hill. */
+    const named = (label) => (id, n) =>
+      id === STOPPED_ALERT.device_id && n === 1 ? label : undefined;
+    const subject = (label) =>
+      copy.alertTitle(STOPPED_ALERT, nameOf, named(label)).split(". ")[0];
+
+    assert.equal(subject("Cameraman hill"), "CAMERAMAN HILL camera stopped working");
+    assert.equal(subject("Camerons yard"), "CAMERONS YARD camera stopped working");
+    /* A plural counts: "SOUTH CAMERAS" is already about cameras. */
+    assert.equal(subject("South cameras"), "SOUTH CAMERAS stopped working");
+    /* A hyphen is a word boundary, so this one already says it too. */
+    assert.equal(subject("Gate camera-2"), "GATE CAMERA-2 stopped working");
+  });
+
+  test("⭐ the timeline's first step follows the same rule", () => {
+    /* ⚠ TWO PLACES WRITE THIS CLAUSE and only one of them was fixed last
+       round, so the timeline still read "Frames stopped arriving from
+       CAMERA 1 camera" for an unnamed camera. One function decides it now;
+       this is what keeps the second caller honest. */
+    const named = (label) => (id, n) =>
+      id === STOPPED_ALERT.device_id && n === 1 ? label : undefined;
+    const first = (label) =>
+      story.alertStory(STOPPED_ALERT, nameOf, named(label))[0].title;
+
+    assert.equal(
+      first("Test gate camera"),
+      "Frames stopped arriving from TEST GATE CAMERA",
+    );
+    assert.equal(
+      first("North gate"),
+      "Frames stopped arriving from NORTH GATE camera",
+    );
+    /* Including the unnamed fallback, which is where it was still wrong. */
+    assert.equal(
+      story.alertStory(STOPPED_ALERT, nameOf)[0].title,
+      "Frames stopped arriving from CAMERA 1",
     );
   });
 

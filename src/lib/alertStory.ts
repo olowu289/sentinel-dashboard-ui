@@ -1,5 +1,11 @@
 import type { AlertClip, SiteAlert } from "@kallon/sentry-sdk";
-import { cameraLabel, qualityLabel, type CameraNameOf, type NameOf } from "./alertCopy";
+import {
+  cameraLabel,
+  cameraSubject,
+  qualityLabel,
+  type CameraNameOf,
+  type NameOf,
+} from "./alertCopy";
 import { deviceName } from "./deviceName";
 import type { AlertAttachment } from "./types";
 
@@ -69,7 +75,12 @@ function subjectOf(
   const tower = deviceName(nameOf?.(alert.device_id) || alert.device_id);
   const camera = alert.cameras?.[0];
   if (alert.type === "CAMERA_STOPPED" && camera !== undefined) {
-    return `${cameraLabel(alert.device_id, camera, cameraNameOf)} camera`;
+    /* ⚠ THROUGH `cameraSubject`, LIKE THE TITLE. This line appended the noun
+       unconditionally, so the timeline read "Frames stopped arriving from
+       CAMERA 1 camera" for an unnamed camera even after the title was fixed
+       — the same bug, surviving in the second place that writes the same
+       clause. One function decides it now. */
+    return cameraSubject(cameraLabel(alert.device_id, camera, cameraNameOf));
   }
   return tower;
 }

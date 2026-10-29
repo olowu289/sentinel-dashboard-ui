@@ -135,14 +135,43 @@ export function cameraLabel(
 }
 
 /**
- * The subject clause of a `CAMERA_STOPPED` title.
+ * Does this name already say "camera"?
+ *
+ * Whole word and case-blind. `CAMERA 1`, `North gate camera` and `Gate
+ * camera-2` all do; `CAMERAS` and `Cameraman Hill` do not, which is why this
+ * is a word boundary and not `includes`.
+ */
+const SAYS_CAMERA = /\bcameras?\b/i;
+
+/**
+ * A camera, named as the subject of a sentence about it.
  *
  * ⚠ THE WORD "camera" IS PART OF THE NAME OR PART OF THE SENTENCE, NEVER
- * BOTH. "CAMERA 1 camera stopped working" is what shipped, and it is what a
- * template with a variable in it produces the moment the variable's value
- * already contains the noun. A named camera needs the noun supplied — "NORTH
- * GATE" is a place, so "NORTH GATE camera stopped working" — and a numbered
- * one already carries it, so "CAMERA 1 stopped working".
+ * BOTH — and this function is the only thing that decides which. "CAMERA 1
+ * camera stopped working" shipped, because a template with a variable in it
+ * doubles the noun the moment the value already contains it.
+ *
+ * There are three cases and they are all the same rule:
+ *
+ *   NORTH GATE          a place. The sentence supplies the noun:
+ *                       "NORTH GATE camera stopped working".
+ *   CAMERA 1            the unnamed fallback. Already carries it:
+ *                       "CAMERA 1 stopped working".
+ *   TEST GATE CAMERA    somebody put the word in the name themselves, which
+ *                       is ordinary and common. Also already carries it:
+ *                       "TEST GATE CAMERA stopped working".
+ *
+ * The third is why this is a test on the NAME rather than a branch on whether
+ * one was set: the fallback is not the only value that can contain the noun,
+ * and treating it as the only one is how the bug comes back wearing a
+ * customer's own label.
+ */
+export function cameraSubject(name: string): string {
+  return SAYS_CAMERA.test(name) ? name : `${name} camera`;
+}
+
+/**
+ * The subject clause of a `CAMERA_STOPPED` title.
  *
  * `cameras` is absent when there are none and plural because `TOWER_OFFLINE`
  * is about every camera on the mast. A stopped camera has exactly one, and a
@@ -155,9 +184,10 @@ function stoppedSubject(
   cameraNameOf?: CameraNameOf,
 ): string {
   const n = alert.cameras?.[0];
-  if (n === undefined) return `${towerName(alert, nameOf)} camera`;
-  const named = cameraNameOf?.(alert.device_id, n);
-  return named ? `${deviceName(named)} camera` : deviceName(`Camera ${n}`);
+  /* No camera named at all, so the mast is the subject — and a mast called
+     SOUTH CAMERA MAST gets the same treatment as a camera called one. */
+  if (n === undefined) return cameraSubject(towerName(alert, nameOf));
+  return cameraSubject(cameraLabel(alert.device_id, n, cameraNameOf));
 }
 
 /**

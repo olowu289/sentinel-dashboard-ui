@@ -776,6 +776,13 @@ carries it ("CAMERA 1 stopped working"). The name comes from the field that is
 only set when somebody actually named a camera, not from the one that always
 has a value in it.
 
+There is a third case, and it is the one the fallback hid: somebody naming a
+camera **TEST GATE CAMERA**. The rule is not "was it named?" but "does the name
+already say it?", so that reads "TEST GATE CAMERA stopped working" — whole word
+and case-blind, so CAMERAMAN HILL is still a place and gets the noun. Two
+places write that clause, the title and the timeline's first step, and fixing
+only the first is how the doubled noun survived its own fix in the second.
+
 **The header showed `95ae76a8085641718fc1a64cbda85280`.** Thirty-two hex
 characters cannot be read aloud on a handoff, compared by eye against another
 screen, or fitted on the line the design drew. It reads `ALT-95AE76` now, and

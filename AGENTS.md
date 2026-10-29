@@ -226,11 +226,17 @@ an effect runs React has written the new `src` and the browser has zeroed it.
 **A camera is called what the customer called it, and the noun appears once.**
 `CameraNameOf` returns `CameraFeed.label`, which is present only when somebody
 actually named a camera — NOT `CameraFeed.name`, which is always populated and
-would make every camera look named. A named camera takes the noun from the
-sentence ("NORTH GATE camera stopped working"); a numbered one already carries
-it ("CAMERA 1 stopped working"). "CAMERA 1 camera stopped working" is what a
-template with a variable in it produces the moment the value contains the noun,
-and it shipped.
+would make every camera look named.
+
+⚠ **`cameraSubject` IS THE ONLY THING THAT DECIDES WHETHER "camera" IS
+APPENDED**, and it tests the NAME rather than branching on whether one was
+set. Three cases, one rule: NORTH GATE takes the noun from the sentence,
+CAMERA 1 (the fallback) already carries it, and TEST GATE CAMERA — somebody
+putting the word in the name themselves, which is ordinary — already carries
+it too. Whole word and case-blind, so CAMERAMAN HILL does not count. Two
+places write this clause (the title in `alertCopy.ts` and the timeline's first
+step in `alertStory.ts`) and fixing only one is how "CAMERA 1 camera stopped
+working" survived its own fix in the second one.
 
 **An alert's id is shortened for READING ONLY.** `shortAlertId` makes
 `ALT-95AE76`; the full 32-character id is on the clipboard behind the header

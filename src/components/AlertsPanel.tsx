@@ -1,6 +1,8 @@
 import { AnimatePresence, LayoutGroup } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Alert } from "@/lib/types";
+import type { CameraNameOf, NameOf } from "@/lib/alertCopy";
+import { alertPanes } from "@/lib/alertStory";
 import type { Mutation } from "@/lib/useMutation";
 import {
   NO_FILTER,
@@ -35,6 +37,9 @@ export function AlertsPanel({
   onRejectMatch,
   onCollapse,
   onNavigate,
+  nameOf,
+  cameraNameOf,
+  onRefreshAlert,
   className = "",
 }: {
   alerts: Alert[];
@@ -66,6 +71,11 @@ export function AlertsPanel({
   onCollapse?: () => void;
   /** Rail destinations, for the clip player's own rail. */
   onNavigate?: (id: string) => void;
+  /** Names a tower and a camera, for the detail's timeline and clip panes. */
+  nameOf?: NameOf;
+  cameraNameOf?: CameraNameOf;
+  /** Re-read one alert for fresh clip URLs. See `useClipHealth`. */
+  onRefreshAlert?: (id: string) => Promise<void>;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   /* The clip open in the review player. It lives here rather than in the feed
@@ -77,6 +87,22 @@ export function AlertsPanel({
     alert: Alert;
     at: number;
     attachment: AlertAttachment;
+    companions?: AlertAttachment[];
+    /**
+     * WHICH CAMERA IS THE LEADER, for a server alert.
+     *
+     * ⚠ THE CAMERA, NOT THE CLIP KEY, AND NOT THE ATTACHMENT. The attachment
+     * captured when the hero was pressed is a SNAPSHOT, and an open player
+     * holding one is the shape of the lab's bug one step further on: a 2K cut
+     * landing while somebody is watching changes the alert and changes
+     * nothing on screen. The clip key is no better, because the upgrade is a
+     * NEW key for the same camera. A camera number is the one identity that
+     * survives the swap, so the panes below are re-derived from the live
+     * alert on every render and the player is handed today's URLs.
+     *
+     * `null` for a fixture, which has no cameras and no updates.
+     */
+    camera: number | null;
   } | null>(null);
 
   /* Ticking, not captured. The ranges are computed against the CURRENT time so
@@ -113,6 +139,29 @@ export function AlertsPanel({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [visible, selectedId, onSelect]);
+
+
+  /* ── THE OPEN PLAYER'S PANES, RE-DERIVED EVERY RENDER ────────────────
+     See `playing.camera`. The alert in the feed is the truth; `playing` only
+     records WHICH of its cameras is leading and where the clip starts. A
+     clip arriving, a 2K cut landing, or a re-minted ticket all reach an open
+     player this way and by no other route. */
+  const liveAlert =
+    playing !== null
+      ? (alerts.find((a) => a.id === playing.alert.id) ?? playing.alert)
+      : null;
+  const livePanes =
+    liveAlert?.site && playing?.camera !== null && playing !== null
+      ? alertPanes(liveAlert.site, cameraNameOf)
+      : [];
+  const leadPane =
+    playing?.camera !== null && playing !== null
+      ? livePanes.find((p) => p.clip.camera === playing.camera)
+      : undefined;
+  const playAttachment = leadPane?.attachment ?? playing?.attachment;
+  const playCompanions = leadPane
+    ? livePanes.filter((p) => p !== leadPane).map((p) => p.attachment)
+    : playing?.companions;
 
   return (
     <aside
@@ -229,6 +278,10 @@ export function AlertsPanel({
                         alert,
                         at: alert.at,
                         attachment: alert.attachment!,
+                        /* A fixture's own clip card. No camera: a
+                           detection alert has no per-camera panes and
+                           nothing updates it. */
+                        camera: null,
                       }))
                   }
                 />
@@ -245,7 +298,9 @@ export function AlertsPanel({
         {selected && (
           <AlertDetail
             alert={selected}
-            towerName={towerName}
+            nameOf={nameOf}
+            cameraNameOf={cameraNameOf}
+            onRefresh={onRefreshAlert}
             onClose={() => onSelect(null)}
             onAcknowledge={() => onAcknowledge(selected.id)}
             onResolve={() => onResolve(selected.id)}
@@ -258,8 +313,14 @@ export function AlertsPanel({
             }
             onWatchPerson={() => onWatchPerson?.(selected)}
             onRejectMatch={() => onRejectMatch?.(selected.id)}
-            onPlayClip={(at, attachment) =>
-              setPlaying({ alert: selected, at, attachment })
+            onPlayClip={(at, attachment, companions, camera) =>
+              setPlaying({
+                          alert: selected,
+                          at,
+                          attachment,
+                          camera: camera ?? null,
+                          ...(companions ? { companions } : {}),
+                        })
             }
           />
         )}
@@ -271,7 +332,10 @@ export function AlertsPanel({
         {playing && (
           <ClipPlayer
             key={`${playing.alert.id}-${playing.at}`}
-            attachment={playing.attachment}
+            attachment={playAttachment ?? playing.attachment}
+            {...(playCompanions && playCompanions.length > 0
+              ? { companions: playCompanions }
+              : {})}
             at={playing.at}
             alert={playing.alert}
             towerName={towerName}

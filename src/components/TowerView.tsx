@@ -63,6 +63,7 @@ export function TowerView({
   rejectMutation,
   onWatchPerson,
   onRejectMatch,
+  onRefreshAlert,
   liveViewWarning = false,
   onDismissLiveViewWarning,
   onToggleLiveViewWarning,
@@ -133,6 +134,8 @@ export function TowerView({
    *  watchlist wants its frame and its zone, not just an id. */
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
+  /** Re-read one alert for fresh clip URLs. Owned by the feed, in the shell. */
+  onRefreshAlert?: (id: string) => Promise<void>;
   /** This tower has been streaming for long enough to be worth mentioning —
    *  the shell keeps the clock, because this view remounts on every drill-in.
    *  See `LIVE_VIEW_WARNING_SEC` in App. */
@@ -441,6 +444,17 @@ export function TowerView({
         rejectMutation={rejectMutation}
         onWatchPerson={onWatchPerson}
         onRejectMatch={onRejectMatch}
+        /* This panel shows ONE tower, so both lookups are answered from what
+           it already holds rather than threaded down from the shell. Same
+           two answers either way -- `feeds` here is the shell's array,
+           filtered to this site. */
+        nameOf={(deviceId) => (deviceId === tower.id ? tower.site : undefined)}
+        onRefreshAlert={onRefreshAlert}
+        cameraNameOf={(deviceId, camera) =>
+          deviceId === tower.id
+            ? feeds.find((f) => f.index === camera)?.label
+            : undefined
+        }
         onCollapse={() => setAlertsCollapsed(true)}
         /* Collapse only removes the desktop column; the mobile view is still
            reachable from the bottom bar, so `lg:hidden` beats `lg:flex`. */

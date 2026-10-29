@@ -656,6 +656,23 @@ export interface AlertAttachment {
    *  be changed after the fact and this cannot. Absent means the buffer did
    *  not report it, and the player shows nothing rather than a guess. */
   quality?: string;
+  /**
+   * The same media as an attachment, when the server minted one.
+   *
+   * ⚠ ITS PRESENCE IS WHAT MAKES THE DOWNLOAD REAL. `useExportPhase` is a
+   * simulation: three states and no file, which was honest while nothing on
+   * this surface had bytes behind it. An alert clip does. So the player's
+   * download is an anchor when this is set and the simulation when it is not,
+   * and the two are not allowed to look the same — a button that pretends to
+   * save evidence is the worst button in this product.
+   *
+   * ⚠ AND IT IS NOT CACHED ANYWHERE. Minted per request; a presigned bucket
+   * URL lives fifteen minutes. It travels with the attachment it belongs to
+   * and is re-read off the alert, never stashed.
+   */
+  downloadUrl?: string;
+  /** The name a person gets, as the hub built it. */
+  filename?: string;
 }
 
 /**

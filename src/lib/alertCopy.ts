@@ -39,6 +39,23 @@ import { formatClock } from "./time";
 export type NameOf = (deviceId: string) => string | undefined;
 
 /**
+ * THE CUSTOMER'S OWN NAME for one camera, or `undefined` when it has none.
+ *
+ * ⚠ THE CUSTOMER'S, NOT THE FALLBACK. `CameraFeed.name` is always populated
+ * — it is the label or `CAMERA 2` — and that is the right field for a tile
+ * caption and the wrong one here, because this has to tell a camera somebody
+ * NAMED from one nobody did. A named camera is spoken about by its name
+ * ("NORTH GATE camera stopped working") and an unnamed one by its number
+ * ("CAMERA 1 stopped working"), and those are two different sentences rather
+ * than one sentence with a variable in it. `CameraFeed.label` is the field
+ * that answers, and it exists for exactly this distinction.
+ */
+export type CameraNameOf = (
+  deviceId: string,
+  camera: number,
+) => string | undefined;
+
+/**
  * What a colour key is drawn in.
  *
  * ⚠ KEYED BY THE SERVER'S WORD, NOT BY ALERT TYPE. Three of the five land on
@@ -104,17 +121,43 @@ function towerName(alert: SiteAlert, nameOf?: NameOf): string {
 }
 
 /**
- * The camera's name, for `CAMERA_STOPPED`.
+ * One camera's name, as a screen says it.
+ *
+ * Returns the customer's own name when there is one and `CAMERA 1` when there
+ * is not, both in capitals, because both are a device's name.
+ */
+export function cameraLabel(
+  deviceId: string,
+  camera: number,
+  cameraNameOf?: CameraNameOf,
+): string {
+  return deviceName(cameraNameOf?.(deviceId, camera) || `Camera ${camera}`);
+}
+
+/**
+ * The subject clause of a `CAMERA_STOPPED` title.
+ *
+ * ⚠ THE WORD "camera" IS PART OF THE NAME OR PART OF THE SENTENCE, NEVER
+ * BOTH. "CAMERA 1 camera stopped working" is what shipped, and it is what a
+ * template with a variable in it produces the moment the variable's value
+ * already contains the noun. A named camera needs the noun supplied — "NORTH
+ * GATE" is a place, so "NORTH GATE camera stopped working" — and a numbered
+ * one already carries it, so "CAMERA 1 stopped working".
  *
  * `cameras` is absent when there are none and plural because `TOWER_OFFLINE`
  * is about every camera on the mast. A stopped camera has exactly one, and a
- * list that somehow has more is named by the first rather than by a join: the
- * title is one line and the detail below it carries the rest.
+ * list that somehow has more is named by the first: the title is one line and
+ * the cells below it carry the rest.
  */
-function cameraName(alert: SiteAlert, nameOf?: NameOf): string {
+function stoppedSubject(
+  alert: SiteAlert,
+  nameOf?: NameOf,
+  cameraNameOf?: CameraNameOf,
+): string {
   const n = alert.cameras?.[0];
-  if (n === undefined) return towerName(alert, nameOf);
-  return deviceName(`Camera ${n}`);
+  if (n === undefined) return `${towerName(alert, nameOf)} camera`;
+  const named = cameraNameOf?.(alert.device_id, n);
+  return named ? `${deviceName(named)} camera` : deviceName(`Camera ${n}`);
 }
 
 /**
@@ -122,7 +165,11 @@ function cameraName(alert: SiteAlert, nameOf?: NameOf): string {
  *
  * One clause, no punctuation at the end, and no code in it anywhere.
  */
-export function alertTitle(alert: SiteAlert, nameOf?: NameOf): string {
+export function alertTitle(
+  alert: SiteAlert,
+  nameOf?: NameOf,
+  cameraNameOf?: CameraNameOf,
+): string {
   const tower = towerName(alert, nameOf);
   switch (alert.type) {
     case "TOWER_OFFLINE":
@@ -130,8 +177,7 @@ export function alertTitle(alert: SiteAlert, nameOf?: NameOf): string {
          tower from a dead radio link, and "down" asserts the first. */
       return `${tower} offline`;
     case "CAMERA_STOPPED": {
-      const camera = cameraName(alert, nameOf);
-      const base = `${camera} camera stopped working`;
+      const base = `${stoppedSubject(alert, nameOf, cameraNameOf)} stopped working`;
       /* Recovery is written onto the SAME row rather than raising a second
          alert, so the title has to carry both halves: a flapping camera does
          not produce a thousand rows, and the one row has to say it came back.
@@ -195,6 +241,34 @@ export function recoveryProgress(alert: SiteAlert): number | undefined {
   const p = alert.progress?.progress;
   if (typeof p !== "number" || !Number.isFinite(p)) return undefined;
   return Math.min(1, Math.max(0, p));
+}
+
+/**
+ * How many characters of an alert id a person reads.
+ *
+ * Six, from a 32-character hex id. The job is to be sayable on a radio and
+ * unambiguous in one control room's feed, not to be globally unique — the
+ * full id is still what every request carries, and is one copy away.
+ */
+export const SHORT_ID_CHARS = 6;
+
+/**
+ * The id a person reads, in the shape the rest of this app uses: `ALT-8842`.
+ *
+ * ⚠ THE RAW ID IS NOT A LABEL. `95ae76a8085641718fc1a64cbda85280` shipped in
+ * the detail header, where the design puts the short reference somebody reads
+ * out during a handoff. Thirty-two hex characters cannot be read aloud, cannot
+ * be compared by eye against another screen, and overflow the line they sit
+ * on. That is rule 3: a value that only makes sense once you know how the
+ * system is built is not a value a customer can use.
+ *
+ * Shortened for READING ONLY. Nothing is addressed by this — every request
+ * still carries `alert.id` — and the header keeps the full id on the clipboard
+ * so the one person who needs it (us, in a log) can still get it.
+ */
+export function shortAlertId(id: string): string {
+  const head = id.replace(/[^0-9a-zA-Z]/g, "").slice(0, SHORT_ID_CHARS);
+  return `ALT-${head.toUpperCase()}`;
 }
 
 /** `Standard` / `2K`, for the badge on a clip. Never the machine value. */

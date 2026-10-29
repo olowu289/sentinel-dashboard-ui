@@ -32,6 +32,32 @@ const SKIP_SEC = 10;
  */
 const MARK_SEC = 2;
 
+/** How far a follower may drift from the leader before it is nudged, seconds. */
+const SYNC_TOLERANCE_SEC = 0.35;
+
+/* A stable identity, so the default does not re-trigger effects every render. */
+const EMPTY_COMPANIONS: readonly AlertAttachment[] = [];
+
+/**
+ * Why a clip would not play, in one sentence an operator can act on.
+ *
+ * The element's own four codes, which are the only thing it will tell you.
+ * Rule 6: what happened, and what to do. The code goes to the console, where
+ * it is of some use to us and of none to anybody else.
+ */
+function describeMediaFailure(v: HTMLVideoElement, name?: string): string {
+  const code = v.error?.code;
+  console.error("[clip] playback failed:", name, code, v.error?.message, v.currentSrc);
+  if (code === 2 || name === "NotSupportedError") {
+    /* MEDIA_ERR_NETWORK, or a source selection that found nothing. On an
+       alert clip this is almost always an expired ticket. */
+    return "That clip's link has expired. Close this and open the alert again.";
+  }
+  if (code === 3) return "That clip is damaged and cannot be played.";
+  if (code === 4) return "This browser cannot play that clip.";
+  return "That clip didn't play. Close this and open the alert again.";
+}
+
 /** mm:ss for the transport. Tabular everywhere so the digits never shift. */
 function timecode(sec: number) {
   const s = Math.max(0, Math.floor(sec));
@@ -66,6 +92,7 @@ const CHIP =
  */
 export function ClipPlayer({
   attachment,
+  companions = EMPTY_COMPANIONS,
   /** Epoch ms of the timeline step this clip was captured at. */
   at,
   alert,
@@ -74,6 +101,20 @@ export function ClipPlayer({
   onClose,
 }: {
   attachment: AlertAttachment;
+  /**
+   * The OTHER cameras that saw the same moment, shown beside this one.
+   *
+   * ⚠ ONE TRANSPORT, NEVER ONE PLAYER EACH. A tower going offline takes the
+   * whole mast, so its clips are the same sixty seconds from two places, every
+   * `start` identical. A vehicle leaves one frame and enters the other, and
+   * finding that by scrubbing two players separately is the work this screen
+   * exists to not make somebody do. The first pane is the clock; the rest
+   * follow it and are nudged back when they drift.
+   *
+   * Empty for every single-camera alert, which is most of them, and the stage
+   * is unchanged for those.
+   */
+  companions?: readonly AlertAttachment[];
   at: number;
   alert: Alert;
   /** The site, for the breadcrumb's middle crumb. */
@@ -96,6 +137,39 @@ export function ClipPlayer({
      transport below does not know which path it is driving. */
   const src = attachment.src;
   const videoRef = useRef<HTMLVideoElement>(null);
+  /* The followers, in render order. Index 0 is the leader above. */
+  const followers = useRef<(HTMLVideoElement | null)[]>([]);
+  const panes = useMemo(
+    () => [attachment, ...companions],
+    [attachment, companions],
+  );
+  /** Every element on the stage, leader first. */
+  const each = useCallback(
+    (fn: (v: HTMLVideoElement) => void) => {
+      const lead = videoRef.current;
+      if (lead) fn(lead);
+      for (const v of followers.current) if (v) fn(v);
+    },
+    [],
+  );
+
+  /**
+   * ⚠ WHAT A FAILED `play()` SAID BEFORE THIS: NOTHING AT ALL.
+   *
+   * A clip that arrived while the alert was open came up with a transport and
+   * a duration and would not start, and the only thing anybody could report
+   * was "never plays" — because the rejection was swallowed by a bare
+   * `.catch(() => {})`. A media element has four error codes and a promise
+   * rejection with a name on it, and discarding all of them turns a
+   * diagnosable fault into a mystery. This holds the reason so the screen can
+   * say it.
+   *
+   * `null` is the healthy state. Autoplay being blocked is NOT put in here:
+   * that is normal, it is handled by falling back to paused, and a notice
+   * about it would appear on every clip somebody opens before touching the
+   * page.
+   */
+  const [mediaProblem, setMediaProblem] = useState<string | null>(null);
 
   /* Duration comes from the MEDIA when there is media. `durationSec` is what
      the buffer said the clip would be; the file is what it actually is, and a
@@ -146,12 +220,14 @@ export function ClipPlayer({
          reached — the scrubber would lead the frame. */
       const v = videoRef.current;
       if (v) {
-        v.currentTime = next;
+        each((el) => {
+          el.currentTime = next;
+        });
         return;
       }
       setT(next);
     },
-    [duration],
+    [duration, each],
   );
 
   /* The first marker sits at `PRE_ROLL_SEC`, so a clip opened and played to
@@ -187,19 +263,148 @@ export function ClipPlayer({
 
      WITHOUT MEDIA: the original rAF clock, unchanged, driving a still. */
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.playbackRate = rate;
-    v.muted = muted;
-    if (playing) {
-      /* A rejected play() is normal, not an error: autoplay policy blocks an
-         unmuted start until the operator has interacted with the page. The
-         button falls back to showing paused rather than lying about it. */
-      void v.play().catch(() => setPlaying(false));
-    } else {
-      v.pause();
+    const lead = videoRef.current;
+    if (!lead) return;
+    each((v) => {
+      v.playbackRate = rate;
+      /* ⚠ ONLY THE LEADER CARRIES SOUND. Two cameras on one transport is two
+         audio tracks of the same sixty seconds, a fraction of a second apart,
+         which is an echo rather than a recording. */
+      v.muted = muted || v !== lead;
+    });
+    if (!playing) {
+      each((v) => v.pause());
+      return;
     }
-  }, [playing, rate, muted, src]);
+    each((v) => {
+      void v.play().then(
+        () => {
+          if (v === lead) setMediaProblem(null);
+        },
+        (err: unknown) => {
+          const name = (err as { name?: string } | null)?.name;
+          /* Autoplay policy, which is NORMAL and not a fault: an unmuted
+             start is blocked until the operator has touched the page. Fall
+             back to showing paused rather than lying about it, and say
+             nothing — a notice here would appear on every clip anybody opens
+             before clicking. */
+          if (name === "NotAllowedError") {
+            if (v === lead) setPlaying(false);
+            return;
+          }
+          /* Everything else is the thing the lab could not diagnose. */
+          if (v === lead) {
+            setPlaying(false);
+            setMediaProblem(describeMediaFailure(v, name));
+          }
+        },
+      );
+    });
+  }, [playing, rate, muted, src, each]);
+
+  /**
+   * ⭐ A NEW SOURCE IS LOADED, EXPLICITLY, AND THE PLACE IS KEPT.
+   *
+   * This is the fix for a clip that arrives AFTER its alert was opened: the
+   * pane came up with a transport reading `0s / 1m` and would not start.
+   *
+   * Changing a `<video>`'s `src` is supposed to restart the resource
+   * selection algorithm on its own, and usually does. What is NOT safe is
+   * what stood here instead: a `setTimeout(0)` that wrote `currentTime` while
+   * the element was still at `HAVE_NOTHING`, which sets the *default playback
+   * start position* rather than seeking, and then called `play()` on an
+   * element whose source selection had not finished. An element left in
+   * `NETWORK_NO_SOURCE` by that race never recovers without an explicit
+   * `load()`, and the rejection that said so was being discarded.
+   *
+   * So: remember the position, call `load()`, and restore on
+   * `loadedmetadata` — which is the first moment a seek means anything. The
+   * place is kept because the 2K upgrade is the SAME sixty seconds at a
+   * better resolution, so somebody looking at 00:42 must still be looking at
+   * 00:42; a reset to zero means finding the moment again on a minute of
+   * evidence.
+   */
+  const sources = panes.map((a) => a.src ?? "").join("|");
+  const lastSources = useRef(sources);
+  const resumeFrom = useRef(0);
+  /* Set during render, consumed by the effect below. The two are separate
+     because only render can see the old source and only an effect may touch
+     the element after React has written the new one. */
+  const pendingReload = useRef(false);
+  if (lastSources.current !== sources) {
+    /* ⚠ READ DURING RENDER, AND IT HAS TO BE. By the time an effect runs,
+       React has already written the new `src` onto the element and the
+       browser has reset `currentTime` to 0 — so a position captured there is
+       always zero, and the restore below silently does nothing. Render is
+       the last moment the OLD source is still loaded. Writing a ref during
+       render is safe: it is derived from props, it is idempotent, and a
+       double invocation computes the same answer. */
+    /* ⚠ `t`, THE TRANSPORT'S OWN CLOCK, NOT THE ELEMENT'S `currentTime`.
+       The element is the wrong place to read from at this instant and in
+       both directions: by the time an EFFECT runs React has written the new
+       `src` and the browser has zeroed it, and during render the element may
+       already have been handed a source by an earlier commit in the same
+       batch. `t` is state, it is what the scrubber is showing, and it is
+       therefore exactly where the operator believes they are. */
+    /* ⚠ WHICHEVER OF THE TWO IS FURTHER ON, and both are needed.
+       `t` is the transport's own clock and is what the scrubber is showing,
+       but it only moves on `timeupdate` — so a seek that has been requested
+       and has not completed is not in it yet. The element knows about that
+       one. Conversely the element is useless to read from an EFFECT, where
+       React has already written the new `src` and the browser has zeroed it.
+       Render, and the larger of the two, is the only reading that survives
+       both. */
+    resumeFrom.current = Math.max(t, videoRef.current?.currentTime ?? 0);
+    lastSources.current = sources;
+    pendingReload.current = true;
+  }
+  /**
+   * Put the playhead back where the operator left it, once the element can
+   * actually take it.
+   *
+   * ⚠ A SEEK BEFORE THE ELEMENT CAN SEEK IS DROPPED SILENTLY. No error, no
+   * event: `currentTime` is written and reads back unchanged on the next
+   * line, which is exactly what was measured here (1.61 written, 0 read).
+   * `loadedmetadata` is NOT late enough — it fires as soon as the duration
+   * is known, which can be well before `seekable` has anything in it. So
+   * this is called from every readiness step the element reports and does
+   * nothing once the position has taken.
+   */
+  const restorePosition = useCallback((v: HTMLVideoElement) => {
+    const target = resumeFrom.current;
+    if (target <= 0) return;
+    if (!Number.isFinite(v.duration) || v.duration <= 0) return;
+    const want = Math.min(target, v.duration);
+    if (Math.abs(v.currentTime - want) < 0.25) {
+      resumeFrom.current = 0;              // taken; stop trying
+      return;
+    }
+    /* ⚠ AND ONLY WHEN THE ELEMENT SAYS IT CAN GO THERE. `seekable` is empty
+       until enough of the resource is available to seek within, and writing
+       `currentTime` before then does worse than nothing: the seek is aborted,
+       and the element can be left parked at HAVE_METADATA, never loading
+       further and never becoming playable. Measured here — a restore on
+       `loadedmetadata` alone stalled the pane at readyState 1 with a
+       perfectly good file behind it. */
+    const ranges = v.seekable;
+    if (ranges.length === 0) return;
+    if (want < ranges.start(0) || want > ranges.end(ranges.length - 1)) return;
+    v.currentTime = want;
+  }, []);
+
+  useEffect(() => {
+    if (!pendingReload.current) return;
+    pendingReload.current = false;
+    setMediaProblem(null);
+    /* ⚠ NO `load()` HERE. Changing `src` already restarts the resource
+       selection algorithm, and calling `load()` on top of it aborts the
+       fetch React just started and restarts it — which on a paused element
+       left it parked at HAVE_METADATA, never reaching a state it could seek
+       or play in. The reload that matters is the one React does; what this
+       effect owes is the position and a clean slate for the error line. */
+    each((v) => restorePosition(v));
+  }, [sources, each, restorePosition]);
+
 
   useEffect(() => {
     if (src) return;                       // the element owns the clock
@@ -350,33 +555,103 @@ export function ClipPlayer({
               decided on, and cropping evidence to fit a box is how the thing
               that mattered ends up outside the picture. */}
           {src ? (
+            <div
+              /* One pane fills the stage, as it always has. Two share it, each
+                 keeping the 16:9 the picture is in — and `contain` below means
+                 neither is cropped to make them match. */
+              data-clip-stage
+              className={`absolute inset-0 grid ${companions.length > 0 ? "grid-cols-1 gap-[2px] lg:grid-cols-2" : "grid-cols-1"}`}
+            >
+            <div className="relative min-h-0">
             <video
               ref={videoRef}
               src={src}
-              poster={attachment.thumbnail}
+              {...(attachment.thumbnail ? { poster: attachment.thumbnail } : {})}
               playsInline
+              /* ⚠ `auto`, NOT THE DEFAULT. A paused element on `metadata`
+                 stops after the duration and never reaches `canplay` -- and
+                 it cannot SEEK in that state either: a write to
+                 `currentTime` is dropped silently, which is what left a 2K
+                 upgrade sitting at zero. This is the evidence player; the
+                 whole point of opening it is to have the clip. */
+              preload="auto"
               /* No `controls`: the bar below IS the transport, and a second
                  set of browser controls over it would be two scrubbers
                  disagreeing about the same file. */
               className="absolute inset-0 size-full object-contain"
+              onCanPlay={(e) => restorePosition(e.currentTarget)}
+              onSeeked={(e) => restorePosition(e.currentTarget)}
               onLoadedMetadata={(e) => {
+                restorePosition(e.currentTarget);
                 const d = e.currentTarget.duration;
                 /* A live/unbounded source reports Infinity. Rejected rather
                    than rendered: a track scaled to Infinity has no positions
                    on it, and the estimate is a better answer than none. */
                 if (Number.isFinite(d) && d > 0) setMediaDuration(d);
               }}
-              onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+              onTimeUpdate={(e) => {
+                const lead = e.currentTarget;
+                setT(lead.currentTime);
+                /* The followers are corrected FROM the leader rather than
+                   each driving itself: two elements taking turns to correct
+                   each other is a visible stutter on both. */
+                for (const v of followers.current) {
+                  if (!v) continue;
+                  if (Math.abs(v.currentTime - lead.currentTime) > SYNC_TOLERANCE_SEC) {
+                    v.currentTime = lead.currentTime;
+                  }
+                }
+              }}
               onEnded={() => setPlaying(false)}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
             />
+            {/* The camera's name, burnt onto its own pane. With two of them
+                side by side this stops being decoration: a frame nobody can
+                attribute to a camera is a frame nobody can cite. */}
+            <span className="chip-blur pointer-events-none absolute left-[10px] top-[10px] max-w-[calc(100%-20px)] truncate rounded-[3px] bg-black/55 px-[7px] py-[3px] font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.11px] text-body-ink/85">
+              {deviceName(attachment.title)}
+            </span>
+            </div>
+            {companions.map((other, i) => (
+              <div key={other.src ?? i} className="relative min-h-0">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video
+                  ref={(el) => {
+                    followers.current[i] = el;
+                  }}
+                  src={other.src}
+                  {...(other.thumbnail ? { poster: other.thumbnail } : {})}
+                  playsInline
+                  preload="auto"
+                  muted
+                  onCanPlay={(e) => restorePosition(e.currentTarget)}
+                  className="absolute inset-0 size-full object-contain"
+                />
+                <span className="chip-blur pointer-events-none absolute left-[10px] top-[10px] max-w-[calc(100%-20px)] truncate rounded-[3px] bg-black/55 px-[7px] py-[3px] font-display text-[0.6875rem] uppercase leading-[16px] tracking-[0.11px] text-body-ink/85">
+                  {deviceName(other.title)}
+                </span>
+              </div>
+            ))}
+            </div>
           ) : (
             <img
               src={attachment.thumbnail}
               alt=""
               className="absolute inset-0 size-full object-contain"
             />
+          )}
+
+          {/* ⚠ SAID, RATHER THAN SWALLOWED. One sentence: what happened and
+              what to do. The code is in the console for us. */}
+          {mediaProblem && (
+            <p
+              role="status"
+              data-clip-problem
+              className="chip-blur absolute left-1/2 top-[16px] -translate-x-1/2 rounded-[8px] bg-black/80 px-[12px] py-[6px] text-[0.8125rem] text-critical"
+            >
+              {mediaProblem}
+            </p>
           )}
 
           {/* One bar, floating clear of the bottom edge. It sits over the
@@ -539,18 +814,37 @@ export function ClipPlayer({
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={exportClip}
-              aria-busy={phase === "working"}
-              aria-label={`Download ${attachment.title}`}
-              title="Download clip"
-              className={`flex size-[32px] shrink-0 items-center justify-center transition-colors ${
-                phase === "done" ? "text-terra" : "text-body-ink hover:text-muted"
-              }`}
-            >
-              <MaskIcon src="/icons/clip-download.svg" size={32} />
-            </button>
+            {/* ⚠ AN ANCHOR WHEN THERE ARE BYTES, THE SIMULATION WHEN THERE
+                ARE NOT, and the two must not look alike. `useExportPhase` is
+                three states and no file, which was honest while nothing on
+                this surface had a URL behind it; an alert clip does, and a
+                button that pretends to save evidence is the worst button in
+                this product. */}
+            {attachment.downloadUrl ? (
+              <a
+                href={attachment.downloadUrl}
+                {...(attachment.filename ? { download: attachment.filename } : {})}
+                rel="noopener"
+                aria-label={`Download ${attachment.title}`}
+                title="Download clip"
+                className="flex size-[32px] shrink-0 items-center justify-center text-body-ink transition-colors hover:text-muted"
+              >
+                <MaskIcon src="/icons/clip-download.svg" size={32} />
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={exportClip}
+                aria-busy={phase === "working"}
+                aria-label={`Download ${attachment.title}`}
+                title="Download clip"
+                className={`flex size-[32px] shrink-0 items-center justify-center transition-colors ${
+                  phase === "done" ? "text-terra" : "text-body-ink hover:text-muted"
+                }`}
+              >
+                <MaskIcon src="/icons/clip-download.svg" size={32} />
+              </button>
+            )}
           </div>
         </div>
       </div>

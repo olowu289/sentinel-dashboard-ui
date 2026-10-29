@@ -267,7 +267,24 @@ export function SentinelApp() {
     setArrivals((prev) => [arrived, ...prev].slice(0, 20));
   }, []);
 
-  const alertFeed = useSiteAlerts({ enabled: alertsEnabled, nameOf, onArrived });
+  /* ⚠ `label`, NOT `name`. `CameraFeed.name` is always populated — it is the
+     customer's label or `CAMERA 2` — and reading it here would make every
+     camera look named, which is what put "CAMERA 1 camera stopped working" on
+     a mast whose cameras are called NORTH GATE and YARD. `label` is present
+     only when somebody actually named one, and that distinction is the whole
+     difference between the two sentences the copy layer can write. */
+  const cameraNameOf = useCallback(
+    (deviceId: string, camera: number) =>
+      feeds.find((f) => f.towerId === deviceId && f.index === camera)?.label,
+    [feeds],
+  );
+
+  const alertFeed = useSiteAlerts({
+    enabled: alertsEnabled,
+    nameOf,
+    cameraNameOf,
+    onArrived,
+  });
 
   /* The server's rows and this side's two, in one list for every screen that
      counts or filters them. The server's copies are never written to here. */
@@ -1968,6 +1985,8 @@ export function SentinelApp() {
           problem={alertFeed.phase.kind === "error" ? alertFeed.phase.message : null}
           reconnecting={alertFeed.reconnecting}
           openAlertId={openAlertId}
+          cameraNameOf={cameraNameOf}
+          onRefreshAlert={alertFeed.refresh}
         />
       ) : onPeople ? (
         <PeopleView
@@ -2070,6 +2089,7 @@ export function SentinelApp() {
           cloud={cloud}
           feeds={feedsForTower(feeds, open.id)}
           alerts={alertsForTower(alerts, open.id)}
+          onRefreshAlert={alertFeed.refresh}
           playback={playback}
           sessionFor={sessionFor}
           onRetryPlayback={retryPlayback}

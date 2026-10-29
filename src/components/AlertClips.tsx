@@ -1,6 +1,6 @@
 import type { SiteAlert } from "@kallon/sentry-sdk";
-import type { CameraNameOf } from "@/lib/alertCopy";
-import { alertPanes, expectsClip, type AlertPane } from "@/lib/alertStory";
+import { clipState, clipWords, type CameraNameOf } from "@/lib/alertCopy";
+import { alertClipCards, alertPanes, type AlertPane } from "@/lib/alertStory";
 import { deviceName } from "@/lib/deviceName";
 import { formatDuration } from "@/lib/time";
 import type { AlertAttachment } from "@/lib/types";
@@ -33,14 +33,24 @@ import type { AlertAttachment } from "@/lib/types";
  * rather than a placeholder standing in for one. A fragment is never sent to
  * a server, so a presigned URL survives having one appended.
  *
- * ── AND THE THREE WAYS TO HAVE NO CLIP ────────────────────────────────
+ * ── AND THE FIVE WAYS TO HAVE NO PICTURE ──────────────────────────────
  *
  * Each is a different sentence, because each sends an operator somewhere
- * different: "Clip coming" (a `TOWER_ONLINE` cut is the first 60 s AFTER the
- * tower returned, so it lands about a minute later), "Clip no longer kept"
- * (the budget swept the file; the alert survives on purpose, because an alert
- * is the record that the camera stopped at 03:14), and nothing at all for the
- * recovery pair, which has no moment to cut around.
+ * different. `lib/alertCopy.ts` owns both the state and the words; this
+ * component only decides which SHAPE to draw, and there are three:
+ *
+ *   playable   the heroes, one per camera, pressable.
+ *   hubOnly    the same grid, same labels, NOT pressable. The clip exists and
+ *              is described; the bytes are at the site and the screen in the
+ *              control room can play them.
+ *   the rest   one centred line and one of help: "Clip coming" (a
+ *              `TOWER_ONLINE` cut is the first 60 s AFTER the tower returned),
+ *              "Footage pending, the hub is away" (which may be weeks), "No
+ *              footage of that moment" (the hub looked and had none), "Clip
+ *              no longer kept" (the budget swept the file; the alert survives
+ *              on purpose, because an alert is the record that the camera
+ *              stopped at 03:14), and nothing at all for the recovery pair,
+ *              which has no moment to cut around.
  */
 export function AlertClips({
   alert,
@@ -74,24 +84,89 @@ export function AlertClips({
   /** Open the full player on one pane, with the others beside it. */
   onPlay: (pane: AlertPane, companions: AlertAttachment[]) => void;
 }) {
-  if (!expectsClip(alert.type)) return null;
+  const state = clipState(alert);
+  if (state === "never") return null;
 
-  const panes = alertPanes(alert, cameraNameOf);
+  /* ⚠ `evicted` WINS OVER THE SERVER'S STATE, AND ONLY HERE. Every other
+     reading on this panel is the hub's; this one is what the BROWSER found
+     when it went for the file and got a 404, which the server cannot know it
+     is about to serve. A swept clip is still described by an alert that
+     believes it has one. */
+  const words = evicted
+    ? {
+        headline: "Clip no longer kept",
+        help: "The site needed the space. The alert is kept.",
+      }
+    : clipWords(state);
 
-  if (panes.length === 0 || evicted) {
+  /* ⚠ `hubOnly` HAS A SENTENCE AND IS NOT AN EMPTY BOX, which is the one
+     ordering mistake this component can make. It was made: the words came
+     first and swallowed the state, so two described clips rendered as one
+     centred line and the cameras disappeared. A clip that exists is drawn as
+     a clip. */
+  if (words && !(state === "hubOnly" && !evicted)) {
     return (
-      <div className="flex aspect-[388/198] w-full flex-col items-center justify-center gap-[3px] rounded-[12px] bg-panel px-[16px] text-center">
-        <p className="text-[0.75rem] text-body-ink/40">
-          {evicted ? "Clip no longer kept" : "Clip coming"}
-        </p>
-        <p className="text-[0.6875rem] text-body-ink/25">
-          {evicted
-            ? "The site needed the space. The alert is kept."
-            : "The site is cutting it now."}
-        </p>
+      <div
+        data-alert-clip-absent
+        className="flex aspect-[388/198] w-full flex-col items-center justify-center gap-[3px] rounded-[12px] bg-panel px-[16px] text-center"
+      >
+        <p className="text-[0.75rem] text-body-ink/40">{words.headline}</p>
+        <p className="text-[0.6875rem] text-body-ink/25">{words.help}</p>
       </div>
     );
   }
+
+  /* ⭐ THE CLIPS THAT EXIST AND CANNOT BE FETCHED FROM HERE. Described, laid
+     out per camera exactly as they would be if they played, and not
+     pressable: the data centre keeps no video, so with no bucket configured
+     there is no URL to give and a play button would be a control that cannot
+     work. What it says instead is where the footage IS, because the screen in
+     the control room plays it from the hub's own disk. */
+  if (state === "hubOnly" && !evicted) {
+    const cards = alertClipCards(alert, cameraNameOf);
+    const held = clipWords("hubOnly");
+    return (
+      <section data-alert-clips className="flex flex-col gap-[6px]">
+        <div
+          className={`grid gap-[4px] ${cards.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
+        >
+        {cards.map((card) => {
+          const name = deviceName(card.attachment.title);
+          return (
+            <div
+              key={card.clip.key}
+              data-alert-clip-held
+              className="relative flex aspect-[388/198] w-full items-center justify-center overflow-hidden rounded-[12px] bg-panel px-[16px] text-center"
+            >
+              <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-body-ink/85">
+                {name}
+              </span>
+              {card.attachment.quality && (
+                <span className="chip-blur pointer-events-none absolute bottom-[8px] left-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-body-ink/85">
+                  {card.attachment.quality}
+                </span>
+              )}
+              {card.attachment.durationSec !== undefined && (
+                <span className="chip-blur pointer-events-none absolute bottom-[8px] right-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-body-ink/85 tabular-nums">
+                  {formatDuration(card.attachment.durationSec)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        </div>
+        {/* ⚠ ONCE, UNDER THE PAIR, AND NOT ON EACH TILE. The sentence is
+            about the ALERT's footage rather than about one camera's, and
+            printed inside each box it read "Clip on the hub only" twice
+            side by side, which is one fact said twice and a tile whose own
+            label it was competing with. */}
+        <p className="text-[0.75rem] text-body-ink/40">{held.headline}</p>
+        <p className="text-[0.6875rem] text-body-ink/25">{held.help}</p>
+      </section>
+    );
+  }
+
+  const panes = alertPanes(alert, cameraNameOf);
 
   return (
     <section

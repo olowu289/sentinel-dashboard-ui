@@ -216,6 +216,14 @@ function needsFreshUrls(alert: SiteAlert): boolean {
   return clips.some((c) => !c.url);
 }
 
+/* ⚠ AND A CLIP THAT IS ONLY ON ITS HUB LOOKS EXACTLY THE SAME FROM HERE, by
+   construction: "the push does not carry URLs" and "this tier has no bytes to
+   mint for" are both a clip with no `url`, and the only way to tell them
+   apart is to ask. So a hub-only alert costs exactly ONE request and then
+   stops — the `asked` fingerprint below is what makes that true, and it is
+   the right price for the distinction. See `clipState` in `alertCopy.ts` for
+   what the answer is read as. */
+
 /** The clips an alert is offering, as a comparable identity. */
 function clipFingerprint(alert: SiteAlert | undefined): string {
   if (!alert?.clips) return "";

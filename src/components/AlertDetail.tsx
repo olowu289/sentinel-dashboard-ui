@@ -2,6 +2,8 @@ import { motion, useIsPresent } from "motion/react";
 import type { ReactNode } from "react";
 import type { Alert, TimelineEvent } from "@/lib/types";
 import { ALERT_BADGE } from "@/lib/data";
+import { alertColour, recoveryDetail, recoveryProgress } from "@/lib/alertCopy";
+import { AlertClips } from "./AlertClips";
 import { deviceName } from "@/lib/deviceName";
 import { ENTER, EXIT } from "@/lib/motion";
 import {
@@ -116,6 +118,7 @@ function TimelineStep({
 
 export function AlertDetail({
   alert,
+  towerName,
   onClose,
   onAcknowledge,
   onResolve,
@@ -129,6 +132,8 @@ export function AlertDetail({
   onRejectMatch,
 }: {
   alert: Alert;
+  /** The site, for the clip panes' labels. Both feeds already know it. */
+  towerName?: string;
   onClose: () => void;
   onAcknowledge: () => void;
   onResolve: () => void;
@@ -186,6 +191,19 @@ export function AlertDetail({
      a non-null assertion on the one line where being wrong shows an operator
      the wrong incident's footage. */
   const hero = alert.attachment;
+
+  /* THE SERVER'S OWN ALERT, when this row came from coordination. Everything
+     below that a fixture has no shape for is read off here rather than copied
+     onto the app's `Alert`: the clips (whose URLs must never be stored), the
+     progress block, `recovered_at`, and the colour the hub chose. */
+  const server = alert.site;
+  const tone = server ? alertColour(server.colour) : null;
+  const recovering = server ? recoveryDetail(server) : undefined;
+  const recoveryPct = server ? recoveryProgress(server) : undefined;
+  /* When the condition ended, which is NOT when somebody acknowledged it. A
+     camera coming back writes `recovered_at` onto the same row, so one alert
+     can carry both facts and they belong to different actors. */
+  const recoveredAt = server?.recovered_at ? Date.parse(server.recovered_at) : null;
 
   /* A short slide from the right edge, not a full panel width — the list is
      still conceptually behind this, so it should read as sliding over its own
@@ -266,19 +284,39 @@ export function AlertDetail({
                 operator leaves open, and cannot be read aloud accurately on a
                 handoff, which is the one thing this line is for. */}
             <p className="flex flex-wrap items-center gap-x-[6px] text-[0.875rem] leading-[20px] tracking-[0.14px]">
+              {/* ⚠ TWO DIFFERENT COLOURS, FOR TWO DIFFERENT QUESTIONS, AND
+                  THE SERVER OWNS ONE OF THEM. A fixture's word is coloured by
+                  its own triage state, which is this app's judgement and is
+                  fine. A server alert's is coloured by the hub's `colour` —
+                  how bad the SITE is — because that is the judgement the hub
+                  made and sent, and it is the one the operator needs before
+                  they need to know whether somebody has clicked a button. */}
               <span
                 className={
-                  alert.status === "resolved"
-                    ? "text-terra"
-                    : alert.status === "acknowledged"
-                      ? "text-warn"
-                      : "text-critical"
+                  tone
+                    ? tone.text
+                    : alert.status === "resolved"
+                      ? "text-terra"
+                      : alert.status === "acknowledged"
+                        ? "text-warn"
+                        : "text-critical"
                 }
               >
-                {alert.status[0].toUpperCase() + alert.status.slice(1)}
+                {server
+                  ? server.acknowledged
+                    ? "Noticed"
+                    : "Not acknowledged"
+                  : alert.status[0].toUpperCase() + alert.status.slice(1)}
               </span>
-              <span aria-hidden className="size-[2px] rounded-full bg-muted" />
-              <span className="text-muted">{alert.zone}</span>
+              {/* The separator goes with the thing it separates. A zone is a
+                  detection's, and a stray dot with nothing after it is the
+                  shape of a value that failed to load. */}
+              {alert.zone ? (
+                <>
+                  <span aria-hidden className="size-[2px] rounded-full bg-muted" />
+                  <span className="text-muted">{alert.zone}</span>
+                </>
+              ) : null}
               <span aria-hidden className="size-[2px] rounded-full bg-muted" />
               <span className="text-muted tabular-nums">
                 {formatEventTime(alert.at)}
@@ -286,10 +324,21 @@ export function AlertDetail({
             </p>
           </div>
 
-          {/* The triggering frame goes above every metadata row — an operator
-              confirms with their eyes before they read anything. Aspect ratio
-              rather than the frame's fixed 198px, so the panel can be any
-              width and still show the designed proportion. */}
+          {/* THE EVIDENCE GOES ABOVE EVERY METADATA ROW. An operator confirms
+              with their eyes before they read anything, which is why this is
+              the first thing in the panel and why it is not a thumbnail with a
+              play button over it. */}
+          {server ? (
+            /* ⚠ KEYED ON THE ALERT ID, AND THIS PANEL IS WHY. `AlertsPanel`
+               renders `AlertDetail` without a key so arrowing through the feed
+               swaps its content in place and bulk triage stays instant — so
+               every piece of state inside the player (the position, a fetched
+               fresh URL, "Clip no longer kept") would survive the swap and
+               appear against the NEXT alert. Key the subtree that owns the
+               state, not the panel: the rule CLAUDE.md states, applied at the
+               one place in this round that needed it. */
+            <AlertClips key={server.id} alert={server} towerName={towerName ?? ""} />
+          ) : (
           <div className="relative aspect-[388/198] w-full overflow-hidden rounded-[12px] bg-panel">
             {hero ? (
               <>
@@ -320,9 +369,11 @@ export function AlertDetail({
                     no label is evidence you cannot cite. After the button in the
                     DOM so they paint over its scrim, and inert so they never eat
                     the tap. */}
-                <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-body-ink/85">
-                  {alert.source}
-                </span>
+                {alert.source && (
+                  <span className="chip-blur pointer-events-none absolute left-[8px] top-[8px] max-w-[calc(100%-16px)] truncate rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] uppercase leading-[14px] tracking-[0.1px] text-body-ink/85">
+                    {alert.source}
+                  </span>
+                )}
                 {hero.durationSec !== undefined && (
                   <span className="chip-blur pointer-events-none absolute bottom-[8px] right-[8px] rounded-[3px] bg-black/55 px-[6px] py-[2px] font-display text-[0.625rem] leading-[14px] text-body-ink/85 tabular-nums">
                     {formatDuration(hero.durationSec)}
@@ -342,12 +393,38 @@ export function AlertDetail({
                 </p>
                 <p className="text-[0.6875rem] text-body-ink/25">
                   {alert.kind === "fault"
-                    ? `${alert.source} stopped sending frames`
-                    : `Raised by ${alert.source}, which has no camera`}
+                    ? `${alert.source ?? "This camera"} stopped sending frames`
+                    : `Raised by ${alert.source ?? "nothing with a camera"}`}
                 </p>
               </div>
             )}
           </div>
+          )}
+
+          {/* HOW MUCH FOOTAGE IS STILL COMING. The recovery pair has no clip
+              to cut (§9: there is no moment to cut around) and this is what
+              stands in its place — a quantity and an end in sight, moving as
+              the hub re-reports on every footage report. */}
+          {recovering || recoveryPct !== undefined ? (
+            <div className="flex flex-col gap-[6px]" data-recovery>
+              {recovering && (
+                <p className="text-[0.8125rem] leading-[18px] text-muted tabular-nums">
+                  {recovering}
+                </p>
+              )}
+              {recoveryPct !== undefined && (
+                <span
+                  aria-hidden
+                  className="h-[4px] w-full overflow-hidden rounded-full bg-overlay/10"
+                >
+                  <span
+                    className={`block h-full rounded-full ${tone?.strip ?? "bg-muted"}`}
+                    style={{ width: `${Math.round(recoveryPct * 100)}%` }}
+                  />
+                </span>
+              )}
+            </div>
+          ) : null}
         </section>
 
         <section className="flex flex-col gap-[8px]">
@@ -357,36 +434,95 @@ export function AlertDetail({
           {/* Two columns at every width. The panel is 417px at lg and full
               width below it, and at neither size does a 2×2 block of short
               key/value pairs need to collapse to one column. */}
+          {/* Two columns at every width. The panel is 417px at lg and full
+              width below it, and at neither size does a block of short
+              key/value pairs need to collapse to one column.
+
+              ⚠ THE CELLS ARE CHOSEN, NOT FIXED AT FOUR. Source, Cameras and
+              AI Confidence are the DETECTION vocabulary: a sensor, a zone, a
+              model's certainty. Coordination raises five kinds and not one of
+              them has any of those — a tower offline has no sensor and a
+              camera stopping is not a prediction. "Not scored" under AI
+              Confidence on a hardware fault is a row narrating the absence of
+              something that was never going to be there, which is rule 4 the
+              wrong way round. So a server alert gets the cells that are true
+              of it, and a fixture keeps all four exactly as before. */}
           <div className="grid grid-cols-2 gap-[4px]">
-            <DetailCell label="Source" value={alert.source} />
-            <DetailCell label="Detected:" value={detected} />
-            <DetailCell
-              label={alert.cameras?.length === 1 ? "Camera" : "Cameras"}
-              value={
-                alert.cameras?.length ? (
-                  alert.cameras.map(deviceName).join(", ")
-                ) : (
-                  <span className="text-body-ink/30">None</span>
-                )
-              }
-            />
-            <DetailCell
-              label="AI Confidence:"
-              value={
-                alert.confidence !== undefined ? (
-                  `${alert.confidence}%`
-                ) : (
-                  /* Blank, not "0%" or "N/A": a hardware fault and an operator
-                     talk-down are decisions and events, not predictions, and a
-                     number here would invent a machine judgement that was never
-                     made. */
-                  <span className="text-body-ink/30">Not scored</span>
-                )
-              }
-            />
+            {server ? (
+              <>
+                <DetailCell label="Started:" value={detected} />
+                {recoveredAt !== null && (
+                  /* A SECOND FACT ABOUT A DIFFERENT ACTOR. This is the
+                     hardware coming back, not somebody dealing with it, and
+                     the pair being visibly separate is what stops a screen
+                     implying an outage was handled when it simply ended. */
+                  <DetailCell
+                    label="Back at:"
+                    value={
+                      isSameSiteDay(recoveredAt, siteNow())
+                        ? formatClock(recoveredAt)
+                        : `${formatSiteDate(recoveredAt)}, ${formatClock(recoveredAt)}`
+                    }
+                  />
+                )}
+                {alert.cameras?.length ? (
+                  <DetailCell
+                    label={alert.cameras.length === 1 ? "Camera" : "Cameras"}
+                    value={alert.cameras.map(deviceName).join(", ")}
+                  />
+                ) : null}
+                {server.acknowledged_by ? (
+                  /* ⚠ THE SERVER'S WORD FOR WHO, AND ONLY EVER THE SERVER'S.
+                     The route reads no body: who acknowledged is the
+                     authenticated caller. Not a device name, so NOT put
+                     through `deviceName` — shouting a person's name is the
+                     line `lib/deviceName.ts` draws and means. */
+                  <DetailCell label="Noticed by:" value={server.acknowledged_by} />
+                ) : null}
+              </>
+            ) : (
+              <>
+                <DetailCell label="Source" value={alert.source} />
+                <DetailCell label="Detected:" value={detected} />
+                <DetailCell
+                  label={alert.cameras?.length === 1 ? "Camera" : "Cameras"}
+                  value={
+                    alert.cameras?.length ? (
+                      alert.cameras.map(deviceName).join(", ")
+                    ) : (
+                      <span className="text-body-ink/30">None</span>
+                    )
+                  }
+                />
+                <DetailCell
+                  label="AI Confidence:"
+                  value={
+                    alert.confidence !== undefined ? (
+                      `${alert.confidence}%`
+                    ) : (
+                      /* Blank, not "0%" or "N/A": a hardware fault and an
+                         operator talk-down are decisions and events, not
+                         predictions, and a number here would invent a machine
+                         judgement that was never made. */
+                      <span className="text-body-ink/30">Not scored</span>
+                    )
+                  }
+                />
+              </>
+            )}
           </div>
         </section>
 
+        {/* ⚠ A SERVER ALERT HAS NO SEQUENCE, so it gets no Timeline heading.
+            This section's whole value is the DELTA between steps — "vehicle,
+            then a person 15 seconds later" is the finding, and a column of
+            identical clock times is not. Coordination's five kinds are single
+            events: a link dropped, a feed stopped, a tower returned. Falling
+            back to one step built from the alert itself, which is what the
+            `??` below does for a fixture with no timeline, would draw a
+            heading, a rail and a badge over one line that repeats the title
+            three inches above it. Started and Back at are in the cells. */}
+        {server ? null : (
         <section className="flex flex-col gap-[16px]">
           <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             Timeline:
@@ -404,6 +540,7 @@ export function AlertDetail({
             ))}
           </ol>
         </section>
+        )}
       </div>
 
       {/* The state machine lives on the primary button — you cannot resolve
@@ -436,7 +573,16 @@ export function AlertDetail({
             Acknowledge
           </button>
         )}
-        {alert.status === "acknowledged" && (
+        {/* ⚠ NO RESOLVE ON A SERVER ALERT, AND IT IS NOT AN OVERSIGHT. There
+            is no resolve route and no `resolved` state on the row:
+            acknowledging is ONE-WAY and the first one wins, and a camera
+            coming back writes `recovered_at` onto the same alert rather than
+            closing it. Those are facts about different actors — a person
+            noticing, and hardware returning — and a button that collapsed
+            them would let a screen imply somebody dealt with an outage that
+            simply ended. The fixture path keeps the two-step, because the
+            detection feed it belongs to will have one. */}
+        {alert.status === "acknowledged" && !server && (
           <button
             type="button"
             onClick={onResolve}
@@ -448,10 +594,16 @@ export function AlertDetail({
             Resolve
           </button>
         )}
-        {alert.status === "resolved" && (
+        {alert.status === "resolved" && !server && (
           <p className="flex-1 text-[0.75rem] text-terra">
             Resolved by {alert.acknowledgedBy ?? "you"}
           </p>
+        )}
+        {/* An acknowledged server alert has nothing left to press. The cells
+            above say who noticed and when, which is the record; a button that
+            is on screen and cannot be used is worse than a space. */}
+        {server && alert.status === "acknowledged" && (
+          <p className="flex-1 text-[0.75rem] text-muted">Acknowledged</p>
         )}
         {/* A match is a possibility, so the flat contradiction sits beside the
             flat agreement. Without it the only way to answer a wrong match is

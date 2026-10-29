@@ -396,9 +396,14 @@ const AT_9001 = ago(1 * HOUR + 38 * MINUTE);
 
 /** Written without `towerId` and stamped below, so a whole site's feed cannot
  *  drift one row at a time the way a hand-repeated field does. */
-type SiteAlert = Omit<Alert, "towerId">;
+/* ⚠ RENAMED FROM `SiteAlert`. The SDK now exports a type of that name and it
+   is a DIFFERENT THING -- one alert as coordination raises it, with a `type`,
+   a `colour` and no sentence anywhere. These are the fixtures, which are the
+   app's own `Alert` minus the tower. Two meanings for one word in one repo is
+   how somebody imports the wrong one and gets a clean typecheck. */
+type FixtureAlert = Omit<Alert, "towerId">;
 
-const ALERTS_1042: SiteAlert[] = [
+const ALERTS_1042: FixtureAlert[] = [
   {
     id: "ALT-8842",
     /* `person`, not a new kind. A watchlist hit is a person detection that also
@@ -569,7 +574,7 @@ const ALERTS_1042: SiteAlert[] = [
   },
 ];
 
-const ALERTS_2071: SiteAlert[] = [
+const ALERTS_2071: FixtureAlert[] = [
   {
     id: "ALT-9003",
     kind: "person",

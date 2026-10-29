@@ -682,6 +682,143 @@ It opens over the alerts rail rather than beside it. The operator has to see the
 pictures the settings are about, and the rail is the one thing on that screen
 they are not reading at that moment — it is a list of what already happened.
 
+### The alert feed stopped being a lie
+
+Six alerts loaded on every fleet, naming TWR-1042 and TWR-2071, towers no
+account has. They were counted on real tower cards and spoken for by the
+new-alert banner, and the code said so in a block headed "FIXTURE ALERTS, ON
+EVERY FLEET — NOT REAL DETECTIONS". The note finished: *the way out is a real
+feed, or a mark on screen — swap the line below back the moment coordination
+serves alerts.*
+
+Coordination serves alerts. Five kinds, each with a fixed colour and a clip of
+the minute before it happened.
+
+| what the hub saw | what the screen says |
+| --- | --- |
+| a tower's control link lost for 60 s | **WEST TOWER offline** |
+| a camera's feed lost while its tower is up | **CAMERA 1 camera stopped working**, and "Back at 13:04" once it returns |
+| a tower that was offline is back | **WEST TOWER back online** |
+| a reconnected tower sending its backlog | **Recovering footage from WEST TOWER**, with "6 files, about 29 min left" and a bar |
+| that backlog cleared | **Footage recovered from WEST TOWER** |
+
+**None of those sentences crosses the wire.** An alert carries a `type` and a
+`colour` and no `message` field at all — deliberately, on both sides. The
+website owns every word a customer reads, from one place, in one voice, and
+the easiest way to keep that rule is to have nothing on the wire that could
+break it.
+
+One of those words is owed rather than chosen. A tower is **offline**, never
+"down": a hub cannot tell a dead tower from a dead radio link, and "down"
+asserts the first.
+
+And a type we have never heard of still appears. A newer hub forwards one, the
+`colours` map it comes with says what colour the hub thinks it is, and the row
+reads "Something happened at EAST TOWER" rather than `GENERATOR_LOW` and rather
+than nothing. An operator who reads the first goes and looks.
+
+### The minute before it happened
+
+Every tower camera's stream is recorded into a three-minute ring on the hub,
+and 60 seconds is cut out of it when an alert fires. What comes back depends on
+what happened, and the shape of the screen follows:
+
+A **camera stopping** is one camera, so it is one pane. A **tower going
+offline** is the control link, which took the whole mast — so both cameras,
+side by side, on **one transport**. They are the same moment seen from two
+places: a vehicle leaves one frame and enters the other, and finding that by
+scrubbing two players separately is the work this screen exists to not make
+somebody do. One play, one scrub, and a drift correction that keeps the
+follower within a third of a second of the leader.
+
+If the tower survives and later syncs the 2K segment covering that window, the
+hub cuts the same minute again at full size and `best_quality` flips. The
+player switches to it **without losing the place** — it is the same sixty
+seconds at a better resolution, so somebody looking at 00:42 is still looking
+at 00:42. A naive source swap resets to zero, which on a minute of evidence
+means finding the moment again.
+
+⚠ **A clip URL is good for fifteen minutes and is never cached.** An operator
+who leaves the feed open through a shift and then opens an alert from this
+morning gets a 403, and a player that read that as "broken" would be telling
+them the evidence is gone when it is one request away. So a 403 re-reads the
+alert for fresh URLs and retries **once** — once, because a second failure is
+not an expiry, and a loop against a server that is refusing is this app causing
+the outage it is reporting.
+
+There are three ways to have no clip, and they are three different sentences:
+
+- **"Clip coming."** A `TOWER_ONLINE` clip is the first 60 s *after* the tower
+  returned, so it lands about a minute later. The alert is right and the
+  evidence is on its way.
+- **"Clip no longer kept."** The clip budget is swept oldest-first under disk
+  pressure, and clips go before footage, never the other way round. The alert
+  survives its clip on purpose: an alert is the record that the camera stopped
+  at 03:14, and deleting it to save an attachment would be deleting the
+  incident.
+- **Nothing at all.** The two footage-recovery alerts have no moment to cut
+  around, so they get no clip area rather than a box reporting the absence of
+  something that was never going to be there.
+
+### Acknowledging, and the thing there is no button for
+
+The ack route reads **no body**. Who acknowledged is the authenticated caller,
+never a name in a request — which is why the panel carried a visibly fake
+"A. Okafor" for as long as there was no route at all, rather than quietly
+substituting the session's own name and making an unverified claim look
+verified. The screen now takes the returned alert as the truth, name and all,
+and writes nothing optimistically: an acknowledgement is an auditable record of
+who noticed, and painting the row before the server agrees is the same
+unverified claim half a second earlier.
+
+There is no **Resolve**, and that is not an omission. Acknowledging is one-way
+and the first one wins; a camera coming back writes `recovered_at` onto the
+*same* alert rather than closing it. Those are facts about different actors —
+a person noticing, and hardware returning — and one button collapsing them
+would let this screen imply somebody dealt with an outage that simply ended.
+The detail shows both, in separate cells, with separate labels.
+
+**Escalate stays, and stays disabled.** There is still nowhere to hand an alert
+to: no ticket, no rota, no recipient. A button removed is a feature forgotten,
+and this one has to be wired the day there is one.
+
+### A colour the server chose
+
+An alert's colour is a code, like its type, and it arrives in a `colours` map
+with every list. Three of the five land on colours this product already spends,
+and for the house reason rather than by coincidence: a tower that is **back** is
+green because green means live, a camera that **stopped** is amber because amber
+means degraded, a tower that is **gone** is red because red means fault.
+
+The other two are new tokens, and they are the first extension to the colour
+rule since it was written. Footage catching up after an outage is the one class
+of event here that is neither a reading about a site nor a fault: it is a job
+running, and then a job finished. Red or amber would paint a system recovering
+correctly as broken; green would say LIVE. So `--color-recovering` (violet) and
+`--color-recovered` (teal), named for the job rather than the hue, and spent
+nowhere else.
+
+**Blue is still the sharing toast's and nothing else's** — the one thing on
+screen that is about people rather than about the site.
+
+### A toast that finds you wherever you are
+
+An alert arrives while somebody is watching a gate. The card goes in the corner
+over the video, in that alert's colour as a 2px strip and not a pixel more,
+with Open and Dismiss — the same card the share requests use, which was built
+once for exactly this.
+
+It is **not** hidden on a hub, unlike the share deck beside it. A share is
+between two sites over the internet and a hub has neither; an alert is the
+hub's own judgement about its own masts, and the kiosk in the control room is
+the screen most likely to be the only one anybody is looking at.
+
+It is transient rather than persistent, which is the opposite of a share
+request. A question that fades is a question answered by whoever was looking
+the other way — but an alert is not a question. It is already in the feed,
+already counted on its tower's card, and durable on the hub for ninety days.
+The card is the interruption, not the record.
+
 ### The hub does not have your footage
 
 The Storage group had two rows that read as reassurance and are now false.

@@ -466,7 +466,17 @@ export function TowerCard({
             onClick={onOpenAlerts}
             className="min-w-0 flex-1 truncate text-left text-[0.8125rem] leading-[20px] tracking-[0.13px] text-alert-ink transition-colors hover:text-body-ink"
           >
-            Alert raised by {latest.source}, {formatRelative(latest.at)}.
+            {/* ⚠ THE TITLE, NOT A SENTENCE BUILT AROUND A SENSOR. "Alert
+                raised by {source}" was right while every alert was a
+                detection and carried one; coordination's five are about
+                hardware and have no sensor, so that line read "Alert raised
+                by undefined" the day the feed became real. The hub's alert
+                already says what happened in one clause, in one voice, from
+                `lib/alertCopy.ts` -- and a strip that quotes it says the same
+                thing the row in the feed says, which is the point of both. */}
+            {latest.source
+              ? `Alert raised by ${latest.source}, ${formatRelative(latest.at)}.`
+              : `${latest.title}, ${formatRelative(latest.at)}.`}
           </button>
           <button
             type="button"

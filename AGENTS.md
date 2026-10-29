@@ -47,7 +47,14 @@ These are load-bearing decisions with reasons recorded in the README or in
 comments at the site. Changing one is a real decision, not a cleanup.
 
 **Colour is reserved.** Green is live, amber is degraded or a detection, red is a
-fault or live transmission. Nothing else gets a hue. Do not reach for `terra` to
+fault or live transmission. Nothing else gets a hue, with the one extension the
+alert feed argued for and won: `--color-recovering` (purple) and
+`--color-recovered` (teal), spent on footage catching up after an outage and
+nowhere else. That is a job running and then a job finished, which is the one
+class of event here that is neither a reading about a site nor a fault — red
+or amber would paint a system recovering correctly as broken, and green would
+say LIVE. The hub decides which alert wears which, and sends a `colours` map so
+a type this bundle has never heard of still renders. Do not reach for `terra` to
 mean "selected", "primary" or "success" — selection and primary actions are
 white-on-black. A green pill on a monitoring screen reads as a signal, not a
 setting. The one extension is `PendingTowerCard`, which the design washes in
@@ -116,6 +123,76 @@ arrival labelled as an arrival, never a position on it. Placing one at the
 moment it arrived would show footage at a time it was not recorded *and* cut
 the real segment before it short to the invented gap in front of it. Its
 download carries no time at all (`undatedFilename`).
+
+**The alert feed is real, and every word in it is ours.** Coordination raises
+five kinds (`TOWER_OFFLINE`, `CAMERA_STOPPED`, `TOWER_ONLINE`,
+`FOOTAGE_RECOVERING`, `FOOTAGE_RECOVERED`) with a `type`, a `colour` and
+**no `message` field anywhere** — the website owns every sentence a customer
+reads, and the easiest way to keep the first writing rule is to have nothing on
+the wire that could break it. `src/lib/alertCopy.ts` is the whole vocabulary
+and the only place a switch over `type` may live. A type this bundle was built
+before gets a generic sentence and the colour the server picked for it, never
+its code and never nothing: an operator who reads "Something happened at WEST
+TOWER" goes and looks.
+
+⚠ `TOWER_OFFLINE` reads **"offline"**, never "down". A hub cannot tell a dead
+tower from a dead radio link, and "down" asserts the first. That one word is
+what sentry-core's own spec says this repository owes it.
+
+**The feed lists once and then streams. Nothing polls.** `useSiteAlerts` reads
+`GET /v1/viewer/site-alerts` on open and holds `GET /v1/viewer/events` after
+that. Drops are EXPECTED rather than exceptional — a slow reader is closed
+rather than waited for, because the publisher is the loop watching the fleet,
+and a node holds at most 64 streams — so the SDK recovers with `since=` and
+`reconnecting` is a quiet line, never a reason to clear the list. The
+subscription deliberately does not depend on the fleet's names or the toast
+callback; both are read through refs, because a stream rebuilt on every render
+of the shell is a stream the server closes for being the 64th.
+
+**There are TWO revision gates and they guard different things.** The SDK's
+drops out-of-order frames off the stream; `useSiteAlerts` drops out-of-order
+rows reaching the store. An acknowledgement is a POST whose response never
+touches the subscription, so only the second one stops a recovery read from
+un-acknowledging an alert a second after somebody acknowledged it.
+
+**An alert's colour is the SERVER's.** The list sends a `colours` map with
+every response precisely so an unknown type still renders. `ALERT_COLOUR` maps
+the colour KEY to a token, never the type: red is `critical`, orange is
+`detect`, green is `terra` (a tower that is BACK, which is the house meaning of
+green), and the recovery pair takes `--color-recovering` and `--color-recovered`
+— two tokens added for the one class of event that is neither a reading about
+a site nor a fault, but a job running and then finished. **Blue is still the
+sharing toast's and nothing else's.** This is also the one place
+`notifications.tsx`'s "one token per kind" rule bends: `Notification.strip`
+exists so the hub's own judgement reaches the card, and it is still one class
+on one 2px bar.
+
+**There is no resolve, and no un-acknowledge.** Acknowledging is one-way and
+the first one wins; a camera coming back writes `recovered_at` onto the SAME
+alert rather than closing it. Those are facts about different actors — a
+person noticing, and hardware returning — and a button collapsing them would
+let a screen imply somebody dealt with an outage that simply ended. The ack
+sends **no body**: who acknowledged is the authenticated caller, and the screen
+takes the returned alert as the truth rather than writing optimistically.
+
+**A clip URL is never cached, and `AlertClips` must be keyed on the alert id.**
+`url` and `download_url` are minted per request and a presigned bucket URL
+lives fifteen minutes; `key` is the stable identity. A 403 re-reads the alert
+and retries ONCE — once, because a second failure is not an expiry and a loop
+against a refusing server is this app causing the outage it reports. A 404 is
+the budget having swept the file, and the alert stays: an alert is the record
+that the camera stopped at 03:14. The three no-clip states are three different
+sentences — "Clip coming", "Clip no longer kept", and no clip area at all for
+the recovery pair, which has no moment to cut around. And the keying is the
+`AlertDetail` trap in CLAUDE.md applied: that panel is never remounted, so
+every piece of player state would otherwise appear against the next alert.
+
+**The detection vocabulary is kept and nothing raises one.** `person`,
+`vehicle`, `speaker`, `matchedPersonId`, `confidence`, `zone`, `source` and the
+timeline steps are all still here, and `Alert.source`/`zone` are now optional
+because coordination's five kinds have neither. A server alert gets the detail
+cells that are true of it; "Not scored" under AI Confidence on a hardware fault
+is rule 4 the wrong way round.
 
 **Motion lives in `src/lib/motion.ts`.** `ENTER` / `EXIT` / `FADE`, all tweens.
 Springs overshoot, which on a wall of cameras reads as the stream glitching.

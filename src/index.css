@@ -199,6 +199,30 @@
   --color-notify-revoked-line: #3d3222;
   --color-notify-revoked-ink: #150f04;
 
+  /* ── THE TWO COLOURS THE ALERT FEED ADDED ─────────────────────
+
+     ⚠ THESE ARE A DELIBERATE EXTENSION OF THE COLOUR RULE, NOT A LAPSE.
+     Green is live, amber is degraded or a detection, red is a fault, and
+     nothing else got a hue. The alert feed is real now, and the hub decides an
+     alert's colour SERVER-SIDE and sends it in a `colours` map — precisely so
+     a type this build of the website has never heard of still renders. Three
+     of its five land on colours we already have: red on `critical`, orange on
+     `detect`, green on `terra` for a tower that is BACK (which is the house
+     meaning of green, not a second one).
+
+     Two do not, and both are about the same thing: footage catching up after
+     an outage. That is the one class of event on this product that is neither
+     a reading about a site nor a fault — it is a job running, and then a job
+     finished. Giving it red or amber would put a fault colour on a system
+     recovering correctly, and giving it green would say LIVE. So two tokens,
+     named for the job rather than for the hue, which is the rule the notify
+     tokens below already follow.
+
+     They are spent here and nowhere else. If something other than the footage
+     recovery pair wants one of these, that is a new decision. */
+  --color-recovering: #b393f0;
+  --color-recovered: #6fd3c7;
+
   /* The clip player. The stage is the same value as --color-card-hover and is
      its own token anyway: one is the colour a card takes under the pointer and
      the other is the surround a piece of evidence is looked at against, and
@@ -368,6 +392,15 @@
   --color-alert-ink: #ffe3e0;    /* on the red fill — NOT inverted */
   --color-advice-banner: #f5cc45;
   --color-advice-ink: #110d00;   /* on the amber fill — NOT inverted */
+
+  /* The recovery pair, light. Both darken a long way for the same reason the
+     notify accents do: a lavender that reads as information on black is a
+     pastel on white, and a pastel carrying 13px text is unreadable at arm's
+     length on a bright screen. The hues are kept apart — one violet, one
+     green-blue — because the whole point is that "still catching up" and
+     "caught up" are separable in a glance down a feed. */
+  --color-recovering: #6d49bd;
+  --color-recovered: #0f766e;
 
   /* Map and scrubber. The track is a translucent overlay on the dark stage, so
      it stays light; the mark colours sit on the light map and darken. */

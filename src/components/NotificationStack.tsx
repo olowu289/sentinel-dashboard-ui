@@ -56,7 +56,10 @@ function Card({
   n: Notification;
   onDismiss: () => void;
 }) {
-  const style = KINDS[n.kind];
+  /* The kind's own colour, unless the card carries one the SERVER chose. See
+     the note on `Notification.strip`: an alert's colour is not this build's to
+     decide, because a hub forwards types this bundle has never heard of. */
+  const strip = n.strip ?? KINDS[n.kind].strip;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     /* The corner stamp is a relative time, so it has to move. Once a minute:
@@ -87,7 +90,7 @@ function Card({
           tinted border, a coloured heading and a coloured button, which made
           the one small surface that sits on live video the loudest thing in a
           black and white product. */}
-      <div className={`h-[2px] w-full ${style.strip}`} aria-hidden />
+      <div className={`h-[2px] w-full ${strip}`} aria-hidden />
       <div className="flex items-start gap-[10px] p-[12px]">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-[8px]">

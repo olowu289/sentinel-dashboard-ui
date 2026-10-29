@@ -1,4 +1,4 @@
-import type { DeviceFootage } from "@kallon/sentry-sdk";
+import type { DeviceFootage, SiteAlert } from "@kallon/sentry-sdk";
 import type { Patrol } from "./patrol";
 
 /**
@@ -688,8 +688,38 @@ export interface Alert {
    *  pre-formatted string — the filter has to be able to compare them. */
   at: number;
   status: AlertStatus;
-  source: string;
-  zone: string;
+  /**
+   * WHAT RAISED IT. Absent on a site alert, and that is not a gap.
+   *
+   * ⚠ THESE TWO WERE REQUIRED AND ARE NOW OPTIONAL, which is a real change
+   * and not a loosening. They are DETECTION fields: "Motion Sensor" on "Gas
+   * Yard" is the vocabulary of a detection feed, and that feed is coming. The
+   * alerts coordination raises today are about hardware -- a tower offline, a
+   * camera stopped, footage catching up -- and none of them has a sensor or a
+   * zone. Defaulting them to the device's own name would have put the tower
+   * in the Source cell of an alert ABOUT that tower, which reads as a reading
+   * and is a tautology; defaulting them to "Unknown" would narrate an absence
+   * rule 4 says to hide.
+   */
+  source?: string;
+  zone?: string;
+  /**
+   * THE SERVER'S OWN ALERT, kept whole, when this row came from coordination.
+   *
+   * Absent on a fixture. Present on everything in the live feed, and it is
+   * what the detail view reads for the things the app's own `Alert` has no
+   * shape for: `clips`, `best_quality`, `progress`, `recovered_at`, `rev` and
+   * the colour the server picked.
+   *
+   * ⚠ THE WHOLE OBJECT, NOT A COPY OF THE FIELDS. Three reasons, each of
+   * which has already cost something somewhere in this repo: a copy has to be
+   * kept in step with the SDK's type by hand; `clips[].url` must never be
+   * stored anywhere a renderer might keep it past its fifteen minutes, and a
+   * flattened copy is exactly such a place; and `rev` is how an out-of-order
+   * update is dropped, which only works while the row it belongs to travels
+   * with it.
+   */
+  site?: SiteAlert;
   /** Cameras covering the event. Plural because a zone can be overlooked by
    *  more than one, and an operator pulling footage needs all of them. */
   cameras?: string[];

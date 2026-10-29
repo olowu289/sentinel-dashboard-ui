@@ -2,6 +2,7 @@ import { AnimatePresence, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddTowerView } from "@/components/AddTowerView";
 import { AlertsView } from "@/components/AlertsView";
+import { AlertNotifications } from "@/components/AlertNotifications";
 import { FootageView } from "@/components/FootageView";
 import { useSession } from "@/components/AuthProvider";
 import { can, navAllowed, navVisible } from "@/lib/features";
@@ -18,6 +19,7 @@ import { SettingsView } from "@/components/SettingsView";
 import { AdministrationView } from "@/components/AdministrationView";
 import { NotificationStack } from "@/components/NotificationStack";
 import { NotificationProvider } from "@/lib/notifications";
+import { useSiteAlerts, type ArrivedAlert } from "@/lib/useSiteAlerts";
 import { ShareFeedProvider } from "@/lib/useShareFeed";
 import { FleetFollowsShares, WatchProvider } from "@/lib/watch";
 import {
@@ -53,7 +55,6 @@ import { useVisibleTiles } from "@/lib/useVisibleTiles";
 import { useMutation } from "@/lib/useMutation";
 import type { SimState } from "@/components/StateSimulator";
 import {
-  ALERTS,
   FEEDS,
   PEOPLE,
   TOWERS,
@@ -182,49 +183,49 @@ export function SentinelApp() {
 
   const [feeds, setFeeds] = useState<CameraFeed[]>(seededFleet ? FEEDS : []);
   /*
-   * ⚠⚠ FIXTURE ALERTS, ON EVERY FLEET — NOT REAL DETECTIONS. ⚠⚠
+   * ⭐⭐ THE ALERT FEED IS REAL. ⭐⭐
    *
-   * The same departure `demoCabinet` documents, made deliberately and by the
-   * owner: the alert feed is the one screen that is empty on a live account,
-   * because coordination serves no alerts yet, and an empty feed makes a built
-   * product look unfinished. So the fixtures load whatever the fleet is.
+   * What stood here was a block headed "FIXTURE ALERTS, ON EVERY FLEET -- NOT
+   * REAL DETECTIONS", and it was the longest-standing knowing lie in this app:
+   * six seeded alerts naming TWR-1042 and TWR-2071, towers no account has,
+   * counted on real tower cards and spoken for by the new-alert banner. The
+   * note finished "the way out is a real feed, or a mark on screen -- swap the
+   * line below back the moment coordination serves alerts."
    *
-   * WHAT THAT MEANS, PLAINLY. These six name TWR-1042 and TWR-2071, towers no
-   * real account has. On a live fleet the Alerts screen fills with them, the
-   * new-alert banner speaks for them, and a REAL tower's card still counts
-   * zero — because none of them are its. Nothing here is a detection anything
-   * saw.
+   * Coordination serves alerts. `useSiteAlerts` reads
+   * `GET /v1/viewer/site-alerts` once and then holds the event stream open;
+   * every row below this line was raised by a hub watching a mast.
    *
-   * This was `seededFleet ? ALERTS : []` for exactly one day, and the reasons
-   * are kept rather than deleted because they are still true and still the
-   * argument for taking it out again:
-   *
-   *   · phantom counts on real cards, and a banner about a yard nobody owns;
-   *   · the rail's Towers item used to open the newest alert's tower, which
-   *     was always TWR-1042 — "TWR-1042 IS UNAVAILABLE" on every click. That
-   *     one cannot come back: Towers opens the board now and reads no alert.
-   *
-   * The way out is the same one `demoCabinet` names: a real feed, or a mark on
-   * screen. Until then this is a knowing choice, not an oversight — swap the
-   * line below back the moment coordination serves alerts.
+   * ⚠ STILL GATED AT THE SOURCE, and that has not changed for the better
+   * reason now. It was gated so a customer would not see somebody else's
+   * invented yard; it is gated now because `alerts` is a default-off feature
+   * on both tiers (`registry/features.py`, DEFAULT_ON) and an account that has
+   * not been granted it would otherwise put a request on the wire that the
+   * server refuses. The gate is at the SOURCE rather than at the screens for
+   * the original reason, which stands: the tower cards, the banner and the
+   * badge totals all read `alerts` rather than asking the rail what is
+   * reachable, so hiding only the screen would leave a card counting rows its
+   * owner may not see.
    */
-  /* ══════════════════════════════════════════════════════════════════════
-     THE FIXTURE FEED NOW LOADS FOR NOBODY WHO MAY NOT SEE IT.
-     ══════════════════════════════════════════════════════════════════════
-
-     The note above is the argument for taking this out, and the feature list
-     is what finally takes it out — for every account except one that has been
-     explicitly granted `alerts`, which today is ours alone.
-
-     GATED AT THE SOURCE, not at the screens. Emptying the array is what makes
-     the phantom counts on real tower cards go away, and the new-alert banner,
-     and the badge totals — all of which read `alerts` rather than asking the
-     rail whether the Alerts screen is reachable. Hiding only the screen would
-     have left a customer's tower card counting six detections of somebody
-     else's yard. */
-  const [alerts, setAlerts] = useState<Alert[]>(
-    can(features, "alerts") ? ALERTS : [],
-  );
+  const alertsEnabled = can(features, "alerts");
+  /*
+   * SIMULATED AND LOCALLY-EDITED ALERTS, kept apart from the feed.
+   *
+   * Two things still write an alert on this side and neither is a lie: the
+   * state simulator raises one on demand (behind `simulator`, ours alone), and
+   * "Not them" drops an identity from a detection that keeps its own record.
+   * Both are about the DETECTION vocabulary -- a matched face, a zone, a
+   * sensor -- which coordination raises none of today and which the rows, the
+   * timeline steps and the clip cards are all still built for.
+   *
+   * ⚠ A SEPARATE ARRAY, NOT A COPY OF THE FEED. Merging them into one piece
+   * of state would mean the stream's next update to a real alert has to
+   * preserve whatever was edited locally on top of it, and the first thing
+   * that goes wrong there is a server row quietly keeping a local edit after
+   * the server changed its mind. Two lists, concatenated for display, and the
+   * server's copy is never written to by this side.
+   */
+  const [localAlerts, setLocalAlerts] = useState<Alert[]>([]);
   /* State rather than the module constant, because a seeded battery actually
      fills: those towers are off-grid and the panel is the only thing that
      refills them, so a card claiming to be charging while the number sits
@@ -235,6 +236,45 @@ export function SentinelApp() {
      A REAL tower reports no battery at all, so nothing moves and the card says
      so. See the note on `Tower`. */
   const [towers, setTowers] = useState<Tower[]>(seededFleet ? TOWERS : []);
+  /* ── THE FEED, AND THE NAMES IT IS READ IN ────────────────────────────
+
+     An alert names a tower, and the wire carries only a device id. The fleet
+     has the names, so the lookup is handed down rather than the feed guessing:
+     a title reading "KLN_LAB_000002 OFFLINE" is a code on a screen, which is
+     the third writing rule, and it is the one line a customer reads out over
+     a radio.
+
+     ⚠ NOT A DEPENDENCY OF THE SUBSCRIPTION. `useSiteAlerts` holds this in a
+     ref: a stream rebuilt every time the fleet re-renders is a stream the
+     server closes for being the 64th. */
+  const nameOf = useCallback(
+    (deviceId: string) => towers.find((t) => t.id === deviceId)?.site,
+    [towers],
+  );
+
+  /* Newest first and bounded. Each entry is handed to `AlertNotifications`,
+     which lives inside the provider and is the only thing that may call
+     `notify` — this component is OUTSIDE it. Bounded because an app left open
+     through a bad night would otherwise accumulate every alert of the night
+     in an array nothing ever reads again. */
+  const [arrivals, setArrivals] = useState<ArrivedAlert[]>([]);
+  /* Which alert a toast asked to open, handed to `AlertsView` as a seed. It
+     is not cleared: the screen takes it once per value and owns the selection
+     afterwards, so clearing it would be a second write for no reader. */
+  const [openAlertId, setOpenAlertId] = useState<string | null>(null);
+  const onArrived = useCallback((arrived: ArrivedAlert) => {
+    setArrivals((prev) => [arrived, ...prev].slice(0, 20));
+  }, []);
+
+  const alertFeed = useSiteAlerts({ enabled: alertsEnabled, nameOf, onArrived });
+
+  /* The server's rows and this side's two, in one list for every screen that
+     counts or filters them. The server's copies are never written to here. */
+  const alerts = useMemo(
+    () => [...alertFeed.alerts, ...localAlerts].sort((a, b) => b.at - a.at),
+    [alertFeed.alerts, localAlerts],
+  );
+
   /* THE SITE'S LINK TO KALLON CLOUD. One fact about the server that answered,
      so it is held once here rather than copied into every tower -- see
      `CloudReading`. Set only by `listFleet`: the single-tower routes answer
@@ -1212,8 +1252,11 @@ export function SentinelApp() {
     [show, features, sitesEnabled, isAdmin],
   );
 
+  /* Only a LOCAL alert can carry a match to reject: coordination raises five
+     kinds and none of them is a detection, so nothing in the server feed has
+     a `matchedPersonId` and nothing in it is written to here. */
   const applyRejectMatch = useCallback((id: string) => {
-    setAlerts((prev) =>
+    setLocalAlerts((prev) =>
       prev.map((a) => (a.id === id ? { ...a, matchRejected: true } : a)),
     );
   }, []);
@@ -1691,13 +1734,13 @@ export function SentinelApp() {
      logic is adapted to a UI that never had one. It has to come back from the
      server's response to the acknowledgement.
 
-     There is no such response: alerts have no backend at all — no type in the
-     SDK's contract, no route in coordination. So the honest state is the seed's
-     own placeholder, left visibly fake, rather than a session name that would
-     make an unverified claim look verified. It becomes server-supplied in the
-     same change that gives alerts a real API. See docs/integration §6. */
+     ⭐ IT DOES NOW. `POST /v1/viewer/site-alerts/{id}/ack` sends NO BODY and
+     returns the updated alert; who acknowledged is the authenticated caller
+     and never a name in a request. The visibly-fake "A. Okafor" placeholder
+     that stood here, precisely so an unverified claim could not be mistaken
+     for a verified one, is gone with the route that made it unnecessary. */
   /**
-   * CONSUMER 2 — acknowledging and resolving an alert.
+   * CONSUMER 2 — acknowledging an alert.
    *
    * ⚠ HELD HERE, AND KEYED BY ALERT ID, AND THAT IS THE WHOLE POINT.
    * `AlertDetail` is deliberately never remounted — `AlertsPanel` renders it
@@ -1716,38 +1759,37 @@ export function SentinelApp() {
    */
   const statusMutation = useMutation();
 
-  const setStatus = useCallback((id: string, status: Alert["status"]) => {
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? { ...a, status, acknowledgedBy: a.acknowledgedBy ?? "A. Okafor" }
-          : a,
-      ),
-    );
-  }, []);
-
   /**
    * Run a status change through the honesty pattern.
    *
-   * ⚠ THE `fn` BODY IS THE ONLY THING THAT CHANGES when alerts get a backend.
-   * Today it awaits a local write, so it resolves at once and the pending flash
-   * is genuinely brief — which is honest, because the work genuinely is
-   * instant. There is deliberately NO artificial delay and no synthetic
-   * failure: faking a round trip that cannot fail would train an operator to
-   * read a wait that means nothing, and would make the first real one
-   * indistinguishable from theatre.
+   * ⭐ THE `fn` BODY IS A REAL ROUND TRIP NOW. The note here used to say
+   * "this is the only thing that changes when alerts get a backend — when
+   * `fn` becomes `await api.acknowledge(id)` the keying, the in-flight latch,
+   * the retry path, the inline failure and the announcement all start carrying
+   * weight without another component changing." That is exactly what happened,
+   * and no other component changed.
    *
-   * What IS real today: the keying, the in-flight latch, the retry path, the
-   * inline failure and the screen-reader announcement. When `fn` becomes
-   * `await api.acknowledge(id)` they all start carrying weight without another
-   * component changing.
+   * ⚠ A SERVER ALERT CANNOT BE RESOLVED, and nothing offers to. There is no
+   * resolve route and no `resolved` state on the row: acknowledging is
+   * one-way, and a camera coming back writes `recovered_at` onto the SAME
+   * alert rather than closing it. Those are different facts about different
+   * actors — one is a person noticing, one is hardware returning — and
+   * collapsing them would let a screen imply somebody dealt with an outage
+   * that simply ended. A local alert keeps the old two-step, because the
+   * detection feed it belongs to will have one.
    */
   const changeStatus = useCallback(
     (id: string, status: Alert["status"]) =>
       statusMutation.run(id, async () => {
-        setStatus(id, status);
+        if (alertFeed.alerts.some((a) => a.id === id)) {
+          await alertFeed.acknowledge(id);
+          return;
+        }
+        setLocalAlerts((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, status } : a)),
+        );
       }),
-    [setStatus, statusMutation],
+    [alertFeed, statusMutation],
   );
 
   /* Returns the alert so the caller can arm its own banner against it —
@@ -1757,9 +1799,9 @@ export function SentinelApp() {
      second — and the simulator's button can be pressed twice that fast — and
      wraps every 27.8 hours besides. Two alerts sharing an id acknowledge
      together and the feed cannot arrow onto the second of them. */
-  const nextAlert = useRef(
-    ALERTS.reduce((max, a) => Math.max(max, Number(a.id.slice(4)) || 0), 0),
-  );
+  /* Starts at zero, because the fixtures no longer load. It used to be seeded
+     off `ALERTS` so a simulated alert could not collide with one of the six. */
+  const nextAlert = useRef(0);
 
   const raiseAlert = useCallback((towerId: string) => {
     const at = Date.now();
@@ -1774,7 +1816,7 @@ export function SentinelApp() {
       source: "Motion Sensor",
       zone: "Gas Yard",
     };
-    setAlerts((prev) => [alert, ...prev]);
+    setLocalAlerts((prev) => [alert, ...prev]);
     return alert;
   }, []);
 
@@ -1918,6 +1960,13 @@ export function SentinelApp() {
           rejectMutation={deliberate}
           onWatchPerson={watchPerson}
           onRejectMatch={rejectMatch}
+          /* ⚠ THE READ FAILING IS NOT AN EMPTY FEED, and the two look the
+             same unless one of them says so. An alert screen reading "No
+             alerts" over a request that was refused is the fake-green failure
+             in the one place it costs most. */
+          problem={alertFeed.phase.kind === "error" ? alertFeed.phase.message : null}
+          reconnecting={alertFeed.reconnecting}
+          openAlertId={openAlertId}
         />
       ) : onPeople ? (
         <PeopleView
@@ -2081,6 +2130,23 @@ export function SentinelApp() {
             that draws itself over whatever screen is open, so a stray card
             would be the one piece of Sharing a kiosk could still show. */}
         {hubMode ? null : <ShareDeck />}
+        {/* ⚠ NOT GATED ON `hubMode`, UNLIKE THE DECK ABOVE IT. A share is
+            between two sites over the internet and a hub has neither, which is
+            why that one is hidden. An alert is the hub's OWN judgement about
+            its own masts — it is the thing a local dashboard in a control room
+            exists to show, and the kiosk standing in that room is the screen
+            most likely to be the only one anybody is looking at. The feed
+            behind this is the same three routes on both tiers. */}
+        <AlertNotifications
+          arrivals={arrivals}
+          onOpen={(id) => {
+            /* The feed, at that alert. The card is the interruption and the
+               feed is the record, so "Open" lands where the record is rather
+               than opening a second detail view over the wall. */
+            setOpenAlertId(id);
+            navigate("alerts");
+          }}
+        />
         <NotificationStack />
         </FleetFeedProvider>
         </WatchProvider>

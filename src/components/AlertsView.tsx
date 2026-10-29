@@ -49,6 +49,9 @@ export function AlertsView({
   rejectMutation,
   onWatchPerson,
   onRejectMatch,
+  problem,
+  reconnecting,
+  openAlertId,
 }: {
   /** Every alert on the fleet, newest first — see the sort in `data.ts`. */
   alerts: Alert[];
@@ -63,10 +66,43 @@ export function AlertsView({
   rejectMutation?: Mutation;
   onWatchPerson?: (alert: Alert) => void;
   onRejectMatch?: (id: string) => void;
+  /**
+   * Why the feed could not be read, in one sentence.
+   *
+   * ⚠ AN EMPTY FEED AND A FEED THAT FAILED TO LOAD LOOK IDENTICAL, and one
+   * of them is the best news on this screen. "No alerts" over a read that was
+   * refused is the fake-green failure this product refuses everywhere else,
+   * and on the alert feed it is the worst place to make it.
+   */
+  problem?: string | null;
+  /**
+   * The live channel is between connections.
+   *
+   * A reading, not an error: the list on screen is still the last thing the
+   * server said and the SDK is already reconnecting. Drops are ORDINARY here
+   * -- a slow reader is closed rather than waited for -- so this is a quiet
+   * line and never a banner.
+   */
+  reconnecting?: boolean;
+  /**
+   * An alert to open on arrival, from somewhere outside this screen.
+   *
+   * The toast's "Open" sets it. ⚠ IT SEEDS THE SELECTION AND DOES NOT OWN IT:
+   * the moment this screen is on, arrowing through the feed and pressing Esc
+   * must work exactly as they always have, and a prop that kept forcing one
+   * row would fight the arrow keys. So it is applied once per value, in an
+   * effect, and the local state is the truth afterwards.
+   */
+  openAlertId?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /* Applied once per id. Pressing Open on a second card for the same alert
+     re-opens it, which is right; re-rendering for any other reason does not. */
+  useEffect(() => {
+    if (openAlertId) setSelectedId(openAlertId);
+  }, [openAlertId]);
   const [playing, setPlaying] = useState<{
     alert: Alert;
     at: number;
@@ -219,12 +255,40 @@ export function AlertsView({
           </p>
         )}
 
+        {problem && (
+          <p
+            data-alert-problem
+            className="shrink-0 border-b border-line px-[15px] py-[8px] text-[0.75rem] leading-[16px] text-critical"
+          >
+            {problem}
+          </p>
+        )}
+        {!problem && reconnecting && (
+          /* Below the count and above the list, in the quietest ink on the
+             screen. It is not news: the rows are still true. */
+          <p
+            data-alert-reconnecting
+            className="shrink-0 border-b border-line px-[15px] py-[8px] text-[0.75rem] leading-[16px] text-muted"
+          >
+            Reconnecting to the site.
+          </p>
+        )}
+
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[15px] pb-[20px] pt-[20px]">
           {visible.length === 0 ? (
-            <AlertsEmpty
-              filtered={filtered}
-              onClearFilters={() => setFilter(NO_FILTER)}
-            />
+            /* ⚠ AND NOT WHEN THE READ FAILED. `AlertsEmpty`'s own header
+               says a quiet feed is a GOOD state and draws it that way, with
+               no action, because there is nothing to fix. Over a request the
+               server refused that is the same picture carrying the opposite
+               meaning, and the operator has no way to tell. The sentence
+               above has already said what happened; this would contradict
+               it three inches below. */
+            problem ? null : (
+              <AlertsEmpty
+                filtered={filtered}
+                onClearFilters={() => setFilter(NO_FILTER)}
+              />
+            )
           ) : (
             /* Scopes the shared accent bar to this list, so it cannot be
                captured by another list mounted at the same time. */
@@ -263,6 +327,7 @@ export function AlertsView({
           {selected && (
             <AlertDetail
               alert={selected}
+              towerName={siteOf(selected.towerId)}
               onClose={() => setSelectedId(null)}
               onAcknowledge={() => onSetStatus(selected.id, "acknowledged")}
               onResolve={() => onSetStatus(selected.id, "resolved")}

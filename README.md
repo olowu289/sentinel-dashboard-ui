@@ -906,6 +906,38 @@ recovery un-playing the clip of the incident it was recovering from. They are
 carried forward by clip key, which is not caching: the alert in the store
 already held them.
 
+### The request that was never made
+
+The fix above shipped and the clip still sat on "Clip coming" until a refresh.
+DevTools was unambiguous: zero `site-alerts` requests after the event, and a
+single-alert `GET` that returns every URL when you make it by hand.
+
+The SDK was the obvious suspect and was innocent — the hub's exact payload
+through the real parser yields the clip intact, with `url` simply absent, which
+is what it should do.
+
+The cause was a line of mine. The decision "do these clips need URLs?" was made
+inside a `setRaws` updater, which pushed ids onto an array that was looped over
+on the next line. **A `useState` updater does not run when you call
+`setState`.** React has an eager-state bailout — when the hook's update queue
+is empty it runs the reducer immediately to see whether the state actually
+changed — and that is the only reason it ever appeared to work. One frame at a
+time takes that path. Two frames back to back, which is a raise followed by its
+clip and therefore every real incident, leave an update pending: the bailout is
+skipped, the updater is deferred to the render phase, and the side effect reads
+an empty array.
+
+The store is a ref now and the state is its mirror. Every decision is made
+against the ref, synchronously; `setRaws` is handed a finished value and is
+only how the screen hears about it. An updater that must be pure and a decision
+that must happen now do not belong in the same function.
+
+The test that missed it is worth more than the fix. It pushed one event and
+waited — so it took the eager path every time and could not have failed. The
+replacement pushes the raise and the clip without awaiting between them, which
+is how they arrive, and it fails against the old code by timing out on the
+request that never comes.
+
 ### The toast that retired before anyone could see it
 
 An alert arrived, appeared in the "Recent" list marked "passed", and no card

@@ -257,6 +257,24 @@ right of the viewport and the detail ends in that same corner at lg, so the
 the overlay: the overlay is global and correct, and the panel is what chose to
 end in an occupied corner. If the chip moves, re-measure.
 
+⚠ **A `useState` UPDATER DOES NOT RUN WHEN YOU CALL `setState`, AND A SIDE
+EFFECT THAT READS ITS RESULT ON THE NEXT LINE READS NOTHING.** `useSiteAlerts`
+decided "do these clips need URLs?" inside a `setRaws` updater and pushed the
+ids onto an array it looped over immediately after — so no request was ever
+made, and DevTools showed zero `site-alerts` calls after an `alert.updated`.
+
+It passed every test, because React has an eager-state bailout: when a hook's
+update queue is EMPTY it runs the reducer immediately to see whether the state
+changed. One frame at a time takes that path and the array is populated in
+time. Two frames back to back — a raise and its clip, which is every real
+incident — leave an update pending, the bailout is skipped, the updater is
+deferred to the render phase, and the effect runs first.
+
+So the store is a `useRef` and the state is its mirror: every decision is made
+against the ref, synchronously, and `setRaws` is handed a finished value and is
+only how the screen hears about it. **A browser test that pushes one event and
+waits cannot see this class of bug** — push two without awaiting between them.
+
 **The event stream sends clips WITHOUT urls, and that is the server being
 correct.** `url` and `download_url` are minted per request and must not be
 cached — a presigned bucket URL lives fifteen minutes and a pushed frame can

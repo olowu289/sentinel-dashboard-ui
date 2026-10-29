@@ -879,6 +879,74 @@ The detail shows both, in separate cells, with separate labels.
 to: no ticket, no rota, no recipient. A button removed is a feature forgotten,
 and this one has to be wired the day there is one.
 
+### Two things the stream does not do for you
+
+The event channel works, and watching it in DevTools on the lab hub showed
+three frames for one incident: the raise, the clip, and the recovery. Both
+remaining bugs were on this side, and both were invisible rather than wrong.
+
+**The push carries clips with no URLs, on purpose.** `url` and `download_url`
+are minted per request and must not be cached — a presigned bucket URL lives
+fifteen minutes, and a frame can sit in a queue or be replayed to a
+reconnecting reader. So the hub mints them on `GET` and leaves them off the
+push, which is the only honest thing it can do with a credential that expires.
+
+What was missing was the browser's half of that. A frame carrying a clip and no
+URL was stored as it came, the player had nothing to play, and the detail sat
+on "Clip coming" until somebody reloaded the tab — at which point the list
+minted the URLs and the clip appeared, which is why it looked like a caching
+bug. Now an alert whose clips lack URLs is re-read, debounced so a burst of
+frames about one incident is one request, and once per set of clips so a clip
+whose URLs never arrive costs one request rather than a loop.
+
+⚠ And a later frame must not take them away again. The recovery frame carries
+the same clip list as the one that announced it, so applying it verbatim
+overwrote the URLs just fetched and the clip went back to "Clip coming" — a
+recovery un-playing the clip of the incident it was recovering from. They are
+carried forward by clip key, which is not caching: the alert in the store
+already held them.
+
+### The toast that retired before anyone could see it
+
+An alert arrived, appeared in the "Recent" list marked "passed", and no card
+ever showed. That is a complete description of the bug, and it points straight
+at it: the card was created and then immediately retired.
+
+The stack expired a card when `now - at` passed its lifetime, and **`at` is
+when the thing HAPPENED, not when the card appeared**. The hub stamps an alert
+at the event and raises it sixty seconds later, after the debounce that stops a
+radio blip becoming an alert — so every alert card in this product was already
+older than the nine-second default before it was created. Added, retired on the
+next tick, filed under Recent.
+
+Those were one field and should never have been. A card's lifetime is measured
+from when the stack received it; its label still reads the time of the thing it
+is about, which is useful — a card that says "2m" is telling you the camera
+stopped two minutes ago. Share cards had the same bug waiting for any share
+older than nine seconds by the time the twenty-second poll found it.
+
+A card carrying a button also gets the long lifetime rather than the default:
+nine seconds is less than the time it takes to look up from a camera wall.
+
+### Live updates paused
+
+A feed that has stopped and a quiet night look exactly the same. Both are a
+list of alerts that is not changing, and on a monitoring product one of those
+is the best news on the screen and the other is the worst. Nothing else on
+that surface tells them apart: the rows are still there, still true, still the
+last thing the server said.
+
+So a stream that stays down says **"Live updates paused. This list may be
+behind."** — one line, in the quietest ink, below the count and above the
+list, on both alert surfaces. Not red: nothing is wrong with the site, and
+spending the fault colour on a browser's connection is how an operator learns
+to discount it.
+
+It waits eight seconds first. Drops are ordinary on this channel — a slow
+reader is closed rather than waited for, because the publisher is the loop
+watching the fleet — and a notice that blinks all day is a notice nobody
+reads, which is the same failure arrived at from the other side.
+
 ### A colour the server chose
 
 An alert's colour is a code, like its type, and it arrives in a `colours` map

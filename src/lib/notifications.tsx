@@ -140,7 +140,17 @@ export interface Notification {
   readonly kind: NotificationKind;
   /** One line, for the history list and for assistive technology. */
   readonly title: string;
-  /** Epoch ms. The card shows this as a relative time while it is on screen. */
+  /**
+   * Epoch ms. The card shows this as a relative time while it is on screen.
+   *
+   * ⚠ THIS IS WHEN THE THING HAPPENED, NOT WHEN THE CARD APPEARED, and the
+   * two are routinely far apart. An alert's `at` is the moment the camera
+   * stopped, which the hub's 60-second debounce guarantees is already a
+   * minute in the past before anything is raised at all; a share's is when it
+   * was created, which a poll can learn about twenty seconds later. The
+   * lifetime below is measured from arrival for exactly that reason — see
+   * `addedAt`.
+   */
   readonly at: number;
   /**
    * Stays until something takes it away. See the note above: a question that
@@ -179,6 +189,31 @@ export interface HistoryEntry {
 }
 
 const DEFAULT_TTL_MS = 9000;
+
+/**
+ * A card, plus the one thing the caller does not supply: WHEN IT ARRIVED.
+ *
+ * ⭐ THE BUG THIS EXISTS FOR, FOUND ON A LAB HUB. The expiry timer compared
+ * `now - n.at` against the TTL, and `at` is when the thing HAPPENED. An alert
+ * is stamped at the event and raised 60 seconds later after the debounce, so
+ * every single alert card was already older than the 9-second default before
+ * it was created: it was added, the next tick retired it, and the operator
+ * saw nothing at all. The alert went straight into "Recent", marked "passed",
+ * which is precisely how it was reported — "the alert appeared under Recent
+ * but no toast popped up".
+ *
+ * Share cards had the same bug waiting: a share created while the tab was in
+ * the background is older than nine seconds by the time the 20-second poll
+ * finds it.
+ *
+ * So a card's LIFETIME is measured from when the stack received it, and its
+ * LABEL still reads the time of the thing it is about. Those were one field
+ * and should never have been.
+ */
+interface Held {
+  readonly n: Notification;
+  readonly addedAt: number;
+}
 
 /**
  * How long a card that CAN BE ACTED ON lives.
@@ -220,7 +255,7 @@ interface Ctx {
 const NotificationContext = createContext<Ctx | null>(null);
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const [all, setAll] = useState<readonly Notification[]>([]);
+  const [held, setHeld] = useState<readonly Held[]>([]);
   const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
 
   const remember = useCallback((n: Notification, ended: HistoryEntry["ended"]) => {
@@ -234,34 +269,38 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const dismiss = useCallback(
     (id: string, ended: HistoryEntry["ended"] = "dismissed") => {
-      setAll((prev) => {
-        const found = prev.find((n) => n.id === id);
-        if (found) remember(found, ended);
-        return prev.filter((n) => n.id !== id);
+      setHeld((prev) => {
+        const found = prev.find((h) => h.n.id === id);
+        if (found) remember(found.n, ended);
+        return prev.filter((h) => h.n.id !== id);
       });
     },
     [remember],
   );
 
   const notify = useCallback((n: Notification) => {
-    setAll((prev) => {
-      const at = prev.findIndex((x) => x.id === n.id);
-      if (at < 0) return [...prev, n];
+    setHeld((prev) => {
+      const at = prev.findIndex((x) => x.n.id === n.id);
+      if (at < 0) return [...prev, { n, addedAt: Date.now() }];
       /* REPLACED IN PLACE. A share card that gains an expanded form, or a
          countdown that ticks, must not jump to the bottom of the stack and
-         lose the pointer that was on its way to its button. */
+         lose the pointer that was on its way to its button.
+
+         ⚠ AND IT KEEPS ITS ORIGINAL `addedAt`. Resetting the clock on every
+         replace would mean a card that updates often never leaves, which on
+         a recovering site is a card that sits over the video all night. */
       const next = prev.slice();
-      next[at] = n;
+      next[at] = { n, addedAt: prev[at].addedAt };
       return next;
     });
   }, []);
 
   const resolve = useCallback(
     (predicate: (n: Notification) => boolean) => {
-      setAll((prev) => {
-        const going = prev.filter(predicate);
-        for (const n of going) remember(n, "resolved");
-        return going.length === 0 ? prev : prev.filter((n) => !predicate(n));
+      setHeld((prev) => {
+        const going = prev.filter((h) => predicate(h.n));
+        for (const h of going) remember(h.n, "resolved");
+        return going.length === 0 ? prev : prev.filter((h) => !predicate(h.n));
       });
     },
     [remember],
@@ -273,12 +312,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const tick = setInterval(() => {
       const now = Date.now();
-      setAll((prev) => {
+      setHeld((prev) => {
+        /* ⚠ `addedAt`, NOT `n.at`. See the note on `Held`: measuring a
+           card's life from when the thing HAPPENED retired every alert card
+           before anybody could see it. */
         const going = prev.filter(
-          (n) => !n.persistent && now - n.at > (n.ttlMs ?? DEFAULT_TTL_MS),
+          (h) => !h.n.persistent && now - h.addedAt > (h.n.ttlMs ?? DEFAULT_TTL_MS),
         );
-        for (const n of going) remember(n, "expired");
-        return going.length === 0 ? prev : prev.filter((n) => !going.includes(n));
+        for (const h of going) remember(h.n, "expired");
+        return going.length === 0 ? prev : prev.filter((h) => !going.includes(h));
       });
     }, 1000);
     return () => clearInterval(tick);
@@ -287,8 +329,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(() => {
     /* NEWEST NEAREST THE CORNER, and the overflow waits rather than being
        dropped: a request that arrived while three others were open is still a
-       request. */
-    const ordered = [...all].sort((a, b) => b.at - a.at);
+       request.
+
+       ⚠ BY ARRIVAL, NOT BY `at`. Two alerts can be raised in either order
+       relative to the moments they describe — a camera that stopped at 03:02
+       can be reported after one that stopped at 03:05 — and the corner is a
+       stack of what just came in, not a chronology of the night. */
+    const ordered = [...held]
+      .sort((a, b) => b.addedAt - a.addedAt)
+      .map((h) => h.n);
+    const all = held.map((h) => h.n);
     return {
       all,
       visible: ordered.slice(0, MAX_VISIBLE),
@@ -299,7 +349,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       resolve,
       clearHistory: () => setHistory([]),
     };
-  }, [all, history, notify, dismiss, resolve]);
+  }, [held, history, notify, dismiss, resolve]);
 
   return (
     <NotificationContext.Provider value={value}>

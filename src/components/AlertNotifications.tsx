@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { alertColour } from "@/lib/alertCopy";
-import { useNotifications } from "@/lib/notifications";
+import { ACTIONABLE_TTL_MS, useNotifications } from "@/lib/notifications";
 import type { ArrivedAlert } from "@/lib/useSiteAlerts";
 
 /**
@@ -75,7 +75,18 @@ export function AlertNotifications({
         id: `alert:${alert.id}`,
         kind: "alert",
         strip: alertColour(colour).strip,
+        /* The moment the thing HAPPENED, so the corner reads the event's own
+           age -- "2m" on an alert the hub debounced for a minute before
+           raising. The card's LIFETIME is measured from arrival by the
+           provider and not from this; the two were one field, and an alert's
+           `at` is in the past by construction, so every card was retired
+           before it could be seen. See the note on `Held`. */
         at: alert.at,
+        /* ⚠ THE LONG ONE, BECAUSE THIS CARD CARRIES A BUTTON. Nine seconds
+           is for a statement nobody has to act on; "Open" is a thing an
+           operator might want, and nine seconds is less than the time it
+           takes to look up from a camera wall. */
+        ttlMs: ACTIONABLE_TTL_MS,
         title: alert.title,
         render: ({ dismiss }) => (
           <div className="flex items-center gap-[8px]">

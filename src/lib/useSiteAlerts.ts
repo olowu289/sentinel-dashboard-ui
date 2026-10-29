@@ -79,6 +79,18 @@ export interface SiteAlertFeed {
    * do with it is clear the feed.
    */
   reconnecting: boolean;
+  /**
+   * The live channel has been down long enough to tell somebody.
+   *
+   * ⭐ THE WHOLE POINT: A FEED THAT HAS STOPPED LOOKS EXACTLY LIKE A QUIET
+   * NIGHT. Both are a list that is not changing, and on a monitoring product
+   * one of those is the best news on the screen and the other is the worst.
+   * Nothing else on the alert surface can tell them apart.
+   *
+   * Distinct from `reconnecting`, which is true for every ordinary drop. This
+   * only goes true after {@link PAUSED_AFTER_MS}.
+   */
+  paused: boolean;
   /** Acknowledge, and take the server's returned alert as the new truth. */
   acknowledge: (id: string) => Promise<void>;
   /**
@@ -155,6 +167,99 @@ export function toAlert(
 /** Newest first, the order the list endpoint already uses. */
 const byNewest = (a: Alert, b: Alert): number => b.at - a.at;
 
+/**
+ * How long to wait before re-reading an alert whose clips need URLs.
+ *
+ * A raise, a clip landing and a recovery arrive within seconds of each other
+ * on a real incident — the lab's run was `alert.new`, then `alert.updated`
+ * with the clips, then `alert.updated` with `recovered_at`, as three frames.
+ * Re-reading on each would be three requests for one answer, and the first
+ * two would be thrown away by the third. One fetch per burst.
+ */
+const REFETCH_DEBOUNCE_MS = 300;
+
+/**
+ * How long the stream may be down before the screen says so.
+ *
+ * ⚠ NOT ZERO, AND NOT LONG. The SDK reconnects every 3 s and a drop is
+ * ORDINARY here — a slow reader is closed rather than waited for, because
+ * the publisher is the loop watching the fleet. Saying "paused" on every one
+ * of those would be a notice that blinks all day and that an operator
+ * therefore stops reading, which is worse than not having it.
+ *
+ * Eight seconds is two failed attempts: long enough that a routine reconnect
+ * never shows it, short enough that a feed which has genuinely stopped says
+ * so while somebody is still looking at the screen that went quiet.
+ */
+const PAUSED_AFTER_MS = 8000;
+
+/**
+ * Does this alert have clips the browser cannot play?
+ *
+ * ⭐ THE EVENT STREAM SENDS CLIPS WITHOUT URLS, AND THAT IS CORRECT. `url`
+ * and `download_url` are minted per request and must not be cached — a
+ * presigned bucket URL lives fifteen minutes, and a stream frame can sit in a
+ * queue or be replayed to a reconnecting reader. So the hub mints them on
+ * `GET` and leaves them off the push, which is the only honest thing it can
+ * do with a credential that expires.
+ *
+ * What was missing was this side's half of that bargain. A frame carrying
+ * `clips: [{camera, duration, key, quality, size, start, start_epoch}]` and
+ * no URL was stored as-is, `alertPanes` dropped every clip for want of a
+ * `url`, and the detail sat on "Clip coming" until somebody reloaded the tab
+ * — at which point the LIST minted the URLs and the clip appeared, which is
+ * exactly the shape the lab reported.
+ */
+function needsFreshUrls(alert: SiteAlert): boolean {
+  const clips = alert.clips;
+  if (!clips || clips.length === 0) return false;
+  return clips.some((c) => !c.url);
+}
+
+/** The clips an alert is offering, as a comparable identity. */
+function clipFingerprint(alert: SiteAlert | undefined): string {
+  if (!alert?.clips) return "";
+  return alert.clips.map((c) => `${c.key}:${c.quality}`).sort().join("|");
+}
+
+/**
+ * Carry forward URLs this browser already has, by clip key.
+ *
+ * ⭐ WITHOUT THIS, A LATER FRAME TAKES THE CLIP AWAY AGAIN. The lab's third
+ * frame (`recovered_at`) carries the SAME clip list as the second, and the
+ * push never carries URLs — so applying it verbatim overwrites the ones just
+ * fetched and the detail falls back to "Clip coming" while a perfectly good
+ * link sits in the response that arrived a second earlier. A recovery would
+ * un-play the clip of the incident it is recovering from.
+ *
+ * ⚠ THIS IS NOT CACHING A URL, AND THE DISTINCTION IS THE WHOLE RULE. The
+ * alert in this store already held these URLs; nothing is being kept longer
+ * or stashed anywhere new, and `key` is still the identity they are matched
+ * on. When one does expire the 403 path re-mints it, which is the mechanism
+ * that was always going to be what handles expiry. Deliberately throwing away
+ * a live URL because a frame about something else arrived is not caution, it
+ * is a round trip and a blank screen.
+ */
+function withKnownUrls(incoming: SiteAlert, have: SiteAlert | undefined): SiteAlert {
+  if (!incoming.clips || !have?.clips) return incoming;
+  const known = new Map(have.clips.filter((c) => c.url).map((c) => [c.key, c]));
+  if (known.size === 0) return incoming;
+  let changed = false;
+  const clips = incoming.clips.map((c) => {
+    if (c.url) return c;
+    const was = known.get(c.key);
+    if (!was) return c;
+    changed = true;
+    return {
+      ...c,
+      url: was.url,
+      ...(was.download_url ? { download_url: was.download_url } : {}),
+      ...(was.filename ? { filename: was.filename } : {}),
+    };
+  });
+  return changed ? { ...incoming, clips } : incoming;
+}
+
 export function useSiteAlerts(options: {
   /** Off entirely when the account may not see alerts. No request is made. */
   enabled: boolean;
@@ -169,6 +274,7 @@ export function useSiteAlerts(options: {
   const [raws, setRaws] = useState<Map<string, SiteAlert>>(() => new Map());
   const [phase, setPhase] = useState<AlertsPhase>({ kind: "off" });
   const [reconnecting, setReconnecting] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [generation, setGeneration] = useState(0);
 
   /* Held in refs so the subscription effect does not re-run — and therefore
@@ -183,9 +289,36 @@ export function useSiteAlerts(options: {
   const arrivedRef = useRef(onArrived);
   arrivedRef.current = onArrived;
 
+  /**
+   * Alerts waiting for a re-read, and the timer that will do them.
+   *
+   * Refs rather than state: nothing renders from this, and putting a pending
+   * set in state would re-render the whole feed on every frame that arrives.
+   */
+  const pending = useRef<Set<string>>(new Set());
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * What has already been asked for, per alert, as a clip fingerprint.
+   *
+   * ⚠ THE GUARD AGAINST A LOOP, AND IT IS NOT OPTIONAL. The re-read bypasses
+   * the revision gate (a re-mint is the same row with new tickets), so an
+   * answer that STILL has no URLs — a hub whose clip file has gone, a bug on
+   * either side — would be upserted, seen to need URLs, and re-read again,
+   * for as long as the tab is open. Asking once per set of clips means a
+   * genuinely broken clip costs one request and then stops.
+   */
+  const asked = useRef<Map<string, string>>(new Map());
+  /* `upsert` is created before `scheduleRefresh` and is a dependency of the
+     subscription effect, so it must not change identity when the scheduler
+     is re-created. A ref is the seam. */
+  const scheduleRefreshRef = useRef<((id: string) => void) | null>(null);
+
   /** Upsert, dropping anything we already have at this revision or newer. */
   const upsert = useCallback((incoming: readonly SiteAlert[]) => {
     if (incoming.length === 0) return;
+    /* Collected inside the updater and acted on outside it: a state updater
+       must be pure, and React may run it twice. */
+    const toFetch: string[] = [];
     setRaws((prev) => {
       let changed = false;
       const next = new Map(prev);
@@ -194,11 +327,25 @@ export function useSiteAlerts(options: {
         /* Equal revs are rejected too: a row that has not changed has nothing
            to apply, and re-rendering it is work for no new fact. */
         if (have && a.rev <= have.rev) continue;
-        next.set(a.id, a);
+        /* Keep the URLs we already have for the same clips -- see
+           `withKnownUrls`. A later frame carrying the same clip list without
+           them would otherwise take a playable clip back off the screen. */
+        const merged = withKnownUrls(a, have);
+        next.set(a.id, merged);
         changed = true;
+        /* ⭐ AND IF ANY CLIP STILL CANNOT BE PLAYED, GO AND GET IT. The push
+           carries clips without URLs on purpose; the browser's half of that
+           bargain is to ask. Once per set of clips, so an alert whose URLs
+           never arrive costs one request rather than a loop. */
+        if (!needsFreshUrls(merged)) continue;
+        const print = clipFingerprint(merged);
+        if (asked.current.get(a.id) === print) continue;
+        asked.current.set(a.id, print);
+        toFetch.push(a.id);
       }
       return changed ? next : prev;
     });
+    for (const id of toFetch) scheduleRefreshRef.current?.(id);
   }, []);
 
   /* ── THE READ, AND THEN THE STREAM ─────────────────────────────────── */
@@ -244,6 +391,7 @@ export function useSiteAlerts(options: {
         onOpen: () => {
           if (!live) return;
           setReconnecting(false);
+          setPaused(false);
           /* A stream that opened is a feed that works, whatever the first read
              did. The error is cleared rather than left under a live channel. */
           setPhase((p) => (p.kind === "error" ? { kind: "ready" } : p));
@@ -295,6 +443,46 @@ export function useSiteAlerts(options: {
     });
   }, []);
 
+  /**
+   * Re-read an alert because its clips arrived with no URLs, soon.
+   *
+   * Debounced across every alert at once: a burst touching three rows is one
+   * timer and three requests fired together, rather than three timers.
+   */
+  const scheduleRefresh = useCallback(
+    (id: string) => {
+      pending.current.add(id);
+      if (refetchTimer.current !== null) return;
+      refetchTimer.current = setTimeout(() => {
+        refetchTimer.current = null;
+        const ids = [...pending.current];
+        pending.current.clear();
+        for (const one of ids) void refresh(one).catch(() => {});
+      }, REFETCH_DEBOUNCE_MS);
+    },
+    [refresh],
+  );
+
+  scheduleRefreshRef.current = scheduleRefresh;
+
+  useEffect(
+    () => () => {
+      if (refetchTimer.current !== null) clearTimeout(refetchTimer.current);
+    },
+    [],
+  );
+
+  /* The grace period. Cleared the instant the stream opens, so a reconnect
+     inside the window never shows the notice at all. */
+  useEffect(() => {
+    if (!reconnecting) {
+      setPaused(false);
+      return;
+    }
+    const t = setTimeout(() => setPaused(true), PAUSED_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [reconnecting]);
+
   const alerts = useMemo(() => {
     const out: Alert[] = [];
     for (const raw of raws.values()) out.push(toAlert(raw, nameOf, cameraNameOf));
@@ -305,6 +493,7 @@ export function useSiteAlerts(options: {
     alerts,
     phase,
     reconnecting,
+    paused,
     acknowledge,
     refresh,
     reload: () => setGeneration((g) => g + 1),

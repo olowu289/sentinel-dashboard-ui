@@ -266,6 +266,7 @@ export function AlertDetail({
       exit={{ opacity: 0, x: 12, transition: EXIT }}
       transition={ENTER}
       inert={!isPresent}
+      data-alert-detail
       className="absolute inset-0 z-20 flex flex-col bg-ink"
     >
       {/* Both exits below lg, per the design: the chevron reads as "back to the

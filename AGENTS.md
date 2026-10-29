@@ -194,6 +194,63 @@ because coordination's five kinds have neither. A server alert gets the detail
 cells that are true of it; "Not scored" under AI Confidence on a hardware fault
 is rule 4 the wrong way round.
 
+**A clip is reviewed in `ClipPlayer`, the same player the detection alerts
+use.** A real alert briefly had an inline transport of its own — two videos, a
+play button and a range input — and the lab got the plain bar while the better
+player sat unused two files away. `AlertClips` is the design's HERO now
+(picture, camera name in the corner, centre play, duration badge) and hands its
+panes up; the panel owns the player. For `TOWER_OFFLINE` and `TOWER_ONLINE`,
+`ClipPlayer` takes `companions` and drives both cameras on ONE transport.
+
+⚠ **A SEEK BEFORE THE ELEMENT CAN SEEK IS DROPPED SILENTLY, AND CAN STALL
+THE PANE FOR GOOD.** No error, no event: `currentTime` is written and reads
+back unchanged on the next line. Worse, a seek issued at `loadedmetadata` —
+which fires as soon as the duration is known, long before `seekable` has
+anything in it — can leave a paused element parked at `HAVE_METADATA`, never
+loading further and never becoming playable, with a perfectly good file behind
+it. `restorePosition` checks `v.seekable` before writing and is called from
+every readiness step the element reports. The player's videos are
+`preload="auto"` for the same reason: a paused element on `metadata` never
+reaches `canplay` and cannot seek. This is the family the lab's "shows 0s / 1m
+and never plays" came from.
+
+⚠ **AN OPEN PLAYER MUST NOT HOLD A SNAPSHOT OF ITS CLIP.** `AlertsPanel` and
+`AlertsView` record WHICH CAMERA is leading and re-derive the panes from the
+live alert on every render. Not the attachment (captured when the hero was
+pressed, so a 2K cut landing while somebody watches changes nothing on screen)
+and not the clip key (the upgrade is a new key for the same camera). A camera
+number is the one identity that survives the swap. The position is carried
+across from `t`, the transport's own clock, read DURING RENDER — by the time
+an effect runs React has written the new `src` and the browser has zeroed it.
+
+**A camera is called what the customer called it, and the noun appears once.**
+`CameraNameOf` returns `CameraFeed.label`, which is present only when somebody
+actually named a camera — NOT `CameraFeed.name`, which is always populated and
+would make every camera look named. A named camera takes the noun from the
+sentence ("NORTH GATE camera stopped working"); a numbered one already carries
+it ("CAMERA 1 stopped working"). "CAMERA 1 camera stopped working" is what a
+template with a variable in it produces the moment the value contains the noun,
+and it shipped.
+
+**An alert's id is shortened for READING ONLY.** `shortAlertId` makes
+`ALT-95AE76`; the full 32-character id is on the clipboard behind the header
+and is what every request still carries. Thirty-two hex characters cannot be
+read aloud on a handoff or compared by eye, which is rule 3.
+
+**The detail's Timeline is built by `lib/alertStory.ts` and every stamp on it
+is the server's, with one derivation.** "Alert raised" is `started_at + 60 s`
+because the hub debounces for exactly that before raising anything and stamps
+the alert at the EVENT (docs/alerts.md §1). A step may have NO clock — the 2K
+upgrade is attached during a sweep and the row carries no time for it — and it
+draws none rather than an invented one.
+
+**The alert detail's footer reserves `lg:pb-[46px]` for the notifications
+chip.** `NotificationStack` is a fixed overlay pinned 16px from the bottom
+right of the viewport and the detail ends in that same corner at lg, so the
+"Recent" chip painted over Escalate. Fixed on the panel rather than by moving
+the overlay: the overlay is global and correct, and the panel is what chose to
+end in an occupied corner. If the chip moves, re-measure.
+
 **Motion lives in `src/lib/motion.ts`.** `ENTER` / `EXIT` / `FADE`, all tweens.
 Springs overshoot, which on a wall of cameras reads as the stream glitching.
 There are deliberately no CSS motion tokens — the standing keyframes in

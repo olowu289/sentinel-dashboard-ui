@@ -3,10 +3,17 @@ import type { SiteAlert } from "@kallon/sentry-sdk";
 import {
   ackSiteAlert,
   describeAlertFailure,
+  getSiteAlert,
   listSiteAlerts,
   subscribeSiteAlerts,
 } from "./api/alerts";
-import { alertKind, alertTitle, type NameOf } from "./alertCopy";
+import {
+  alertKind,
+  alertTitle,
+  cameraLabel,
+  type CameraNameOf,
+  type NameOf,
+} from "./alertCopy";
 import type { Alert } from "./types";
 
 /**
@@ -74,6 +81,18 @@ export interface SiteAlertFeed {
   reconnecting: boolean;
   /** Acknowledge, and take the server's returned alert as the new truth. */
   acknowledge: (id: string) => Promise<void>;
+  /**
+   * Re-read ONE alert, for fresh clip URLs.
+   *
+   * ⚠ THIS ONE BYPASSES THE REVISION GATE, AND IT HAS TO. A re-mint is the
+   * same row with new tickets on it: `rev` has not moved, because nothing
+   * about the alert changed. The gate drops an equal revision — correctly,
+   * for a stale forward racing a fresh one — and would therefore throw away
+   * the only thing this call exists to fetch. A refresh is not an update
+   * arriving from somewhere; it is an answer to a question this browser just
+   * asked, so it is the newest thing there is by construction.
+   */
+  refresh: (id: string) => Promise<void>;
   reload: () => void;
 }
 
@@ -93,12 +112,16 @@ export interface ArrivedAlert {
  * than copied, because a copy of `clips[].url` is a fifteen-minute URL stored
  * somewhere a renderer can hold it past its life.
  */
-export function toAlert(raw: SiteAlert, nameOf?: NameOf): Alert {
+export function toAlert(
+  raw: SiteAlert,
+  nameOf?: NameOf,
+  cameraNameOf?: CameraNameOf,
+): Alert {
   return {
     id: raw.id,
     towerId: raw.device_id,
     kind: alertKind(raw.type),
-    title: alertTitle(raw, nameOf),
+    title: alertTitle(raw, nameOf, cameraNameOf),
     /* Epoch MS in this layer, epoch seconds on the wire. The date filter and
        the timeline deltas both compare these, so a pre-formatted string here
        would break both — see the standing rule. */
@@ -109,8 +132,16 @@ export function toAlert(raw: SiteAlert, nameOf?: NameOf): Alert {
        than closing it. `AlertDetail` reads `site` to tell a recovery from an
        acknowledgement, which are different facts about different people. */
     status: raw.acknowledged ? "acknowledged" : "triggered",
+    /* ⚠ THE CUSTOMER'S NAMES, NOT `Camera 1`. The Cameras cell in the
+       detail draws these, and the lab read "CAMERA 1, CAMERA 2" on a mast
+       whose cameras are called NORTH GATE and YARD. `cameraLabel` falls back
+       to the number only when nobody has named one. */
     ...(raw.cameras && raw.cameras.length > 0
-      ? { cameras: raw.cameras.map((n) => `Camera ${n}`) }
+      ? {
+          cameras: raw.cameras.map((n) =>
+            cameraLabel(raw.device_id, n, cameraNameOf),
+          ),
+        }
       : {}),
     /* ⚠ FROM THE SERVER'S ANSWER, NEVER FROM THE SESSION. This was a visibly
        fake placeholder for as long as there was no route, precisely so that an
@@ -129,10 +160,12 @@ export function useSiteAlerts(options: {
   enabled: boolean;
   /** Names the fleet knows, so a title reads WEST TOWER rather than an id. */
   nameOf?: NameOf;
+  /** The customer's own name for one camera. See `CameraNameOf`. */
+  cameraNameOf?: CameraNameOf;
   /** Called for every `alert.new`. The shell turns this into a toast. */
   onArrived?: (arrived: ArrivedAlert) => void;
 }): SiteAlertFeed {
-  const { enabled, nameOf, onArrived } = options;
+  const { enabled, nameOf, cameraNameOf, onArrived } = options;
   const [raws, setRaws] = useState<Map<string, SiteAlert>>(() => new Map());
   const [phase, setPhase] = useState<AlertsPhase>({ kind: "off" });
   const [reconnecting, setReconnecting] = useState(false);
@@ -145,6 +178,8 @@ export function useSiteAlerts(options: {
      closes for being 64 of them. */
   const nameRef = useRef(nameOf);
   nameRef.current = nameOf;
+  const cameraRef = useRef(cameraNameOf);
+  cameraRef.current = cameraNameOf;
   const arrivedRef = useRef(onArrived);
   arrivedRef.current = onArrived;
 
@@ -221,7 +256,7 @@ export function useSiteAlerts(options: {
           upsert([event.alert]);
           if (event.kind === "alert.new") {
             arrivedRef.current?.({
-              alert: toAlert(event.alert, nameRef.current),
+              alert: toAlert(event.alert, nameRef.current, cameraRef.current),
               colour: event.alert.colour,
             });
           }
@@ -251,17 +286,27 @@ export function useSiteAlerts(options: {
     [upsert],
   );
 
+  const refresh = useCallback(async (id: string) => {
+    const again = await getSiteAlert(id);
+    setRaws((prev) => {
+      const next = new Map(prev);
+      next.set(again.id, again);
+      return next;
+    });
+  }, []);
+
   const alerts = useMemo(() => {
     const out: Alert[] = [];
-    for (const raw of raws.values()) out.push(toAlert(raw, nameOf));
+    for (const raw of raws.values()) out.push(toAlert(raw, nameOf, cameraNameOf));
     return out.sort(byNewest);
-  }, [raws, nameOf]);
+  }, [raws, nameOf, cameraNameOf]);
 
   return {
     alerts,
     phase,
     reconnecting,
     acknowledge,
+    refresh,
     reload: () => setGeneration((g) => g + 1),
   };
 }

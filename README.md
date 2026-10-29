@@ -760,6 +760,96 @@ There are three ways to have no clip, and they are three different sentences:
   around, so they get no clip area rather than a box reporting the absence of
   something that was never going to be there.
 
+### What a lab hub found
+
+Six things, from the first run against real alerts on real hardware. Four were
+copy and layout; two were the kind of bug that only a real file over a real
+network can produce.
+
+**A camera is called what the customer called it.** The feed read "CAMERA 1
+camera stopped working" on a mast whose cameras are NORTH GATE and YARD: the
+wrong name, and the noun twice. The second half is what a template with a
+variable in it does the moment the value already contains the noun, so the
+sentence is chosen rather than filled: a named camera takes the noun from the
+sentence ("NORTH GATE camera stopped working") and a numbered one already
+carries it ("CAMERA 1 stopped working"). The name comes from the field that is
+only set when somebody actually named a camera, not from the one that always
+has a value in it.
+
+**The header showed `95ae76a8085641718fc1a64cbda85280`.** Thirty-two hex
+characters cannot be read aloud on a handoff, compared by eye against another
+screen, or fitted on the line the design drew. It reads `ALT-95AE76` now, and
+the full id is on the clipboard behind it — which is where the one reader who
+needs it, us in a log, can get it.
+
+**The Timeline came back.** It was dropped for server alerts on the argument
+that coordination's five kinds are single events and a heading would sit over
+one line repeating the title. That was wrong on a real hub: an alert carries up
+to four moments, and the gaps between them are the reading. "Frames stopped at
+13:00, raised at 13:01, back at 13:04, acknowledged at 13:05" is the handoff;
+four separate cells are not.
+
+One of those stamps is derived rather than read: the raise is the event plus
+sixty seconds, because the hub debounces for exactly that before raising
+anything and stamps the alert at the event so the clip lands on the minute
+BEFORE it. And one step has no clock at all — "2K clip added" is attached
+during a sweep and the row carries no time for it, so it draws none rather than
+an invented one.
+
+**And the "Recent" chip sat on top of Escalate.** The notifications stack is a
+fixed overlay pinned to the bottom right of the viewport; the alert detail ends
+in that same corner on a wide screen. The panel gives way, not the overlay: the
+overlay is global and correct where it is, and the panel is the thing that
+chose to end in an occupied corner.
+
+### One player, and the seek that stalls a video
+
+A real alert was getting a plain inline bar — two videos, a play button and a
+range input — while the detection alerts had a player with a scrub bar, a
+wall-clock readout, the alert's own timeline marked on the track, speed, mute
+and a download. Two players in one product, and the worse one was on the only
+path that now has real footage behind it.
+
+So the hero is the design's: the picture, the camera's name in the corner, the
+centre play button, the duration badge. Pressing it opens the real player, and
+for a tower alert it opens both cameras side by side on one transport. The
+poster is the clip's own first frame, because the hub cuts video and not a
+still — an honest frame of the actual footage rather than a placeholder
+standing in for one.
+
+Then the bug worth writing down.
+
+A clip that arrived AFTER its alert was opened came up with a transport reading
+`0s / 1m` and would not start. The file was fine: 200, 6.8 MB, 52.7 seconds,
+starting on a keyframe. An alert whose clip already existed when it was opened
+played perfectly.
+
+⚠ **A seek issued before the element can seek is dropped silently, and can
+stall the element for good.** `currentTime` is written and reads back unchanged
+on the next line — no error, no event. And a seek at `loadedmetadata`, which
+fires as soon as the duration is known and long before `seekable` has anything
+in it, can leave a paused element parked at `HAVE_METADATA`: never loading
+further, never becoming playable, with a perfectly good file behind it. The old
+code wrote `currentTime` from a `setTimeout(0)` onto a freshly mounted element,
+which is exactly that, and then swallowed the resulting rejection in a bare
+`catch`.
+
+Three changes, and all three were wrong on their own:
+
+- the position is only written once `seekable` says the element can go there,
+  and is retried at each step up in readiness;
+- the player's videos are `preload="auto"`, because a paused element on
+  `metadata` never reaches a state it can seek or play in;
+- a failed `play()` says what happened, in one sentence. The lab could only
+  report "never plays" because the reason was being discarded.
+
+There was a second one underneath it. An open player was holding the clip it
+was given when the hero was pressed — a snapshot — so a 2K cut landing while
+somebody was watching changed the alert and changed nothing on screen. The
+panels record which CAMERA is leading and re-derive the panes from the live
+alert on every render: not the attachment, and not the clip key either, because
+an upgrade is a new key for the same camera.
+
 ### Acknowledging, and the thing there is no button for
 
 The ack route reads **no body**. Who acknowledged is the authenticated caller,

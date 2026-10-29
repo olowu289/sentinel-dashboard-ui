@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import fsSync from "node:fs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
@@ -62,6 +63,14 @@ after(async () => {
 const WEST = "kln_lab_000002";
 const EAST = "kln_lab_000003";
 const NAMES = { [WEST]: "West Tower", [EAST]: "East Tower" };
+/* ⚠ ONE NAMED CAMERA AND ONE NOT, ON PURPOSE. The two produce two different
+   sentences, and covering only the named case is how the doubled "CAMERA 1
+   camera stopped working" got past a green suite and onto a lab hub. */
+const CAMERA_NAMES = {
+  [`${WEST}:1`]: "North gate",
+  [`${WEST}:2`]: "Yard",
+  /* EAST's camera 1 is deliberately left unnamed. */
+};
 
 /** The map the list endpoint sends, from `sitealerts.COLOURS`. */
 const COLOURS = {
@@ -82,9 +91,14 @@ const clip = (camera, quality, key) => ({
   duration: 60,
   size: 7_812_345,
   filename: `westtower_cam${camera}_${quality}.mp4`,
-  /* A host that does not resolve, so the element's own `error` fires. */
-  url: `https://clips.invalid/${key}`,
-  download_url: `https://clips.invalid/${key}?dl=1`,
+  /* ⚠ ROUTED TO A REAL FOUR-SECOND MP4, so "it plays" means the frames
+     moved. These used to point at a host that does not resolve, with the
+     media element's `play()` and `currentTime` replaced by recording stubs —
+     which passed, and could not have caught a clip arriving after its alert
+     was opened and never starting, because that is a fact about the real
+     element. */
+  url: `https://clips.test/${key}.mp4`,
+  download_url: `https://clips.test/${key}.mp4?dl=1`,
 });
 
 const OFFLINE_ALERT = {
@@ -105,7 +119,9 @@ const STOPPED_ALERT = {
   id: "bbbb1111",
   type: "CAMERA_STOPPED",
   colour: "orange",
-  device_id: EAST,
+  /* WEST's camera 1 is named NORTH GATE, so this alert exercises the named
+     sentence. The toast test below raises one on EAST, which is not. */
+  device_id: WEST,
   cameras: [1],
   started_at: "2026-10-28T11:59:03Z",
   started_epoch: EPOCH - 600,
@@ -185,6 +201,7 @@ describe("every word an alert is read in", () => {
   });
 
   const nameOf = (id) => NAMES[id];
+  const cameraNameOf = (id, n) => CAMERA_NAMES[`${id}:${n}`];
 
   test('⭐ a tower is OFFLINE, and never "down"', () => {
     /* docs/alerts.md §1, in the hub's own words: a hub cannot tell a dead
@@ -204,18 +221,47 @@ describe("every word an alert is read in", () => {
     assert.equal(copy.alertTitle(OFFLINE_ALERT), "KLN_LAB_000002 offline");
   });
 
-  test("⭐ a stopped camera says so, and says when it came back", () => {
-    /* Recovery is written onto the SAME row rather than raising a second
-       alert, so the one title has to carry both halves. */
-    const title = copy.alertTitle(STOPPED_ALERT, nameOf);
-    assert.match(title, /^CAMERA 1 camera stopped working\. Back at /);
+  test("⭐ a NAMED camera is called what the customer called it", () => {
+    /* The lab read "CAMERA 1 camera stopped working" off a mast whose
+       cameras are NORTH GATE and YARD. Two faults in one line: the wrong
+       name, and the noun twice. */
+    const title = copy.alertTitle(STOPPED_ALERT, nameOf, cameraNameOf);
+    assert.match(title, /^NORTH GATE camera stopped working\. Back at /);
     /* Wall clock, in site time. Lagos is UTC+1, so 12:04:10Z is 13:04. */
     assert.match(title, /01:04/);
   });
 
+  test('⭐ and an UNNAMED one is "Camera 1 stopped working", with the noun once', () => {
+    /* ⚠ THE WORD "camera" IS PART OF THE NAME OR PART OF THE SENTENCE,
+       NEVER BOTH. A template with a variable in it doubles the noun the
+       moment the variable already contains it, which is exactly what
+       shipped. */
+    const title = copy.alertTitle(STOPPED_ALERT, nameOf);
+    assert.equal(
+      title.split(". ")[0],
+      "CAMERA 1 stopped working",
+      "the noun is doubled again",
+    );
+    assert.ok(!/camera camera/i.test(title));
+    assert.ok(!/CAMERA 1 camera/.test(title));
+  });
+
   test("and while it is still down there is no Back at", () => {
     const live = { ...STOPPED_ALERT, recovered_at: undefined };
-    assert.equal(copy.alertTitle(live, nameOf), "CAMERA 1 camera stopped working");
+    assert.equal(
+      copy.alertTitle(live, nameOf, cameraNameOf),
+      "NORTH GATE camera stopped working",
+    );
+  });
+
+  test("⭐ the short id is readable, and is not the raw one", () => {
+    /* `95ae76a8085641718fc1a64cbda85280` shipped in the detail header, where
+       the design puts the reference somebody reads out on a handoff. Thirty
+       two hex characters cannot be read aloud or compared by eye. */
+    assert.equal(copy.shortAlertId("95ae76a8085641718fc1a64cbda85280"), "ALT-95AE76");
+    assert.equal(copy.shortAlertId("aaaa0000"), "ALT-AAAA00");
+    /* Short enough to say, and never the whole thing. */
+    assert.ok(copy.shortAlertId("95ae76a8085641718fc1a64cbda85280").length <= 10);
   });
 
   test("the other three read as the hub meant them", () => {
@@ -324,6 +370,8 @@ describe("every word an alert is read in", () => {
 describe("the alert feed, end to end", () => {
   let browser;
   let page;
+  /** Flipped by the eviction test; read by the route above. */
+  let clipMissing = false;
 
   before(async () => {
     await mkdir(SCRATCH, { recursive: true });
@@ -351,8 +399,21 @@ describe("the alert feed, end to end", () => {
            (id: string) => TOWERS.find((t: any) => t.id === id)?.site,
            [],
          );
+         /* ⚠ THE CUSTOMER'S LABEL, AND UNDEFINED WHEN THERE IS NONE --
+            the exact shape CameraFeed.label has, which is the field the
+            shell reads. Returning a CAMERA 1 fallback here would make every
+            camera look named and hide the bug this round fixes.
+            (No backticks in this block: it lives inside a template
+            literal, and one would end the harness mid-sentence.) */
+         const cameraNameOf = useCallback(
+           /* String concatenation, not a template literal: this whole
+              harness is a template literal in the test file, and a raw
+              backtick inside one terminates it. */
+           (id: string, n: number) => (window as any).__cameraNames[id + ":" + n],
+           [],
+         );
          const onArrived = useCallback((a: any) => setArrivals((p) => [a, ...p]), []);
-         const feed = useSiteAlerts({ enabled: true, nameOf, onArrived });
+         const feed = useSiteAlerts({ enabled: true, nameOf, cameraNameOf, onArrived });
          (window as any).__feed = feed;
          /* The real provider, with no session: a signed-out shell is what
             hub mode and the screenshot harness both are, and a screen that
@@ -367,6 +428,8 @@ describe("the alert feed, end to end", () => {
              onBack: noop,
              onSetStatus: (id: string) => { void feed.acknowledge(id).catch(() => {}); },
              openAlertId: openId,
+             cameraNameOf,
+             onRefreshAlert: feed.refresh,
            }),
            createElement(AlertNotifications, { arrivals, onOpen: setOpenId }),
            createElement(NotificationStack),
@@ -389,9 +452,23 @@ describe("the alert feed, end to end", () => {
     });
     const bundle = await readFile(out, "utf8");
 
+    const MP4 = await readFile(join(ROOT, "test/fixtures/clip.mp4"));
+
     browser = await chromium.launch();
     page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    /* ⚠ `page.route`, NOT THE `window.fetch` STUB. A media element fetches
+       its own bytes and never goes near `window.fetch`, so a clip can only be
+       made playable at the network layer. `clipMissing` lets one test take
+       the file away without touching the alert that points at it. */
+    await page.route("https://clips.test/**", async (route) => {
+      if (clipMissing) {
+        await route.fulfill({ status: 404, body: "" });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "video/mp4", body: MP4 });
+    });
     await page.setContent("<!doctype html><html><body><div id='root'></div></body></html>");
+    await page.evaluate((names) => { window.__CAMERA_NAMES = names; }, CAMERA_NAMES);
 
     await page.evaluate(
       ([list, towers]) => {
@@ -414,23 +491,14 @@ describe("the alert feed, end to end", () => {
         /** Latest copy of each alert, which the ack route answers from. */
         w.__alerts = new Map(list.alerts.map((a) => [a.id, a]));
 
-        /* ⚠ A RECORDING STAND-IN FOR THE MEDIA ELEMENT. A <video> with no
-           decodable media ignores a `currentTime` write and rejects `play()`,
-           so the one-transport-two-cameras behaviour would be untestable
-           against the real thing and is exactly what is worth testing. */
-        const times = new WeakMap();
-        Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
-          configurable: true,
-          get() { return times.get(this) ?? 0; },
-          set(v) { times.set(this, v); },
-        });
-        HTMLMediaElement.prototype.play = function () {
-          w.__plays.push(this.getAttribute("aria-label") ?? "");
-          return Promise.resolve();
-        };
-        HTMLMediaElement.prototype.pause = function () {
-          w.__plays.push(`pause:${this.getAttribute("aria-label") ?? ""}`);
-        };
+        /* ⚠ NO STAND-IN FOR THE MEDIA ELEMENT, AND THAT IS THIS ROUND'S
+           LESSON. The previous suite replaced `play()` and `currentTime`
+           with recorders, because the clips pointed at a host that does not
+           resolve. It was green, and the lab then found that a clip arriving
+           AFTER its alert is opened never plays -- which is a fact about the
+           real element and was therefore unobservable here by construction.
+           The clips are a real four-second mp4 now, served by `page.route`. */
+        w.__cameraNames = window.__CAMERA_NAMES;
 
         const json = (body, status = 200) =>
           new Response(JSON.stringify(body), {
@@ -442,8 +510,10 @@ describe("the alert feed, end to end", () => {
           const path = String(url);
           const method = (init.method ?? "GET").toUpperCase();
 
-          /* The ranged probe a broken clip triggers. */
-          if (path.startsWith("https://clips.invalid/")) {
+          /* The ranged probe a failed pane triggers. The MEDIA itself does
+             not come through here: a <video> fetches its own bytes and never
+             goes near `window.fetch`, so `page.route` answers that. */
+          if (path.startsWith("https://clips.test/")) {
             return new Response("", { status: w.__clipStatus });
           }
 
@@ -535,7 +605,8 @@ describe("the alert feed, end to end", () => {
   test("⭐ the feed is the server's, and the fixtures are gone", async () => {
     const text = await feedText();
     assert.match(text, /WEST TOWER offline/);
-    assert.match(text, /CAMERA 1 camera stopped working/);
+    assert.match(text, /NORTH GATE camera stopped working/);
+    assert.ok(!/CAMERA 1 camera/.test(text), "the noun is doubled again");
     assert.match(text, /WEST TOWER back online/);
     assert.match(text, /Recovering footage from WEST TOWER/);
     /* The six that used to load on every fleet. */
@@ -655,7 +726,7 @@ describe("the alert feed, end to end", () => {
     await page.waitForSelector("[role='group']", { timeout: 5000 });
     const card = await page.evaluate(() => {
       const el = [...document.querySelectorAll("[role='group']")].find((g) =>
-        /CAMERA 2 camera stopped working/.test(g.textContent ?? ""),
+        /CAMERA 2 stopped working/.test(g.textContent ?? ""),
       );
       return el
         ? { text: el.textContent, strip: el.querySelector("div")?.className ?? "" }
@@ -664,6 +735,9 @@ describe("the alert feed, end to end", () => {
     assert.ok(card, "no toast appeared");
     /* The one coloured pixel on the card, and it is the server's. */
     assert.match(card.strip, /bg-detect/);
+    /* Unnamed, so the number carries the noun once. The toast is the same
+         copy layer as the row, which is the point of there being one. */
+    assert.ok(!/CAMERA 2 camera/.test(card.text), "the noun is doubled in the toast");
     assert.match(card.text, /Open/);
     assert.match(card.text, /Dismiss/);
   });
@@ -685,80 +759,237 @@ describe("the alert feed, end to end", () => {
     assert.equal(after, before);
   });
 
-  test("⭐ a tower alert shows BOTH cameras, on ONE transport", async () => {
-    /* The control link is the event and it took the whole mast, so the two
-       clips are the same moment seen from two places. Scrubbing them
-       separately to find a vehicle leaving one frame and entering the other
-       is the work this screen exists to not make somebody do. */
-    await page.evaluate(() => {
+  /* ================================================================
+   *  THE PLAYER. One design, both kinds of alert.
+   * ================================================================ */
+
+  /** Open one alert by the words in its row. */
+  const openRow = async (match) => {
+    await page.evaluate((m) => {
       const row = [...document.querySelectorAll("button")].find((b) =>
-        /WEST TOWER offline/.test(b.textContent ?? ""),
+        new RegExp(m).test(b.textContent ?? ""),
       );
       row?.click();
+    }, match);
+    await page.waitForTimeout(120);
+  };
+
+  /** Press the hero and wait for the full player. */
+  const openPlayer = async (nth = 0) => {
+    await page.evaluate((i) => {
+      const heroes = document.querySelectorAll("[data-alert-clip-hero]");
+      heroes[i]?.click();
+    }, nth);
+    await page.waitForSelector("[data-clip-stage] video", { timeout: 8000 });
+    /* Metadata, so a duration and a seek mean something. */
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("[data-clip-stage] video")].every(
+          (v) => v.readyState >= 1,
+        ),
+      { timeout: 8000 },
+    );
+  };
+
+  const closePlayer = async () => {
+    await page.evaluate(() => {
+      const x = [...document.querySelectorAll("button")].find(
+        (b) => b.getAttribute("aria-label") === "Close clip",
+      );
+      x?.click();
     });
+    await page.waitForSelector("[data-clip-stage]", { state: "detached", timeout: 5000 });
+  };
+
+  const stage = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("[data-clip-stage] video")].map((v) => ({
+        src: v.getAttribute("src"),
+        t: v.currentTime,
+        paused: v.paused,
+        ready: v.readyState,
+        err: v.error ? v.error.code : null,
+      })),
+    );
+
+  test("⭐ the hero is the design's, not a plain bar", async () => {
+    /* The detection alerts already had a player with a scrub bar, a
+       wall-clock readout, speed, mute and a download; a REAL alert got an
+       inline transport built for that surface alone. Two players in one
+       product, the worse one on the live path. */
+    await openRow("WEST TOWER offline");
     await page.waitForSelector("[data-alert-clips]", { timeout: 5000 });
+    const hero = await page.evaluate(() => {
+      const heroes = [...document.querySelectorAll("[data-alert-clip-hero]")];
+      return {
+        count: heroes.length,
+        /* The camera's name in the corner, the centre play button, the
+           duration badge — and no inline transport. */
+        text: heroes.map((h) => h.textContent).join("|"),
+        play: heroes[0]?.querySelector("svg") !== null,
+        scrubs: document.querySelectorAll("[data-alert-clips] input[type=range]").length,
+      };
+    });
+    assert.equal(hero.count, 2, "a tower alert should show both cameras");
+    assert.match(hero.text, /NORTH GATE/);
+    assert.match(hero.text, /YARD/);
+    assert.ok(hero.play, "no play button on the hero");
+    assert.equal(hero.scrubs, 0, "the plain inline bar is back");
+  });
+
+  test("⭐ pressing it opens BOTH cameras on ONE transport", async () => {
+    /* The control link is the event and it took the whole mast, so the clips
+       are the same sixty seconds from two places. A vehicle leaves one frame
+       and enters the other, and finding that by scrubbing two players
+       separately is the work this screen exists to not make somebody do. */
+    await openPlayer(0);
     const shape = await page.evaluate(() => ({
-      videos: document.querySelectorAll("[data-alert-clips] video").length,
-      plays: document.querySelectorAll("[data-alert-clips] button").length,
-      scrubs: document.querySelectorAll("[data-alert-clips] input[type=range]").length,
+      videos: document.querySelectorAll("[data-clip-stage] video").length,
+      scrubs: document.querySelectorAll('input[aria-label="Seek"]').length,
+      plays: [...document.querySelectorAll("button")].filter((b) =>
+        ["Play", "Pause"].includes(b.getAttribute("aria-label") ?? ""),
+      ).length,
     }));
     assert.equal(shape.videos, 2);
-    assert.equal(shape.plays, 1, "two cameras grew two play buttons");
     assert.equal(shape.scrubs, 1, "two cameras grew two scrubbers");
+    assert.equal(shape.plays, 1, "two cameras grew two play buttons");
+    /* Each pane says which camera it is. Two frames nobody can attribute is
+       two frames nobody can cite. */
+    const labels = await page.textContent("[data-clip-stage]");
+    assert.match(labels, /NORTH GATE/);
+    assert.match(labels, /YARD/);
   });
 
   test("⭐ one play starts both, and one scrub moves both", async () => {
     await page.evaluate(() => {
-      window.__plays = [];
-      document.querySelector("[data-alert-clips] button")?.click();
+      const b = [...document.querySelectorAll("button")].find((x) =>
+        ["Play", "Pause"].includes(x.getAttribute("aria-label") ?? ""),
+      );
+      /* It opens playing; make sure we are paused, then start. */
+      if (b?.getAttribute("aria-label") === "Pause") b.click();
     });
-    await page.waitForTimeout(100);
-    assert.equal(
-      await page.evaluate(() => window.__plays.length),
-      2,
-      "the transport started only one camera",
-    );
+    await page.waitForTimeout(150);
     await page.evaluate(() => {
-      const scrub = document.querySelector("[data-alert-clips] input[type=range]");
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.getAttribute("aria-label") === "Play",
+      );
+      b?.click();
+    });
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("[data-clip-stage] video")].every(
+          (v) => !v.paused && v.currentTime > 0,
+        ),
+      { timeout: 8000 },
+    );
+    const playing = await stage();
+    assert.equal(playing.length, 2);
+    for (const v of playing) assert.ok(!v.paused, "a camera stayed paused");
+
+    await page.evaluate(() => {
+      const scrub = document.querySelector('input[aria-label="Seek"]');
       const set = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         "value",
       ).set;
-      set.call(scrub, "22");
+      set.call(scrub, "2.5");
       scrub.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await page.waitForTimeout(100);
-    const positions = await page.evaluate(() =>
-      [...document.querySelectorAll("[data-alert-clips] video")].map((v) => v.currentTime),
+    /* Waited for rather than slept on: a seek is asynchronous, and a
+       follower that has to fetch the byte range first reports its old
+       position until it completes. A fixed pause here measures the network. */
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("[data-clip-stage] video")].every(
+          (v) => Math.abs(v.currentTime - 2.5) < 0.7,
+        ),
+      { timeout: 8000 },
     );
-    assert.deepEqual(positions, [22, 22], "the two cameras are not on one clock");
   });
 
   test("⭐ and the follower is corrected when it drifts", async () => {
     await page.evaluate(() => {
-      const [lead, follow] = document.querySelectorAll("[data-alert-clips] video");
-      lead.currentTime = 30;
-      follow.currentTime = 24;
+      const [lead, follow] = document.querySelectorAll("[data-clip-stage] video");
+      lead.pause();
+      follow.pause();
+      lead.currentTime = 3;
+      follow.currentTime = 1;
       lead.dispatchEvent(new Event("timeupdate"));
     });
-    await page.waitForTimeout(80);
-    const positions = await page.evaluate(() =>
-      [...document.querySelectorAll("[data-alert-clips] video")].map((v) => v.currentTime),
+    await page.waitForFunction(
+      () => {
+        const [lead, follow] = document.querySelectorAll("[data-clip-stage] video");
+        return Math.abs(lead.currentTime - follow.currentTime) < 0.4;
+      },
+      { timeout: 5000 },
     );
-    assert.deepEqual(positions, [30, 30]);
   });
 
-  test("⭐ a 2K clip arriving switches the picture WITHOUT losing the place", async () => {
-    /* A tower that survives and later syncs the covering segment gets the
-       SAME minute cut again at full size. It is the same footage at a better
-       resolution, so an operator looking at 00:30 must still be looking at
-       00:30 — a naive `src` swap resets to zero, which on a minute of
-       evidence means finding the moment again. */
-    await page.evaluate(() => {
-      for (const v of document.querySelectorAll("[data-alert-clips] video")) {
-        v.currentTime = 30;
-      }
+  test("⭐ the download is a real file, not the simulated one", async () => {
+    /* `useExportPhase` is three states and no bytes, which was honest while
+       nothing on this surface had a URL behind it. An alert clip does, and a
+       button that pretends to save evidence is the worst button here. */
+    const link = await page.evaluate(() => {
+      const a = [...document.querySelectorAll("a")].find((x) =>
+        /^Download /.test(x.getAttribute("aria-label") ?? ""),
+      );
+      return a ? { href: a.getAttribute("href"), name: a.getAttribute("download") } : null;
     });
+    assert.ok(link, "the download is still a simulation");
+    assert.match(link.href, /\?dl=1$/);
+    assert.match(link.name, /\.mp4$/);
+  });
+
+  test("⭐ a 2K clip arriving switches the source WITHOUT losing the place", async () => {
+    /* The same sixty seconds at a better resolution, so somebody looking at
+       00:02 must still be looking at 00:02. And it must still PLAY: an
+       element whose source is swapped without an explicit load can be left
+       in NETWORK_NO_SOURCE and never recover. */
+    /* A FRESH PLAYER for this one. The tests above leave the transport
+       paused, part-played and mid-seek between them, and the thing under
+       test here is a source swap against a known position — inheriting
+       three other tests' playhead measures them instead. */
+    await closePlayer();
+    await openPlayer(0);
+
+    /* ⚠ PUT THE PLAYHEAD THERE THROUGH THE SCRUBBER, not by writing
+       `currentTime` from the test. Poking the element races its own seek --
+       it reports the old position until the seek completes -- and the thing
+       being tested is what happens to the place the OPERATOR is at, which is
+       the place the transport is showing. */
+    await page.evaluate(() => {
+      const scrub = document.querySelector('input[aria-label="Seek"]');
+      const set = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      ).set;
+      set.call(scrub, "2");
+      scrub.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    try {
+      await page.waitForFunction(
+        () => {
+          const v = document.querySelector("[data-clip-stage] video");
+          return v && Math.abs(v.currentTime - 2) < 0.4;
+        },
+        { timeout: 8000 },
+      );
+    } catch (err) {
+      throw new Error(
+        err.message +
+          " | " +
+          JSON.stringify(
+            await page.evaluate(() => {
+              const v = document.querySelector("[data-clip-stage] video");
+              const r = document.querySelector('input[aria-label="Seek"]');
+              return v
+                ? { t: v.currentTime, d: v.duration, ready: v.readyState, seekable: v.seekable.length, paused: v.paused, max: r?.max, val: r?.value }
+                : null;
+            }),
+          ),
+      );
+    }
+
     await page.evaluate(
       ([alert, big1, big2]) =>
         window.__push("alert.updated", {
@@ -769,47 +1000,194 @@ describe("the alert feed, end to end", () => {
         }),
       [OFFLINE_ALERT, clip(1, "2k", "c1-2k"), clip(2, "2k", "c2-2k")],
     );
+    try {
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll("[data-clip-stage] video")].every((v) =>
+            /c\d-2k/.test(v.getAttribute("src") ?? ""),
+          ),
+        { timeout: 8000 },
+      );
+    } catch (err) {
+      const dbg = await page.evaluate(() => ({
+        srcs: [...document.querySelectorAll("[data-clip-stage] video")].map((v) => v.getAttribute("src")),
+        feed: (window.__feed.alerts ?? []).map((a) => [a.id, a.site?.rev, a.site?.best_quality, (a.site?.clips ?? []).length]),
+      }));
+      throw new Error(err.message + " | " + JSON.stringify(dbg));
+    }
+    try {
     await page.waitForFunction(
       () =>
-        [...document.querySelectorAll("[data-alert-clips] video")].every((v) =>
-          /c\d-2k/.test(v.getAttribute("src") ?? ""),
+        [...document.querySelectorAll("[data-clip-stage] video")].every(
+          (v) => v.readyState >= 1 && Math.abs(v.currentTime - 2) < 0.6,
         ),
-      { timeout: 5000 },
+      { timeout: 8000 },
     );
-    await page.waitForTimeout(80);
-    const positions = await page.evaluate(() =>
-      [...document.querySelectorAll("[data-alert-clips] video")].map((v) => v.currentTime),
+    } catch (err) {
+      const dbg = await page.evaluate(() =>
+        [...document.querySelectorAll("[data-clip-stage] video")].map((v) => ({
+          src: v.getAttribute("src"), t: v.currentTime, r: v.readyState, d: v.duration,
+        })),
+      );
+      throw new Error(err.message + " | " + JSON.stringify(dbg));
+    }
+    /* And it is still playable after the swap. */
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.getAttribute("aria-label") === "Play",
+      );
+      b?.click();
+    });
+    await page.waitForFunction(
+      () => {
+        const v = document.querySelector("[data-clip-stage] video");
+        return v && !v.paused && v.currentTime > 2;
+      },
+      { timeout: 8000 },
     );
-    assert.deepEqual(positions, [30, 30], "the upgrade lost the operator's place");
-    /* And the badge says which one is on screen, from the server's ranking. */
-    assert.match(await page.textContent("[data-alert-clips]"), /2K/);
+    const panes = await stage();
+    for (const v of panes) assert.equal(v.err, null, "the upgrade broke a pane");
+    await closePlayer();
   });
 
-  test("the download uses the download URL and the hub's own filename", async () => {
-    const links = await page.evaluate(() =>
-      [...document.querySelectorAll("[data-alert-clips] a")].map((a) => ({
-        href: a.getAttribute("href"),
-        name: a.getAttribute("download"),
-      })),
+  /* ================================================================
+   *  THE LAB'S BUG: a clip that arrives after the alert is opened
+   * ================================================================ */
+
+  /**
+   * ⭐ THE EXACT PATH THE LAB REPORTED, TWICE OVER.
+   *
+   * A `TOWER_ONLINE` clip is cut from the first 60 s AFTER the tower
+   * returned, so it lands about a minute later: the alert is opened on "Clip
+   * coming" and the clip appears under it. On the hub that came up with a
+   * transport reading `0s / 1m` that would not start, while an alert whose
+   * clip already existed played perfectly.
+   *
+   * What made it invisible here was the harness, not the test list: the
+   * clips pointed at a host that does not resolve and `play()` was a stub
+   * that resolved, so "it plays" could not be asked. It is asked now, by
+   * watching `currentTime` move on a real element.
+   *
+   * Run through BOTH doors, because they arrive at the player differently:
+   * the list selects a row, and the toast sets `openAlertId` from outside
+   * the screen.
+   */
+  const arriveThenPlay = async (door) => {
+    const id = `late-${door}`;
+    await page.evaluate(
+      ([alertId, dev]) =>
+        window.__push("alert.new", {
+          id: alertId,
+          type: "TOWER_ONLINE",
+          colour: "green",
+          device_id: dev,
+          cameras: [1],
+          started_at: "2026-10-28T13:00:00Z",
+          started_epoch: 1793192400,
+          acknowledged: false,
+          rev: 1,
+        }),
+      [id, EAST],
     );
-    assert.equal(links.length, 2);
-    for (const l of links) {
-      assert.match(l.href, /\?dl=1$/);
-      assert.match(l.name, /\.mp4$/);
+    await page.waitForFunction(
+      (alertId) => (window.__feed.alerts ?? []).some((a) => a.id === alertId),
+      id,
+      { timeout: 5000 },
+    );
+
+    if (door === "toast") {
+      await page.evaluate(() => {
+        const card = [...document.querySelectorAll("[role='group']")].at(-1);
+        const open = [...(card?.querySelectorAll("button") ?? [])].find(
+          (b) => b.textContent?.trim() === "Open",
+        );
+        open?.click();
+      });
+    } else {
+      /* ⚠ EAST, NOT WEST. `cccc2222` is already "WEST TOWER back online",
+         and two rows reading the same words means `openRow` picks whichever
+         sorts first -- which is the late one, with its clip already there,
+         testing nothing. The ack and stale-read tests below select
+         `cccc2222` by those same words. */
+      await openRow("EAST TOWER back online");
     }
+    await page.waitForTimeout(200);
+    /* Opened on "Clip coming", which is the state the lab opened it in. */
+    assert.match(await page.textContent("body"), /Clip coming/);
+
+    /* ...and now the hub finishes the cut. */
+    await page.evaluate(
+      ([alertId, dev, c]) =>
+        window.__push("alert.updated", {
+          id: alertId,
+          type: "TOWER_ONLINE",
+          colour: "green",
+          device_id: dev,
+          cameras: [1],
+          started_at: "2026-10-28T13:00:00Z",
+          started_epoch: 1793192400,
+          acknowledged: false,
+          best_quality: "standard",
+          clips: [c],
+          rev: 2,
+        }),
+      [id, EAST, clip(1, "standard", `late-${door}-c1`)],
+    );
+    await page.waitForSelector("[data-alert-clip-hero]", { timeout: 5000 });
+
+    await openPlayer(0);
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find(
+        (x) => x.getAttribute("aria-label") === "Play",
+      );
+      b?.click();
+    });
+    /* THE ASSERTION. Not "a play button exists" — the frames moved. */
+    await page.waitForFunction(
+      () => {
+        const v = document.querySelector("[data-clip-stage] video");
+        return v && !v.paused && v.currentTime > 0.2;
+      },
+      { timeout: 10_000 },
+    );
+    const panes = await stage();
+    assert.equal(panes[0].err, null, `the late clip errored: ${panes[0].err}`);
+    assert.ok(panes[0].t > 0.2, "the late clip never started");
+    /* And nothing is complaining over the picture. */
+    assert.equal(
+      await page.evaluate(() => document.querySelectorAll("[data-clip-problem]").length),
+      0,
+    );
+    await closePlayer();
+  };
+
+  test("⭐ a clip that arrives AFTER the alert is opened plays, from the list", async () => {
+    await arriveThenPlay("list");
+  });
+
+  test("⭐ ...and from the toast", async () => {
+    await arriveThenPlay("toast");
   });
 
   test("⭐ an expired ticket is re-minted and retried ONCE", async () => {
     /* `url` is minted per request and a presigned bucket URL lives fifteen
        minutes. A player that read a 403 as "broken" would tell somebody the
        evidence is gone when it is one request away. */
+    /* On a known alert, not on whichever one the test before left open. */
+    await openRow("WEST TOWER offline");
+    await page.waitForSelector("[data-alert-clip-hero]", { timeout: 5000 });
     await page.evaluate(() => {
       window.__clipStatus = 403;
       window.__gets = [];
-      window.__refreshed = null;
     });
+    /* ⚠ THE HERO'S POSTER IS THE CANARY. It loads the clip's first frame,
+       so it meets an expired ticket before anybody presses play -- which is
+       the point: an operator who opens an alert from this morning should not
+       have to press a dead button to find out. */
     await page.evaluate(() => {
-      document.querySelector("[data-alert-clips] video")?.dispatchEvent(new Event("error"));
+      document
+        .querySelector("[data-alert-clip-hero] video")
+        ?.dispatchEvent(new Event("error"));
     });
     await page.waitForFunction(() => window.__gets.length > 0, { timeout: 5000 });
     const gets = await page.evaluate(() => window.__gets);
@@ -820,15 +1198,17 @@ describe("the alert feed, end to end", () => {
        refusing, and retrying it in a loop would be this app causing the
        outage it is reporting. */
     await page.evaluate(() => {
-      document.querySelector("[data-alert-clips] video")?.dispatchEvent(new Event("error"));
+      document
+        .querySelector("[data-alert-clip-hero] video")
+        ?.dispatchEvent(new Event("error"));
     });
     await page.waitForTimeout(400);
     assert.equal(
-      (await page.evaluate(() => window.__gets.length)),
+      await page.evaluate(() => window.__gets.length),
       1,
       "a second expiry started a retry loop",
     );
-    assert.match(await page.textContent("[data-alert-clips]"), /didn't play/);
+    await page.evaluate(() => { window.__clipStatus = 200; });
   });
 
   test("⭐ an evicted clip says the alert is kept", async () => {
@@ -839,7 +1219,7 @@ describe("the alert feed, end to end", () => {
     await page.evaluate(() => {
       window.__clipStatus = 404;
       const row = [...document.querySelectorAll("button")].find((b) =>
-        /CAMERA 1 camera stopped working/.test(b.textContent ?? ""),
+        /NORTH GATE camera stopped working/.test(b.textContent ?? ""),
       );
       row?.click();
     });
@@ -855,7 +1235,7 @@ describe("the alert feed, end to end", () => {
     assert.match(text, /Clip no longer kept/);
     assert.match(text, /The alert is kept/);
     /* The alert itself is still in the feed. */
-    assert.match(text, /CAMERA 1 camera stopped working/);
+    assert.match(text, /NORTH GATE camera stopped working/);
   });
 
   test('⭐ an alert whose clip has not been cut yet says "Clip coming"', async () => {
@@ -948,7 +1328,7 @@ describe("the alert feed, end to end", () => {
   test("⭐ a recovered camera's Back at is a SEPARATE fact from who noticed", async () => {
     await page.evaluate(() => {
       const row = [...document.querySelectorAll("button")].find((b) =>
-        /CAMERA 1 camera stopped working/.test(b.textContent ?? ""),
+        /NORTH GATE camera stopped working/.test(b.textContent ?? ""),
       );
       row?.click();
     });
@@ -962,6 +1342,79 @@ describe("the alert feed, end to end", () => {
        the absence of something that was never going to be there. */
     assert.ok(!/AI Confidence/.test(text), "a hardware fault was given a model score");
     assert.ok(!/Not scored/.test(text));
+  });
+
+  test("⭐ the Timeline is back, built from the alert's own stamps", async () => {
+    /* It was dropped for server alerts on the argument that coordination's
+       five kinds are single events. Wrong on a real hub: an alert carries up
+       to four moments, and the DELTAS between them are the reading.
+       "Frames stopped at 03:14, raised at 03:15, back at 03:19" is the
+       handoff; three separate cells are not. */
+    await openRow("NORTH GATE camera stopped working");
+    await page.waitForSelector("[data-alert-story]", { timeout: 5000 });
+    const story = await page.textContent("[data-alert-story]");
+    assert.match(story, /Frames stopped arriving from NORTH GATE camera/);
+    assert.match(story, /Alert raised/);
+    assert.match(story, /Frames arriving again/);
+    assert.match(story, /Acknowledged by Terra Industries/);
+  });
+
+  test("⭐ the raise is one minute after the event, and the deltas say so", async () => {
+    /* `started_at` is the EVENT, not the raise: the hub waits 60 s before
+       raising anything, and stamps the alert at the event so the clip window
+       lands on the minute BEFORE it rather than on the minute of dead feed
+       after. That gap is the only derived stamp on the timeline. */
+    const story = await page.textContent("[data-alert-story]");
+    /* The event at 01:00:00 PM in site time, the raise at 01:01:00 PM.
+       ⚠ FROM `started_epoch`, NOT `started_at`: the epoch is the field the
+       whole app compares on, and the two are allowed to be written
+       independently in a fixture. */
+    assert.match(story, /01:00:00 PM/);
+    assert.match(story, /01:01:00 PM/);
+    /* And the elapsed column, which is the thing a column of clock times
+       cannot show when several steps land inside one minute. */
+    assert.match(story, /\+1m 00s/);
+    assert.match(story, /\+5m 00s/);
+  });
+
+  test("⭐ a 2K upgrade is a step with NO clock, not an invented one", async () => {
+    /* The hub attaches the better cut during a sweep and the row carries no
+       stamp for when. A wall-clock time made up for it would be the one line
+       on a handoff that nothing can corroborate. */
+    await page.evaluate(
+      ([alert, big]) =>
+        window.__push("alert.updated", {
+          ...alert,
+          rev: 20,
+          best_quality: "2k",
+          clips: [...alert.clips, big],
+        }),
+      [STOPPED_ALERT, clip(1, "2k", "c3-2k")],
+    );
+    await page.waitForFunction(
+      () => /2K clip added/.test(document.body.innerText),
+      { timeout: 5000 },
+    );
+    const lastStep = await page.evaluate(() => {
+      const li = [...document.querySelectorAll("[data-alert-story] li")].at(-1);
+      return { text: li?.textContent ?? "", stamps: li?.querySelectorAll("p").length ?? 0 };
+    });
+    assert.match(lastStep.text, /2K clip added/);
+    assert.equal(lastStep.stamps, 1, "the undated step was given a clock");
+  });
+
+  test("⭐ the header shows a readable id, and keeps the full one on copy", async () => {
+    /* `95ae76a8085641718fc1a64cbda85280` shipped here. Thirty-two hex
+       characters cannot be read aloud on a handoff, compared by eye against
+       another screen, or fitted on the line. */
+    const header = await page.evaluate(() => {
+      const b = document.querySelector("[data-alert-id]");
+      return b ? { text: b.textContent.trim(), title: b.getAttribute("title") } : null;
+    });
+    assert.ok(header, "the id is not a copyable control");
+    assert.equal(header.text, "ALT-BBBB11");
+    /* The full one is still reachable — by us, in a log. */
+    assert.match(header.title, /^bbbb1111/);
   });
 
   test("⭐ a stale row from a RECOVERY READ cannot un-acknowledge an alert", async () => {
@@ -1110,9 +1563,13 @@ describe("what the screen says when the read fails", () => {
 describe("the fixtures do not come back", () => {
   let app;
   let copy;
+  let detail;
+  let clipsSrc;
   before(async () => {
     app = await readFile(join(SRC, "App.tsx"), "utf8");
     copy = await readFile(join(SRC, "lib/alertCopy.ts"), "utf8");
+    detail = await readFile(join(SRC, "components/AlertDetail.tsx"), "utf8");
+    clipsSrc = await readFile(join(SRC, "components/AlertClips.tsx"), "utf8");
   });
 
   test("⭐ the shell does not import the fixture list at all", () => {
@@ -1123,7 +1580,37 @@ describe("the fixtures do not come back", () => {
   });
 
   test("the feed comes from the hook", () => {
-    assert.match(app, /useSiteAlerts\(\{ enabled: alertsEnabled/);
+    assert.match(app, /useSiteAlerts\(\{[\s\S]{0,40}enabled: alertsEnabled/);
+  });
+
+  test("⭐ the detail footer clears the notifications chip", () => {
+    /* `NotificationStack` is a fixed overlay pinned 16px from the bottom
+       right of the VIEWPORT, and at lg the alert detail ends in that same
+       corner — so its "Recent" chip painted straight over the Escalate
+       button. The chip is persistent once anything has passed through the
+       stack, and alerts are exactly what puts things through it.
+
+       Fixed on the panel rather than by moving the overlay: the overlay is
+       global and correct where it is, and the thing that must give way is
+       the panel that chose to end in an occupied corner. */
+    assert.match(detail, /lg:pb-\[46px\]/);
+    const stack = fsSync.readFileSync(
+      join(SRC, "components/NotificationStack.tsx"),
+      "utf8",
+    );
+    assert.match(stack, /sm:bottom-\[16px\]/, "the chip moved; re-measure the clearance");
+  });
+
+  test("⭐ there is ONE player, and the alert detail does not grow a second", () => {
+    /* What shipped was an inline transport on this surface alone: two video
+       elements, a play button, a range input and two save links. The
+       detection alerts already had a player with a scrub bar, a wall-clock
+       readout, speed, mute and a download, and a REAL alert — the only kind
+       there now is — got the plain bar. */
+    assert.ok(!/input\s+type="range"/.test(clipsSrc), "the inline bar is back");
+    assert.ok(!/<video[^>]*controls/.test(clipsSrc), "the hero grew browser controls");
+    /* The hero hands the panes up, and the panel owns the player. */
+    assert.match(clipsSrc, /onPlay\(/);
   });
 
   test("⭐ the toast is mounted beside the stack, not inside a screen", () => {

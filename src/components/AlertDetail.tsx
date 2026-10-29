@@ -1,8 +1,18 @@
 import { motion, useIsPresent } from "motion/react";
+import { useCallback } from "react";
 import type { ReactNode } from "react";
-import type { Alert, TimelineEvent } from "@/lib/types";
+import type { Alert, AlertAttachment, TimelineEvent } from "@/lib/types";
 import { ALERT_BADGE } from "@/lib/data";
-import { alertColour, recoveryDetail, recoveryProgress } from "@/lib/alertCopy";
+import {
+  alertColour,
+  recoveryDetail,
+  recoveryProgress,
+  shortAlertId,
+  type CameraNameOf,
+  type NameOf,
+} from "@/lib/alertCopy";
+import { alertStory, type AlertPane } from "@/lib/alertStory";
+import { useClipHealth } from "@/lib/useClipHealth";
 import { AlertClips } from "./AlertClips";
 import { deviceName } from "@/lib/deviceName";
 import { ENTER, EXIT } from "@/lib/motion";
@@ -118,7 +128,9 @@ function TimelineStep({
 
 export function AlertDetail({
   alert,
-  towerName,
+  nameOf,
+  cameraNameOf,
+  onRefresh,
   onClose,
   onAcknowledge,
   onResolve,
@@ -132,8 +144,30 @@ export function AlertDetail({
   onRejectMatch,
 }: {
   alert: Alert;
-  /** The site, for the clip panes' labels. Both feeds already know it. */
-  towerName?: string;
+  /* ⚠ NO `towerName`. It was here to label the clip panes, and the panes
+     are labelled by CAMERA now — which is the only label that distinguishes
+     two of them side by side. The player's breadcrumb still names the site,
+     and the panel that owns the player passes it there directly. */
+  /** Names a tower, for the timeline's first step. */
+  nameOf?: NameOf;
+  /**
+   * Names a camera, for the panes, the cells and the timeline.
+   *
+   * ⚠ THE CUSTOMER'S NAME, NOT THE `CAMERA 2` FALLBACK — see `CameraNameOf`.
+   * The lab read "CAMERA 1 camera stopped working" off a mast whose cameras
+   * are called NORTH GATE and YARD, which is both the wrong name and the
+   * word doubled.
+   */
+  cameraNameOf?: CameraNameOf;
+  /**
+   * Re-read this alert for fresh clip URLs, after an expired ticket.
+   *
+   * Handed down rather than called here, because the FEED is what must end up
+   * holding the new URLs — a copy fetched into this panel would be dropped
+   * the moment the row re-rendered from the store, and the operator would be
+   * back on a dead link.
+   */
+  onRefresh?: (id: string) => Promise<void>;
   onClose: () => void;
   onAcknowledge: () => void;
   onResolve: () => void;
@@ -165,7 +199,14 @@ export function AlertDetail({
    *  swaps its content in place — so a `useState` for the open clip would
    *  survive the swap and show one incident's footage under the next one's
    *  title. See the note in CLAUDE.md. */
-  onPlayClip: (at: number, attachment: NonNullable<Step["attachment"]>) => void;
+  onPlayClip: (
+    at: number,
+    attachment: NonNullable<Step["attachment"]>,
+    /** The other cameras that saw the same moment. One transport, two panes. */
+    companions?: AlertAttachment[],
+    /** Which camera is leading, so the panel can re-derive on an update. */
+    camera?: number,
+  ) => void;
 }) {
   const isPresent = useIsPresent();
 
@@ -204,6 +245,13 @@ export function AlertDetail({
      camera coming back writes `recovered_at` onto the same row, so one alert
      can carry both facts and they belong to different actors. */
   const recoveredAt = server?.recovered_at ? Date.parse(server.recovered_at) : null;
+  /* The sequence, and the moment every delta is measured from. Built on each
+     render rather than memoised: it is five objects, and a stale one would
+     show the wrong elapsed time, which is the only number on it that matters. */
+  const noRefresh = useCallback(async () => {}, []);
+  const clips = useClipHealth(alert.id, onRefresh ?? noRefresh);
+  const story = server ? alertStory(server, nameOf, cameraNameOf) : [];
+  const firstStamp = story.find((step) => step.at !== null)?.at ?? null;
 
   /* A short slide from the right edge, not a full panel width — the list is
      still conceptually behind this, so it should read as sliding over its own
@@ -252,10 +300,32 @@ export function AlertDetail({
           className="shrink-0"
         />
         {/* Stable short ID before the human title — this is what gets read out
-            over the radio during a handoff. */}
-        <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-dim">
-          {alert.id}
-        </span>
+            over the radio during a handoff.
+
+            ⚠ SHORTENED FOR A SERVER ALERT, AND NOT FOR A FIXTURE. A fixture's
+            id IS `ALT-8842`; coordination's is a 32-character hex string, and
+            `95ae76a8085641718fc1a64cbda85280` shipped here — unreadable aloud,
+            uncomparable by eye, and overflowing the line. The full id is one
+            press away on the clipboard, which is where the one reader who
+            needs it (us, in a log) can get it. */}
+        {server ? (
+          <button
+            type="button"
+            data-alert-id
+            title={`${alert.id} · copy`}
+            aria-label={`Alert ${shortAlertId(alert.id)}. Copy the full reference.`}
+            onClick={() => {
+              void navigator.clipboard?.writeText(alert.id).catch(() => {});
+            }}
+            className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-dim transition-colors hover:text-body-ink"
+          >
+            {shortAlertId(alert.id)}
+          </button>
+        ) : (
+          <span className="font-display text-[0.875rem] leading-[20px] tracking-[0.14px] text-dim">
+            {alert.id}
+          </span>
+        )}
         <button
           type="button"
           onClick={onClose}
@@ -337,7 +407,24 @@ export function AlertDetail({
                appear against the NEXT alert. Key the subtree that owns the
                state, not the panel: the rule CLAUDE.md states, applied at the
                one place in this round that needed it. */
-            <AlertClips key={server.id} alert={server} towerName={towerName ?? ""} />
+            <AlertClips
+              alert={server}
+              cameraNameOf={cameraNameOf}
+              evicted={clips.evicted}
+              onClipError={clips.report}
+              onPlay={(pane: AlertPane, companions) =>
+                /* The clip's OWN start, not the alert's: the cut begins a
+                   minute before the event, and the player's wall-clock
+                   readout is only quotable if it is anchored to the footage
+                   rather than to the row. */
+                onPlayClip(
+                  (pane.clip.start_epoch ?? server.started_epoch) * 1000,
+                  pane.attachment,
+                  companions,
+                  pane.clip.camera,
+                )
+              }
+            />
           ) : (
           <div className="relative aspect-[388/198] w-full overflow-hidden rounded-[12px] bg-panel">
             {hero ? (
@@ -513,16 +600,67 @@ export function AlertDetail({
           </div>
         </section>
 
-        {/* ⚠ A SERVER ALERT HAS NO SEQUENCE, so it gets no Timeline heading.
-            This section's whole value is the DELTA between steps — "vehicle,
-            then a person 15 seconds later" is the finding, and a column of
-            identical clock times is not. Coordination's five kinds are single
-            events: a link dropped, a feed stopped, a tower returned. Falling
-            back to one step built from the alert itself, which is what the
-            `??` below does for a fixture with no timeline, would draw a
-            heading, a rail and a badge over one line that repeats the title
-            three inches above it. Started and Back at are in the cells. */}
-        {server ? null : (
+        {/* ⭐ THE SEQUENCE, BUILT FROM THE ALERT'S OWN STAMPS.
+
+            This section was dropped for server alerts last round, on the
+            argument that coordination's five kinds are single events and the
+            heading would sit over one line repeating the title. That was
+            wrong on a real hub: an alert carries up to four moments — the
+            event, the raise, the recovery and the acknowledgement — and the
+            DELTAS between them are the reading. "Frames stopped at 03:14,
+            raised at 03:15, back at 03:19" is the handoff; three separate
+            cells are not.
+
+            `lib/alertStory.ts` builds it, and every stamp on it is the
+            server's with one documented exception. */}
+        {server ? (
+          <section className="flex flex-col gap-[16px]">
+            <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
+              Timeline:
+            </h3>
+            <ol className="flex flex-col" data-alert-story>
+              {story.map((step, i) => (
+                <li key={`${step.at ?? "none"}-${step.title}`} className="flex gap-[12px]">
+                  <div className="flex shrink-0 flex-col items-center">
+                    <img
+                      src={ALERT_BADGE[alert.kind]}
+                      alt=""
+                      width={28}
+                      height={28}
+                      className="shrink-0"
+                    />
+                    {i < story.length - 1 && (
+                      <span className="w-px flex-1 bg-overlay/10" />
+                    )}
+                  </div>
+                  <div
+                    className={`min-w-0 flex-1 ${i === story.length - 1 ? "pb-0" : "pb-[16px]"}`}
+                  >
+                    <p className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
+                      {step.title}
+                    </p>
+                    {/* ⚠ A STEP CAN HAVE NO CLOCK, and it draws none rather
+                        than a guess. The 2K upgrade is attached during a
+                        sweep and the row carries no stamp for when; a
+                        wall-clock time invented for it would be the one line
+                        on a handoff that nothing can corroborate. */}
+                    {step.at !== null && (
+                      <p className="mt-[2px] text-[0.75rem] leading-[20px] tracking-[0.12px] text-muted tabular-nums">
+                        {formatClock(step.at)}
+                        {i > 0 && firstStamp !== null && (
+                          <span className="text-body-ink/25">
+                            {" · "}
+                            {formatDelta(firstStamp, step.at)}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : (
         <section className="flex flex-col gap-[16px]">
           <h3 className="text-[0.875rem] leading-[20px] tracking-[0.14px] text-body-ink">
             Timeline:
@@ -547,7 +685,19 @@ export function AlertDetail({
           what you have not acknowledged, so that transition is never offered.
           Sits above the fixed view bar on mobile: the primary action must not
           be covered by navigation. */}
-      <footer className="flex shrink-0 flex-col gap-[8px] border-t border-line px-[16px] pb-[calc(12px+env(safe-area-inset-bottom))] pt-[12px] mb-[56px] lg:mb-0">
+      {/* ⚠ THE EXTRA BOTTOM PADDING AT lg IS NOT SPACING, IT IS CLEARANCE.
+          `NotificationStack` is a fixed overlay pinned 16px from the
+          bottom-right corner of the VIEWPORT, and at lg this panel ends in
+          that same corner — so its "Recent" chip painted straight over the
+          Escalate button, which the lab hit immediately. The chip is
+          persistent once anything has passed through the stack, and alerts
+          are exactly what puts things through it.
+
+          Fixed here rather than by moving the stack: the overlay is global
+          and correct where it is, and the thing that has to give way is the
+          panel that chose to end in an occupied corner. 46px is the chip's
+          own band (16px inset plus its height) with a hair of margin. */}
+      <footer className="flex shrink-0 flex-col gap-[8px] border-t border-line px-[16px] pb-[calc(12px+env(safe-area-inset-bottom))] pt-[12px] mb-[56px] lg:mb-0 lg:pb-[46px]">
         {/* Said where it happened, next to the button that did it. */}
         <MutationError
           phase={statusPhase}

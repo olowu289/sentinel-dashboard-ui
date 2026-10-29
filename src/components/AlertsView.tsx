@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { AlertDetail } from "@/components/AlertDetail";
 import { AlertRow } from "@/components/AlertRow";
 import { deviceName } from "@/lib/deviceName";
+import type { CameraNameOf } from "@/lib/alertCopy";
+import { alertPanes } from "@/lib/alertStory";
 import { AlertsEmpty } from "@/components/AlertsEmpty";
 import { ClipPlayer } from "@/components/ClipPlayer";
 import { DateFilterPopover } from "@/components/DateFilterPopover";
@@ -52,6 +54,8 @@ export function AlertsView({
   problem,
   reconnecting,
   openAlertId,
+  cameraNameOf,
+  onRefreshAlert,
 }: {
   /** Every alert on the fleet, newest first — see the sort in `data.ts`. */
   alerts: Alert[];
@@ -94,6 +98,17 @@ export function AlertsView({
    * effect, and the local state is the truth afterwards.
    */
   openAlertId?: string | null;
+  /**
+   * The customer's own name for one camera.
+   *
+   * ⚠ NOT DERIVED FROM `towers` HERE. A tower carries no camera list on this
+   * screen, and the thing that knows the names is the fleet's feeds, which
+   * the shell holds. Passing the lookup rather than the data keeps one answer
+   * for "what is this camera called" across the wall, the panel and here.
+   */
+  cameraNameOf?: CameraNameOf;
+  /** Re-read one alert for fresh clip URLs. See `useClipHealth`. */
+  onRefreshAlert?: (id: string) => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
@@ -107,6 +122,22 @@ export function AlertsView({
     alert: Alert;
     at: number;
     attachment: AlertAttachment;
+    companions?: AlertAttachment[];
+    /**
+     * WHICH CAMERA IS THE LEADER, for a server alert.
+     *
+     * ⚠ THE CAMERA, NOT THE CLIP KEY, AND NOT THE ATTACHMENT. The attachment
+     * captured when the hero was pressed is a SNAPSHOT, and an open player
+     * holding one is the shape of the lab's bug one step further on: a 2K cut
+     * landing while somebody is watching changes the alert and changes
+     * nothing on screen. The clip key is no better, because the upgrade is a
+     * NEW key for the same camera. A camera number is the one identity that
+     * survives the swap, so the panes below are re-derived from the live
+     * alert on every render and the player is handed today's URLs.
+     *
+     * `null` for a fixture, which has no cameras and no updates.
+     */
+    camera: number | null;
   } | null>(null);
 
   /* Ticking, not captured — see `useNow`. The fleet feed is the one most
@@ -147,6 +178,8 @@ export function AlertsView({
 
   const siteOf = (towerId: string) =>
     deviceName(towers.find((t) => t.id === towerId)?.site) || towerId;
+  /* The RAW site name, for the copy layer, which capitalises on its own. */
+  const nameOf = (towerId: string) => towers.find((t) => t.id === towerId)?.site;
 
   /* Unclaimed is the count that means anything on a fleet feed. The total is
      every alert these towers have ever raised, which on a wall that has been
@@ -160,6 +193,29 @@ export function AlertsView({
       applyDateFilter(alerts, { range: r.id }, now).length,
     ]),
   );
+
+
+  /* ── THE OPEN PLAYER'S PANES, RE-DERIVED EVERY RENDER ────────────────
+     See `playing.camera`. The alert in the feed is the truth; `playing` only
+     records WHICH of its cameras is leading and where the clip starts. A
+     clip arriving, a 2K cut landing, or a re-minted ticket all reach an open
+     player this way and by no other route. */
+  const liveAlert =
+    playing !== null
+      ? (alerts.find((a) => a.id === playing.alert.id) ?? playing.alert)
+      : null;
+  const livePanes =
+    liveAlert?.site && playing?.camera !== null && playing !== null
+      ? alertPanes(liveAlert.site, cameraNameOf)
+      : [];
+  const leadPane =
+    playing?.camera !== null && playing !== null
+      ? livePanes.find((p) => p.clip.camera === playing.camera)
+      : undefined;
+  const playAttachment = leadPane?.attachment ?? playing?.attachment;
+  const playCompanions = leadPane
+    ? livePanes.filter((p) => p !== leadPane).map((p) => p.attachment)
+    : playing?.companions;
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
@@ -308,6 +364,8 @@ export function AlertsView({
                           alert,
                           at: alert.at,
                           attachment: alert.attachment!,
+                          /* A fixture's own clip card. See above. */
+                          camera: null,
                         }))
                     }
                   />
@@ -327,7 +385,9 @@ export function AlertsView({
           {selected && (
             <AlertDetail
               alert={selected}
-              towerName={siteOf(selected.towerId)}
+              nameOf={nameOf}
+              cameraNameOf={cameraNameOf}
+              onRefresh={onRefreshAlert}
               onClose={() => setSelectedId(null)}
               onAcknowledge={() => onSetStatus(selected.id, "acknowledged")}
               onResolve={() => onSetStatus(selected.id, "resolved")}
@@ -343,8 +403,14 @@ export function AlertsView({
               }
               onWatchPerson={() => onWatchPerson?.(selected)}
               onRejectMatch={() => onRejectMatch?.(selected.id)}
-              onPlayClip={(at, attachment) =>
-                setPlaying({ alert: selected, at, attachment })
+              onPlayClip={(at, attachment, companions, camera) =>
+                setPlaying({
+                  alert: selected,
+                  at,
+                  attachment,
+                  camera: camera ?? null,
+                  ...(companions ? { companions } : {}),
+                })
               }
             />
           )}
@@ -365,7 +431,10 @@ export function AlertsView({
         {playing && (
           <ClipPlayer
             key={`${playing.alert.id}-${playing.at}`}
-            attachment={playing.attachment}
+            attachment={playAttachment ?? playing.attachment}
+            {...(playCompanions && playCompanions.length > 0
+              ? { companions: playCompanions }
+              : {})}
             at={playing.at}
             alert={playing.alert}
             towerName={siteOf(playing.alert.towerId)}

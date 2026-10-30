@@ -1,29 +1,27 @@
-import { getCoordinationBaseUrl, webFetch } from "./client";
-import { getSessionRef } from "./session";
+import type { SiteAlertCounts } from "@kallon/sentry-sdk";
+import { getClient } from "./client";
 import { endSessionIfUnauthorized } from "./auth";
 
 /**
  * HOW MANY ALERTS ARE STILL NOBODY'S, and the one call that clears a view.
  *
  * ══════════════════════════════════════════════════════════════════════
- *  WHY THIS IS TWO HAND-ROLLED CALLS AND NOT TWO SDK METHODS
+ *  THIS USED TO BE TWO HAND-ROLLED FETCHES
  * ══════════════════════════════════════════════════════════════════════
  *
- * `@kallon/sentry-sdk` has no method for either route. The SDK is vendored
- * from a repository that is the source of truth for it and is not edited from
- * here (`npm run check:sdk` fails the build if it is), so the two calls live
- * in this app's own api layer in the shape `api/media.ts` already uses for
- * `GET /v1/viewer/sessions/{id}`: through `webFetch`, with the session's own
- * bearer, reading the body itself.
+ * Both routes were agreed and being built in coordination while this side was
+ * written, so they lived here as two `webFetch` calls with their own paths,
+ * their own bearer, their own body reading and their own error class — in the
+ * shape `api/media.ts` uses for the one session route the SDK has no method
+ * for. The note that shipped with them said they belonged in the SDK when it
+ * gained them, and that it would be "a deletion rather than an excavation".
  *
- * ⚠ `webFetch`, NEVER A BARE `fetch` STORED ON SOMETHING. The note in
- * `api/client.ts` is the whole reason that helper exists: in a browser `fetch`
- * is brand-checked against `Window`, and a detached reference throws "Illegal
- * invocation" in Chrome while passing every Node test. One helper, one binding.
- *
- * They belong in the SDK when it next gains them, and that will be a deletion
- * here rather than an excavation: the shapes below are the wire's, named the
- * way the SDK names things, and nothing above this file knows the paths.
+ * `@kallon/sentry-sdk@0.14.0` gained them, and this is the deletion: the
+ * paths, the bearer, the status handling and the response parsing are all the
+ * SDK's now, which also means they are validated the way every other route
+ * is rather than read defensively here. What is left is the two things that
+ * are genuinely this app's — the shape the screens want, and the sentence an
+ * operator reads when the write is refused.
  *
  * ── WHY A SEPARATE COUNT AT ALL ───────────────────────────────────────
  *
@@ -32,14 +30,9 @@ import { endSessionIfUnauthorized } from "./auth";
  * many are outstanding", and the two diverge the moment a fleet has been up
  * for a week: a card read 4 because four rows had been fetched, not because
  * four alerts were waiting. The server counts; this side draws the number.
- *
- * A device with nothing outstanding is ABSENT from `by_device` rather than
- * present with a zero, which is the same rule the rest of this product
- * follows on the wire: absence of a field and a field whose value is zero are
- * different facts, and only one of them needs sending.
  */
 
-/** What the counts route answers, in this app's own names. */
+/** What the counts route answers, in the shape the screens read it in. */
 export interface AlertCounts {
   /** Every unacknowledged alert this account may see. */
   readonly total: number;
@@ -57,173 +50,160 @@ export interface AlertCounts {
 export const NO_COUNTS: AlertCounts = { total: 0, byDevice: new Map() };
 
 /**
- * Which alerts an "acknowledge all" is allowed to touch.
+ * The SDK's answer in this app's shape.
  *
- * Both are optional and both narrow. Sending neither is the fleet, which is
- * what the Alerts page asks for, because that page has no site or tower
- * selector of its own.
+ * A `Map` rather than the wire's object because every consumer asks the same
+ * question — "this device, if any" — and `byDevice[id] ?? 0` over a plain
+ * object is a prototype lookup waiting to answer `"constructor"`.
+ *
+ * ⚠ A ZERO IS DROPPED, so that a device the server omitted and a device the
+ * server sent as `0` land in the same place on screen. The route omits them,
+ * and `countLabel` draws nothing at zero either, so this is belt and braces
+ * on the one distinction that must NOT reach a card: a pill reading `0` is a
+ * claim about a site, and absence is not.
  */
-export interface AckAllScope {
-  readonly siteId?: string;
-  readonly deviceId?: string;
-}
-
-/** A failure with the status on it, so callers can tell a 403 from the rest. */
-export class AlertCountsError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "AlertCountsError";
-    this.status = status;
-  }
-}
-
-const COUNTS_PATH = "/v1/viewer/site-alerts/counts";
-const ACK_ALL_PATH = "/v1/viewer/site-alerts/ack-all";
-
-function requireBaseUrl(): string {
-  const base = getCoordinationBaseUrl();
-  if (!base) throw new AlertCountsError(0, "no coordination url");
-  return base;
-}
-
-function authHeader(): Record<string, string> {
-  const ref = getSessionRef();
-  return ref ? { Authorization: `Bearer ${ref}` } : {};
-}
-
-/** 0 for "nothing answered", which is not a refusal and must not read as one. */
-async function send(path: string, init: RequestInit): Promise<Response> {
-  try {
-    return await webFetch(requireBaseUrl() + path, init);
-  } catch (err) {
-    if (err instanceof AlertCountsError) throw err;
-    throw new AlertCountsError(
-      0,
-      err instanceof Error ? err.message : "request failed",
-    );
-  }
-}
-
-function refuse(status: number, what: string): never {
-  const err = new AlertCountsError(status, `${what} answered ${status}`);
-  /* The one session rule every other call in this layer follows: a 401 is the
-     login being gone, not this feature being unavailable. A 403 is not, and
-     `isUnauthorized` is the single place that knows the difference. */
-  endSessionIfUnauthorized(err);
-  throw err;
-}
-
-/**
- * How many alerts are waiting, on the fleet and per device.
- *
- * `GET /v1/viewer/site-alerts/counts` -> `{total, by_device}`.
- *
- * ⚠ A MISSING ROUTE IS A REFUSAL, NOT A ZERO. A 404 from a node too old to
- * serve this means the number is UNKNOWN, and answering zero would paint
- * every card and the rail badge clean on a fleet that may be on fire. The
- * caller holds the error and draws nothing.
- */
-export async function readAlertCounts(signal?: AbortSignal): Promise<AlertCounts> {
-  const response = await send(COUNTS_PATH, {
-    method: "GET",
-    headers: { Accept: "application/json", ...authHeader() },
-    cache: "no-store",
-    ...(signal ? { signal } : {}),
-  });
-  if (!response.ok) refuse(response.status, "the alert counts");
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await response.json()) as Record<string, unknown>;
-  } catch {
-    throw new AlertCountsError(0, "the counts body was not json");
-  }
-  return parseCounts(body);
-}
-
-/**
- * The wire's shape, read defensively.
- *
- * Exported for the tests, which drive it with the exact bodies the route
- * documents -- including the one a careless reader gets wrong, where a device
- * with nothing outstanding is simply not in the map.
- */
-export function parseCounts(body: Record<string, unknown>): AlertCounts {
-  const raw = body["by_device"];
+export function countsFrom(counts: SiteAlertCounts): AlertCounts {
   const byDevice = new Map<string, number>();
-  if (raw && typeof raw === "object") {
-    for (const [id, n] of Object.entries(raw as Record<string, unknown>)) {
-      /* A non-number, a negative, a NaN: not a count, so not drawn. Zero is
-         dropped too, because "absent" and "zero" have to end up as the same
-         thing on screen whichever way the server chose to say it. */
-      const value = typeof n === "number" && Number.isFinite(n) ? Math.trunc(n) : 0;
-      if (value > 0) byDevice.set(id, value);
-    }
+  for (const [id, n] of Object.entries(counts.byDevice)) {
+    if (Number.isFinite(n) && n > 0) byDevice.set(id, Math.trunc(n));
   }
-  const total = body["total"];
   return {
-    total:
-      typeof total === "number" && Number.isFinite(total) && total > 0
-        ? Math.trunc(total)
-        : 0,
+    total: Number.isFinite(counts.total) && counts.total > 0
+      ? Math.trunc(counts.total)
+      : 0,
     byDevice,
   };
 }
 
 /**
- * Acknowledge everything up to one alert, optionally within one scope.
+ * How many alerts are waiting, on the fleet and per device.
  *
- * `POST /v1/viewer/site-alerts/ack-all` -> `{acknowledged}`.
+ * ⚠ A FAILURE IS NOT A ZERO. A 404 from a node too old to serve this route
+ * means the number is UNKNOWN, and answering zero would paint every card and
+ * the rail badge clean on a fleet that may be on fire. It throws, and the
+ * caller holds the last number it had and draws nothing if it never had one.
+ */
+export async function readAlertCounts(
+  signal?: AbortSignal,
+): Promise<AlertCounts> {
+  try {
+    return countsFrom(
+      await getClient().siteAlertCounts(signal ? { signal } : {}),
+    );
+  } catch (err) {
+    /* A 401 is the login being gone, not this feature being unavailable. A
+       403 is not, and `isUnauthorized` is the single place that knows the
+       difference. */
+    endSessionIfUnauthorized(err);
+    throw err;
+  }
+}
+
+/**
+ * Which alerts an "acknowledge all" is allowed to touch, beside the anchor.
  *
- * ⚠ `up_to` IS THE POINT OF THE ROUTE AND NOT A DETAIL. An operator presses
+ * All three are optional and all three narrow. Sending none of them with an
+ * anchor is "everything down to the newest row I can see", which is what an
+ * unfiltered fleet feed asks for.
+ */
+export interface AckAllWindow {
+  /**
+   * The NEAR end of the window, ISO-8601 — the start of the date range the
+   * list on screen was filtered to.
+   *
+   * ⚠ SEND IT WHENEVER THE LIST IS FILTERED. Without it the sweep reaches
+   * back past everything the operator had filtered OUT of view: a week
+   * nobody had looked at, cleared by a click on a screen showing Tuesday.
+   */
+  readonly from?: string;
+  readonly siteId?: string;
+  readonly deviceId?: string;
+}
+
+/**
+ * Acknowledge a window of alerts: at or after `from`, no newer than `upTo`.
+ *
+ * ⚠ `upTo` IS THE POINT OF THE ROUTE AND NOT A DETAIL. An operator presses
  * this having read a list; an alert raised while the dialog was open was not
  * in that list and has not been read by anybody. A bulk acknowledgement with
  * no upper bound would quietly claim it, and the one thing acknowledgement
  * means in this product is that a person saw it. So the newest row the screen
- * was showing is the bound, and anything newer stays outstanding.
+ * was showing is the bound, and anything newer stays outstanding. There is
+ * deliberately no "acknowledge everything" on the route at all.
  *
  * It is still the same one-way act as a single acknowledgement: there is no
  * un-acknowledge, and the first person to press it wins.
  *
- * @returns how many the server actually acknowledged.
+ * @returns how many rows the server actually changed. `0` is a normal answer.
  */
 export async function ackAllSiteAlerts(
   upTo: string,
-  scope: AckAllScope = {},
+  window: AckAllWindow = {},
 ): Promise<number> {
-  const response = await send(ACK_ALL_PATH, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...authHeader(),
-    },
-    /* Only what narrows. An absent key is the fleet; a key carrying undefined
-       would be `null` on the wire, which is a different claim. */
-    body: JSON.stringify(ackAllBody(upTo, scope)),
-  });
-  if (!response.ok) refuse(response.status, "acknowledging the alerts");
-
   try {
-    const body = (await response.json()) as Record<string, unknown>;
-    const n = body["acknowledged"];
-    return typeof n === "number" && Number.isFinite(n) ? Math.trunc(n) : 0;
-  } catch {
-    /* It succeeded. A body we could not read is not a reason to tell somebody
-       their acknowledgement failed; the counts are re-read either way. */
-    return 0;
+    const result = await getClient().ackAllSiteAlerts({
+      upTo,
+      /* Only what narrows. An absent key is "no lower bound"; a key carrying
+         `undefined` is `null` on the wire, which is a different claim. */
+      ...(window.from !== undefined ? { from: window.from } : {}),
+      ...(window.siteId !== undefined ? { siteId: window.siteId } : {}),
+      ...(window.deviceId !== undefined ? { deviceId: window.deviceId } : {}),
+    });
+    return result.acknowledged;
+  } catch (err) {
+    endSessionIfUnauthorized(err);
+    throw err;
   }
 }
 
-/** The request body, built in one place so a test can assert the wire. */
-export function ackAllBody(
-  upTo: string,
-  scope: AckAllScope = {},
-): Record<string, string> {
-  return {
-    up_to: upTo,
-    ...(scope.siteId ? { site_id: scope.siteId } : {}),
-    ...(scope.deviceId ? { device_id: scope.deviceId } : {}),
-  };
+/**
+ * Why the sweep was refused, in one sentence an operator can act on.
+ *
+ * ⚠ A 400 FROM THIS ROUTE IS THREE DIFFERENT MISTAKES WITH THREE DIFFERENT
+ * REMEDIES, and only the server knows which: the anchor could not be
+ * resolved (reload the list), `from` could not be parsed, or `from` is later
+ * than the anchor's own alert (the range ends before it starts). One sentence
+ * of ours covering all three would have to say "try again", which is useless
+ * advice for two of them — and the route was built to answer with the
+ * remedy, so the remedy is what gets shown.
+ *
+ * Nothing changed, whichever it was. A refusal here acknowledges nothing.
+ */
+export function describeAckAllFailure(err: unknown): string {
+  const status = (err as { status?: unknown } | null)?.status;
+  const code = (err as { code?: unknown } | null)?.code;
+
+  if (status === 400 || code === "invalid_request") {
+    const sentence = (err as { message?: unknown } | null)?.message;
+    if (typeof sentence === "string" && readable(sentence)) return sentence;
+  }
+  if (status === 401 || status === 403 || code === "not_authorized") {
+    return "You don't have permission to acknowledge these alerts.";
+  }
+  if (status === 0 || code === "network_error") {
+    return "Couldn't reach the site. Check the connection and try again.";
+  }
+  return "Couldn't acknowledge those alerts. Try again.";
+}
+
+/**
+ * Is this message something a customer can be shown?
+ *
+ * ⚠ THE SDK SYNTHESISES A MESSAGE WHEN THE BODY IS NOT THE ERROR ENVELOPE,
+ * from the first 200 characters of whatever came back — which for a proxy's
+ * own 400 page is a slab of HTML, and for a status with no body at all is
+ * `HTTP 400`. The route's three sentences are written for this screen; a
+ * gateway's markup is not, and putting the wire on screen would break the
+ * first writing rule in the loudest possible way.
+ *
+ * So the test is for a sentence rather than for a status: it has to start
+ * like prose, end like prose, and be short enough to be one. Anything else
+ * falls through to ours.
+ */
+function readable(message: string): boolean {
+  const text = message.trim();
+  if (text.length < 8 || text.length > 200) return false;
+  if (!/^[A-Z]/.test(text)) return false;
+  if (!/[.!?]$/.test(text)) return false;
+  return !/[<>{}]|\bHTTP\b|_/.test(text);
 }

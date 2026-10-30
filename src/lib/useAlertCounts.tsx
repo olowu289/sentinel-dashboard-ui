@@ -52,16 +52,24 @@ import {
  * `useSiteAlerts` already debounces its clip re-reads against, for the same
  * reason and with the same number.
  *
- * ⚠ AND THE STREAM DOES NOT CARRY `alerts.acknowledged` TO THIS SIDE YET.
- * The server sends it; the SDK's `alertEventOf` returns null for any frame
- * that is not `alert.new` or `alert.updated`, and `subscribeSiteAlerts` drops
- * what it returns null for. So a bulk acknowledgement performed by somebody
- * ELSE, in another browser, reaches this count only if the server also
- * pushes an `alert.updated` for the rows it touched. Everything here is
- * written for the third kind and `noted` takes it by name; what is missing is
- * two lines in the SDK, and `test/alertCounts.test.mjs` holds a test that
- * fails the day they land. Acknowledgements made in THIS browser do not wait
- * for any of that -- the shell calls `reload` when its own write returns.
+ * ⚠ AND `alerts.acknowledged` IS THE ONE KIND THAT CARRIES NOTHING ELSE.
+ * A sweep is ONE frame for the whole batch rather than an `alert.updated`
+ * per row, because a row apiece would close the channel of every browser
+ * watching a busy site for falling behind. It names no alerts, so this
+ * number cannot be adjusted from it and has to be asked for again -- which
+ * is the only path by which a screenful cleared in SOMEBODY ELSE's browser
+ * reaches these cards at all. Acknowledgements made in THIS browser do not
+ * wait for it: the shell calls `reload` when its own write returns, because
+ * a click that appears to do nothing for a second is how an operator learns
+ * to click twice.
+ *
+ * It arrived in `@kallon/sentry-sdk` 0.14.0. Before it the SDK's
+ * `alertEventOf` returned null for any frame that was not `alert.new` or
+ * `alert.updated` and `subscribeSiteAlerts` dropped what it returned null
+ * for, so this side was written for the kind and could not receive it, with
+ * a test asserting the gap and saying in its own message to delete itself
+ * when it closed. That is the shape worth copying when this side is
+ * finished before the SDK is.
  */
 
 export interface AlertCountsFeed {
@@ -85,8 +93,9 @@ export interface AlertCountsFeed {
   /**
    * One event arrived on the alert channel; the count may have moved.
    *
-   * Takes the kind so the reason is readable at the call site and so the
-   * third kind can be wired the day it arrives. Debounced -- see the header.
+   * Takes the kind rather than nothing so the reason is readable at the call
+   * site, and so a kind this bundle predates costs no re-read at all.
+   * Debounced -- see the header.
    */
   readonly noted: (kind: string) => void;
 }
@@ -110,7 +119,13 @@ const NOTHING: AlertCountsFeed = {
  */
 export const COUNTS_DEBOUNCE_MS = 300;
 
-/** Every event kind that moves this number. The third does not arrive yet. */
+/**
+ * Every event kind that moves this number.
+ *
+ * A closed list rather than "any frame at all": a new kind on this channel
+ * is an additive server change, and re-reading the counts on one would spend
+ * a request per frame on something that may have nothing to do with them.
+ */
 export const COUNTED_KINDS = [
   "alert.new",
   "alert.updated",

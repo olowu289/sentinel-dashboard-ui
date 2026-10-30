@@ -321,7 +321,7 @@ and a busy one read however many rows the browser happened to be holding
 rather than however many were waiting. `countLabel` is the only thing that
 rounds it: nothing at zero, exact to 99, then `99+`, and that is the ONLY `+`
 in this product. A device with nothing outstanding is ABSENT from `by_device`
-rather than present with a zero, and `parseCounts` collapses both to the same
+rather than present with a zero, and `countsFrom` collapses both to the same
 thing so the two ways of saying it cannot draw two different cards.
 
 ⚠ **A FAILED COUNT IS NOT A ZERO.** The last number stays on screen and a 404
@@ -336,33 +336,64 @@ place in the app to make it.
 and its clip and its recovery are one request. Nothing polls, and nothing
 opens a second stream — a node holds at most 64.
 
-⚠ **THE SDK DOES NOT FORWARD `alerts.acknowledged` YET.** `alertEventOf`
-returns null for any frame that is not `alert.new`/`alert.updated` and
-`subscribeSiteAlerts` drops what it returns null for, so a bulk
-acknowledgement made in ANOTHER browser reaches these counts only if the
-server also pushes an update per row. This side is finished for it:
-`countsOnKind` knows the name and the callback carries a kind rather than a
-bare signal. `test/alertCounts.test.mjs` holds a pending-dependency test that
-fails the day the SDK forwards it and says so in its own message. This
-browser's own writes do not wait for any of it — the shell re-reads when the
-write returns.
+⚠ **`AlertEvent` IS A UNION, AND ONE OF ITS SHAPES HAS NO ALERT.**
+`alerts.acknowledged` is ONE frame for a whole batch, never an
+`alert.updated` per row — a row apiece would close the channel of every
+browser watching a busy site for falling behind — and it deliberately names
+no alerts, because the predicate that chose who receives it knows which
+towers were touched and a browser must not learn the shape of somebody
+else's fleet. So **narrow with `isAlertRowEvent` before reading
+`event.alert`**, and react to the third kind by asking again: the counts
+through `noted`, and the list through `relist`, both in `useSiteAlerts`. That
+is the only path by which a screenful cleared in ANOTHER browser reaches this
+one. This browser's own writes do not wait for it — the shell re-reads when
+the write returns, because a click that appears to do nothing for a second
+is how an operator learns to click twice.
 
-**Acknowledging everything is bounded by what was on screen.**
-`POST /v1/viewer/site-alerts/ack-all` takes `up_to`, and the Alerts page sends
-the newest SERVER row it is showing — never a local one, because the two
-alerts this side still raises have ids the server has never heard of. An
-alert raised while the dialog is open was in nobody's list and stays waiting.
-Still one-way, still no un-acknowledge, and the number in the dialog is what
-the write can actually reach rather than the count in the line above it.
+⚠ And the narrowing is **invisible when it is missing**, which is why the
+test for it counts sockets. Reading `event.alert` off that frame throws
+inside the handler, the SDK's read loop dies with it, and the drop recovery
+re-reads the list and reconnects — so the count moves, the rows go quiet, and
+everything looks right. What it costs is one socket per batch
+acknowledgement, against a node that holds 64.
 
-⚠ **AND A DATE FILTER NARROWS THE VIEW, NOT THE WRITE.** The route takes an
-upper bound and an optional site or tower, and no lower bound, because there
-is no sensible one for "I have read everything down to here". So with a filter
-on, pressing this clears the rows in front of the operator AND everything
-older than them. The dialog therefore states the number the WRITE will reach,
-counted against the whole list and bounded by the newest row on screen, rather
-than the number of rows visible: unfiltered they are the same, and filtered
-the larger one is a number somebody can cancel on.
+This arrived in `@kallon/sentry-sdk` **0.14.0**. Before it `alertEventOf`
+returned null for any frame that was not `alert.new`/`alert.updated`, so this
+side was written for a kind it could not receive, with a pending-dependency
+test asserting the gap and saying in its own failure message to delete
+itself. Same shape as `progress.footage` before 0.13.1, and the same outcome.
+
+**Acknowledging everything is bounded by what was on screen, at BOTH ends.**
+`POST /v1/viewer/site-alerts/ack-all` takes `up_to` and `from`, and they are
+the two ends of the list the operator was looking at. `up_to` is the newest
+SERVER row it is showing — never a local one, because the two alerts this
+side still raises have ids the server has never heard of. An alert raised
+while the dialog is open was in nobody's list and stays waiting. Still
+one-way, still no un-acknowledge.
+
+⚠ **`from` IS THE DATE FILTER'S OWN START, AND SENDING IT IS NOT OPTIONAL
+WHEN THERE IS ONE.** Without it the sweep reaches back past everything the
+operator had filtered OUT of view: a week nobody had looked at, cleared by a
+click on a screen showing Tuesday. `filterFromIso` in `lib/dateFilter.ts`
+builds it from the same `now` that built the list — the rolling presets are
+arithmetic off the current moment, so a bound computed a second later
+describes a slightly different list — and it goes on the wire as an
+**instant in UTC**, `Z` and all. A site day is not the viewer's day and a
+bare local wall clock with no offset is read by the server as its own.
+
+With both ends sent, the write IS the view, so the dialog simply states the
+number of unacknowledged rows on screen. It used to have to state the larger
+number the lower-bound-less write would reach, which was the honest half of
+a bad bargain: the operator was being asked to agree to rows they could not
+see. If that paragraph is ever reinstated, the route lost its `from`.
+
+⚠ **AND A REFUSAL HERE IS THREE DIFFERENT MISTAKES.** A `400` is a stale
+anchor, a `from` the route could not parse, or a `from` later than the anchor
+— three remedies, and only the server knows which, so `describeAckAllFailure`
+shows the server's sentence rather than one of ours. It guards it first:
+the SDK synthesises `message` from the first 200 characters of a body that
+is not the error envelope, so a proxy's HTML page would otherwise land on
+screen. A refusal changes nothing, and the rows are left exactly as they are.
 
 ⚠ **AND THE LIST IS RE-READ, NOT THE STREAM REBUILT.** `relist` asks the list
 route again and upserts through the same revision gate; `reload` bumps the

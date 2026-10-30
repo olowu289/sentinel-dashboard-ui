@@ -3,7 +3,9 @@
  *
  * Source of truth: `sentry-core/docs/alerts.md` §4. Scope: the viewer-facing
  * routes `GET /v1/viewer/site-alerts`, `GET /v1/viewer/site-alerts/{id}`,
- * `POST /v1/viewer/site-alerts/{id}/ack`, and `GET /v1/viewer/events`.
+ * `GET /v1/viewer/site-alerts/counts`,
+ * `POST /v1/viewer/site-alerts/{id}/ack`,
+ * `POST /v1/viewer/site-alerts/ack-all`, and `GET /v1/viewer/events`.
  *
  * ## Why a module of its own
  *
@@ -173,15 +175,137 @@ export interface SiteAlertQuery {
     since?: number;
     limit?: number;
 }
-/** The two event kinds on `GET /v1/viewer/events`. */
-export type AlertEventKind = "alert.new" | "alert.updated";
-/** One parsed frame off the live channel. */
-export interface AlertEvent {
-    readonly kind: AlertEventKind;
+/** `200` body of `GET /v1/viewer/site-alerts/counts`. */
+export interface SiteAlertCounts {
+    /** Across every device this account may see. */
+    readonly total: number;
+    /**
+     * Unanswered alerts per device.
+     *
+     * ⚠ **A DEVICE WITH NONE IS ABSENT, not a zero.** Read it as
+     * `counts.byDevice[deviceId] ?? 0` — a card that renders
+     * `byDevice[id]` straight shows `undefined` on every quiet tower, which is
+     * most of them.
+     *
+     * The keys are device ids, and a `HUB_OFFLINE` alert is **about the hub**, so
+     * a hub id can appear here beside the towers'.
+     */
+    readonly byDevice: Readonly<Record<string, number>>;
+}
+/** Body of `POST /v1/viewer/site-alerts/ack-all`. */
+export interface AckAllSiteAlertsRequest {
+    /**
+     * The **alert id** of the newest alert on the operator's screen — the anchor,
+     * and the only thing that bounds the sweep in time.
+     *
+     * ⚠ NO ANCHOR MEANS NO SWEEP, and an id the server cannot resolve is the same
+     * answer as none: a `400`. "Everything, as far back as the table goes" is not
+     * something an operator can have *seen*, and a stale id from a browser left
+     * open overnight must not acknowledge the fleet.
+     */
+    upTo: string;
+    /**
+     * ISO-8601, the near end of the window: **the date range the screen was
+     * showing**. Alerts raised at or after it, and no newer than {@link upTo},
+     * are the ones acknowledged.
+     *
+     * Send it whenever the list on screen is filtered by date. Without it the
+     * button reaches back past everything the operator had filtered *out* of
+     * view — a week nobody had looked at, cleared by a click on a screen
+     * showing Tuesday.
+     *
+     * **At or after**, inclusive: a range shown on a screen starts at a moment,
+     * and an alert raised in that second is on the screen. Inclusive at the far
+     * end too, so a `from` on the anchor's own second acknowledges the anchor.
+     *
+     * ⚠ **NO OFFSET MEANS UTC**, said explicitly rather than left to the
+     * machine answering: `2026-10-26T07:33:21` and `2026-10-26T07:33:21Z` are
+     * the same instant to this route, and a bare `2026-10-26` is that midnight
+     * in UTC. Every time in this system is UTC — an alert's start, a segment's
+     * name — so do not send a local wall clock and do not send an offset you
+     * did not mean.
+     *
+     * Two refusals of its own, both `400 invalid_request` and each with its own
+     * sentence to show — see {@link SentryClient.ackAllSiteAlerts}.
+     */
+    from?: string;
+    /** Narrow to one site. Intersected with this account's own scope, never widening it. */
+    siteId?: string;
+    /** Narrow to one device. Same intersection. */
+    deviceId?: string;
+}
+/** `200` body of `POST /v1/viewer/site-alerts/ack-all`. */
+export interface AckAllSiteAlertsResult {
+    /**
+     * How many rows actually changed. `0` is a normal answer — a second click, or
+     * a filter matching nothing this account may see (which is answered `0`
+     * rather than refused, so the reply cannot say whether somebody else's site
+     * exists).
+     */
+    readonly acknowledged: number;
+}
+/** The event kinds on `GET /v1/viewer/events`. */
+export type AlertEventKind = "alert.new" | "alert.updated" | "alerts.acknowledged";
+/** One alert arriving or changing — the `alert.new` / `alert.updated` frames. */
+export interface AlertRowEvent {
+    readonly kind: "alert.new" | "alert.updated";
     readonly alert: SiteAlert;
     /** The SSE `id:`, when the frame carried one. */
     readonly id?: string;
 }
+/**
+ * A screenful acknowledged at once — the `alerts.acknowledged` frame.
+ *
+ * **ONE frame for the whole batch, not one per row**, which is the point of it:
+ * a subscriber may be twenty frames behind before it is dropped, so an
+ * `alert.updated` per alert would close the live channel of every browser
+ * watching a busy site.
+ *
+ * ⚠ SO IT NAMES NO ALERTS, and the rows a reader is holding are now stale. The
+ * reaction is a re-read — {@link SentryClient.siteAlertCounts} for the badges,
+ * and {@link SentryClient.listSiteAlerts} for whatever list is on screen — not
+ * a local edit of the rows you happen to have.
+ *
+ * It carries no device list by design: the predicate that decides who is sent
+ * this frame knows which towers were touched, but a browser must not learn how
+ * many towers somebody else's fleet has.
+ */
+export interface AlertsAcknowledgedEvent {
+    readonly kind: "alerts.acknowledged";
+    /** How many rows changed. Never `0`: nothing happened is not announced. */
+    readonly count: number;
+    /** Present only when the operator filtered to one site. */
+    readonly siteId?: string;
+    /** Present only when the operator filtered to one device. */
+    readonly deviceId?: string;
+    /**
+     * The window the sweep used, when it had one — the caller's own `from`,
+     * echoed back. **RFC 3339 in UTC whatever offset it was sent in**, so every
+     * subscriber reads one format.
+     *
+     * It is in the body, unlike the devices, because it is the operator's own
+     * filter rather than a fact about somebody else's fleet.
+     */
+    readonly from?: string;
+    /** The SSE `id:`, when the frame carried one. */
+    readonly id?: string;
+}
+/**
+ * One parsed frame off the live channel.
+ *
+ * ⚠ A UNION, because the frames are no longer one shape. Narrow on `kind`
+ * before reaching for `alert` — {@link isAlertRowEvent} is the short way:
+ *
+ * ```ts
+ * onAlert: (e) => {
+ *   if (isAlertRowEvent(e)) store.upsert(e.alert);
+ *   else void refreshCounts();          // a batch ack named no rows
+ * }
+ * ```
+ */
+export type AlertEvent = AlertRowEvent | AlertsAcknowledgedEvent;
+/** `true` for the frames that carry an alert, narrowing the union for TypeScript. */
+export declare function isAlertRowEvent(event: AlertEvent): event is AlertRowEvent;
 interface Ctx {
     readonly status?: number;
     readonly path?: string;
@@ -197,6 +321,24 @@ export declare function parseSiteAlert(raw: unknown, ctx?: Ctx): SiteAlert;
  * uncoloured rows on a screen.
  */
 export declare function parseSiteAlertList(raw: unknown, ctx?: Ctx): SiteAlertList;
+/**
+ * Validate `GET /v1/viewer/site-alerts/counts`.
+ *
+ * `by_device` → `byDevice`, and every count is required to be a real number:
+ * a `null` here is a badge that renders as nothing on a tower that may have
+ * fifty outstanding, which is worth failing loudly for.
+ */
+export declare function parseSiteAlertCounts(raw: unknown, ctx?: Ctx): SiteAlertCounts;
+/** Validate `POST /v1/viewer/site-alerts/ack-all`. */
+export declare function parseAckAllSiteAlertsResult(raw: unknown, ctx?: Ctx): AckAllSiteAlertsResult;
+/**
+ * Validate the `data` of an `alerts.acknowledged` frame.
+ *
+ * A WHITELIST, like every other parser here: `count` and the two optional
+ * filters are read and nothing else is carried through, so a field the server
+ * adds for its own use cannot become something a dashboard starts depending on.
+ */
+export declare function parseAlertsAcknowledged(raw: unknown, ctx?: Ctx): AlertsAcknowledgedEvent;
 /**
  * Drops out-of-order alert updates by `rev`.
  *
@@ -262,14 +404,14 @@ export declare class SseBuffer {
     push(chunk: string): SseFrame[];
 }
 /**
- * Read one frame as an alert event, or `null` when it is not one.
+ * Read one frame as an event, or `null` when it is not one this build knows.
  *
- * `null` for anything that is not `alert.new` / `alert.updated` — a future event
- * kind on this channel is additive and a reader that threw on one would turn a
- * compatible server change into a broken dashboard (§A.9's rule, same shape).
+ * `null` for any other kind — a future event kind on this channel is additive
+ * and a reader that threw on one would turn a compatible server change into a
+ * broken dashboard (§A.9's rule, same shape).
  *
- * Throws {@link ValidationError} only when a frame *claims* to be an alert and
- * its `data` is not one: that is a real contract break, not an unknown.
+ * Throws {@link ValidationError} only when a frame *claims* to be a kind we
+ * know and its `data` is not that shape: a real contract break, not an unknown.
  */
 export declare function alertEventOf(frame: SseFrame): AlertEvent | null;
 export {};

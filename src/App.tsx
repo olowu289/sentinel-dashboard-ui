@@ -1892,13 +1892,19 @@ export function SentinelApp() {
    * it, because the cards and the badge are a different read and the whole
    * point of pressing this is watching all three go quiet.
    *
+   * The server also pushes one `alerts.acknowledged` frame for the batch, and
+   * `useSiteAlerts` re-reads on it too — that is the path a sweep made in
+   * ANOTHER browser arrives by. This browser does not wait for its own: a
+   * click that appears to do nothing for a second is how an operator learns
+   * to click twice.
+   *
    * Throws on to the screen, which says one sentence. Nothing is written
    * optimistically here for the same reason a single acknowledgement is not:
    * who acknowledged is the server's to state.
    */
   const acknowledgeAll = useCallback(
-    async (upTo: string) => {
-      await ackAllSiteAlerts(upTo);
+    async (upTo: string, from?: string) => {
+      await ackAllSiteAlerts(upTo, from === undefined ? {} : { from });
       await alertFeed.relist();
       alertCounts.reload();
     },

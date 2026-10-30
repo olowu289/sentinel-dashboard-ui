@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.14.0
+
+Two routes and one event kind, from sentry-core `e368a3f`. Spec:
+`sentry-core/docs/alerts.md` section 4.
+
+### Added
+
+* **`siteAlertCounts()`** -- `GET /v1/viewer/site-alerts/counts`, answering
+  `{total, byDevice}`. The badge on the tower card, which the website counted
+  for itself until now by pulling the newest hundred alerts and grouping them
+  in JavaScript. ⚠ `byDevice` OMITS A DEVICE WITH NONE rather than sending a
+  zero, so read it as `byDevice[id] ?? 0`.
+* **`ackAllSiteAlerts({upTo, from?, siteId?, deviceId?})`** --
+  `POST /v1/viewer/site-alerts/ack-all`, answering `{acknowledged}`. The sweep
+  is a **window, and both ends are the operator's own screen**: `upTo` is the
+  alert id of the newest alert in front of them, `from` is the near end of the
+  date range the list was filtered to, and alerts raised at or after `from`
+  and no newer than `upTo` are the ones acknowledged. Both bounds inclusive.
+  `upTo` is required -- there is deliberately no "acknowledge everything" --
+  and `from` should be sent whenever the list is filtered by date, or the
+  button reaches back past everything the operator had filtered out of view.
+  ISO-8601, and ⚠ **no offset means UTC**, never the server's local time.
+* A `400 invalid_request` from that route is **three different mistakes with
+  three different remedies**, told apart by the message: a stale anchor
+  ("reload the alerts"), a `from` that cannot be parsed ("choose the date
+  range again"), or a `from` later than the anchor ("that date range ends
+  before it starts"). Show the server's sentence. A refusal changes nothing.
+* **`alerts.acknowledged`** on the live channel, delivered by
+  `subscribeSiteAlerts` and parsed by `alertEventOf`. ONE frame for the whole
+  batch, never one `alert.updated` per row. It names no alerts, so the reaction
+  is a re-read of the counts and the list. Carries `count`, the `siteId` /
+  `deviceId` the operator filtered by, and the `from` the sweep used --
+  RFC 3339 in UTC whatever offset it was sent in.
+* `parseSiteAlertCounts`, `parseAckAllSiteAlertsResult`,
+  `parseAlertsAcknowledged`, `isAlertRowEvent`, and the types
+  `SiteAlertCounts`, `AckAllSiteAlertsRequest`, `AckAllSiteAlertsResult`,
+  `AlertRowEvent`, `AlertsAcknowledgedEvent`.
+
+### Changed -- `AlertEvent` is now a union
+
+`AlertEvent` was one interface with a required `alert`. It is now
+`AlertRowEvent | AlertsAcknowledgedEvent`, because the frames are no longer one
+shape. **Existing `onAlert` handlers that read `event.alert` stop compiling**
+until they narrow:
+
+```ts
+onAlert: (e) => {
+  if (isAlertRowEvent(e)) store.upsert(e.alert);
+  else void refreshCounts();
+}
+```
+
+That is the intended outcome rather than a cost of it: the alternative is
+`e.alert.id` throwing at runtime the first time a colleague clears a screenful.
+`AlertEventKind` gained the third value.
+
+### Tests
+
+35 new, on the real HTTP bodies and the real event-stream bytes of a
+coordination node started on a loopback port -- not transcriptions. The window
+is pinned by what it LEAVES BEHIND: `from` set to the middle of three alerts
+acknowledges two and the counts still show one outstanding. See the header of
+`test/fixtures/alert_counts_and_ack_all.json`.
+
 ## 0.13.1
 
 Additive. One field.

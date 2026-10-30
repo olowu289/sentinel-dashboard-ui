@@ -910,24 +910,43 @@ one and re-reads, debounced, so a raise and its clips and its recovery are one
 question rather than three. Nothing polls beside the stream and nothing opens a
 second one.
 
-**Acknowledge all** sits over the feed and is bounded by what was on screen.
-The request names the newest alert the list was showing, and anything raised
-after the operator pressed the button stays waiting for somebody — because the
-only thing an acknowledgement means here is that a person saw it, and a bulk
-write with no upper bound would quietly claim an alert nobody has read. The
-confirmation says the number out loud for the same reason: somebody who has
-scrolled a long feed is agreeing to a quantity they cannot see all of. It is
-still one-way, there is still no un-acknowledge, and Escalate is still there
-and still disabled.
+One of those frames is not like the others. When somebody clears a screenful,
+the server sends a single frame saying so — not one update per row, because a
+row apiece would push every browser watching a busy site far enough behind
+that the publisher drops it. That frame names no alerts at all, deliberately:
+the server knows which towers were touched, and a browser has no business
+learning the shape of somebody else's fleet. So it cannot be applied to the
+rows this browser is holding. It is a prompt to ask again, and asking again is
+the only way a sweep made in another browser ever reaches this screen.
 
-One thing the route cannot express: a date filter. It takes an upper bound and
-an optional site or tower, and no lower bound, because "I have read everything
-down to here" does not have one. So with a filter on, pressing the button
-clears the rows in front of the operator and everything older than them. The
-confirmation states the number the write will actually reach rather than the
-number of rows on screen. Unfiltered those are the same number, which is the
-ordinary case; filtered, the larger one is stated, and a number that does not
-match what is visible is a number somebody can cancel on.
+**Acknowledge all** sits over the feed and is bounded at both ends by what was
+on screen. The request names the newest alert the list was showing, and the
+start of the date range it was filtered to. Anything raised after the operator
+pressed the button stays waiting for somebody — because the only thing an
+acknowledgement means here is that a person saw it, and a bulk write with no
+upper bound would quietly claim an alert nobody has read. The confirmation says
+the number out loud for the same reason: somebody who has scrolled a long feed
+is agreeing to a quantity they cannot see all of. It is still one-way, there is
+still no un-acknowledge, and Escalate is still there and still disabled.
+
+The near end took a round to arrive, and the shape of what it fixed is worth
+keeping. The route originally took an upper bound and nothing else, because "I
+have read everything down to here" does not obviously have a lower one. But a
+filtered list does: pressing the button on a screen showing Tuesday cleared
+Tuesday **and the week behind it that nobody had looked at**. The only honest
+thing to do without a lower bound was to state the larger number in the
+confirmation — which is the honest half of a bad bargain, since the operator
+was then being asked to agree to rows they could not see. With both ends sent,
+the write is the view, and the confirmation says what is on screen. If that
+count ever stops matching the list again, the window lost an end.
+
+A refusal from that route is three different mistakes with three different
+remedies: a list gone stale, a date it could not read, and a range that ends
+before it starts. Only the server knows which, so the operator reads the
+server's own sentence rather than one of ours covering all three — ours would
+have to say *try again*, which is useless advice for two of them. It is checked
+on the way through, because a sentence written for an operator and the first
+two hundred characters of a gateway's error page arrive in the same field.
 
 ### An empty dropdown is not an answer
 

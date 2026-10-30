@@ -105,6 +105,17 @@ export interface SiteAlertFeed {
    * asked, so it is the newest thing there is by construction.
    */
   refresh: (id: string) => Promise<void>;
+  /**
+   * Re-read the LIST, leaving the subscription alone.
+   *
+   * ⚠ NOT `reload`, WHICH TEARS DOWN THE STREAM. That one bumps a generation
+   * the subscription effect depends on, which is right for "the operator
+   * asked for a fresh start" and wrong for "a write just changed several
+   * rows at once": a stream rebuilt on every bulk acknowledgement is a stream
+   * the server starts closing for being the 64th. This asks the same question
+   * the open channel answers and upserts the result through the same gate.
+   */
+  relist: () => Promise<void>;
   reload: () => void;
 }
 
@@ -277,8 +288,25 @@ export function useSiteAlerts(options: {
   cameraNameOf?: CameraNameOf;
   /** Called for every `alert.new`. The shell turns this into a toast. */
   onArrived?: (arrived: ArrivedAlert) => void;
+  /**
+   * Called with the KIND of every event the channel delivers.
+   *
+   * ⭐ THE SEAM FOR THINGS THAT ARE NOT THE LIST. The unacknowledged counts
+   * on the tower cards and the rail badge are a different read from this
+   * feed, and they go stale for the same reasons this one moves. Rather than
+   * poll beside an open stream, or open a second one, the shell is told that
+   * something happened and re-reads the count.
+   *
+   * ⚠ TWO KINDS REACH HERE AND THERE ARE THREE. The server also sends
+   * `alerts.acknowledged`, and the SDK's `alertEventOf` returns null for
+   * every frame that is not `alert.new` or `alert.updated`, so
+   * `subscribeSiteAlerts` never hands it on. This callback takes a kind
+   * rather than nothing precisely so that the day the SDK forwards it, the
+   * change here is none at all. See `lib/useAlertCounts.tsx`.
+   */
+  onEvent?: (kind: string) => void;
 }): SiteAlertFeed {
-  const { enabled, nameOf, cameraNameOf, onArrived } = options;
+  const { enabled, nameOf, cameraNameOf, onArrived, onEvent } = options;
   const [raws, setRaws] = useState<Map<string, SiteAlert>>(() => new Map());
   /**
    * THE SAME MAP, READABLE RIGHT NOW.
@@ -322,6 +350,8 @@ export function useSiteAlerts(options: {
   cameraRef.current = cameraNameOf;
   const arrivedRef = useRef(onArrived);
   arrivedRef.current = onArrived;
+  const eventRef = useRef(onEvent);
+  eventRef.current = onEvent;
 
   /**
    * Alerts waiting for a re-read, and the timer that will do them.
@@ -439,6 +469,10 @@ export function useSiteAlerts(options: {
         onAlert: (event) => {
           if (!live) return;
           upsert([event.alert]);
+          /* Every kind, before the branch below: a count moves on an update
+             as readily as on a raise, and an acknowledgement is nothing but
+             an update. */
+          eventRef.current?.(event.kind);
           if (event.kind === "alert.new") {
             arrivedRef.current?.({
               alert: toAlert(event.alert, nameRef.current, cameraRef.current),
@@ -470,6 +504,11 @@ export function useSiteAlerts(options: {
     },
     [upsert],
   );
+
+  const relist = useCallback(async () => {
+    const list = await listSiteAlerts({});
+    upsert(list.alerts);
+  }, [upsert]);
 
   const refresh = useCallback(async (id: string) => {
     const again = await getSiteAlert(id);
@@ -534,6 +573,7 @@ export function useSiteAlerts(options: {
     paused,
     acknowledge,
     refresh,
+    relist,
     reload: () => setGeneration((g) => g + 1),
   };
 }

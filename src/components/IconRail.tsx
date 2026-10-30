@@ -3,6 +3,7 @@ import { isAdminRole } from "@kallon/sentry-sdk";
 import { useSession } from "@/components/AuthProvider";
 import { SignOutConfirm } from "@/components/SignOutConfirm";
 import { navVisible } from "@/lib/features";
+import { countAria, countLabel, useAlertCounts } from "@/lib/useAlertCounts";
 import { useCapabilities } from "@/lib/useSites";
 import { MaskIcon } from "./Icon";
 
@@ -118,6 +119,15 @@ export function IconRail({
   const caps = useCapabilities();
   const serverHasSites = sites ?? caps?.features.sites === true;
   const isAdmin = admin ?? (serverHasSites && isAdminRole(account?.role));
+  /* ── HOW MANY ARE WAITING, ON EVERY SCREEN ─────────────────────────────
+     Asked here for the same reason `useCapabilities` is: this rail is
+     rendered by ten screens and a value they each have to pass down is a
+     value nine of them forget. The provider is the shell's; outside one this
+     reads zero, and zero draws nothing, so a rail with no shell above it is
+     simply a rail. */
+  const counts = useAlertCounts();
+  const waiting = countLabel(counts.total);
+  const waitingLabel = countAria(counts.total);
   return (
     <nav
       aria-label="Primary"
@@ -151,6 +161,10 @@ export function IconRail({
           navVisible(item.id, { features, serverHasSites, isAdmin }),
         ).map((item) => {
           const isActive = active === item.id && !item.unavailable;
+          /* The badge belongs to one destination. Nothing else in this rail
+             carries a number, and a second one would stop the first reading
+             as "this is where the outstanding work is". */
+          const badge = item.id === "alerts" ? waiting : null;
           return (
             <li key={item.id} className="flex h-[24px] items-center">
               <button
@@ -158,7 +172,15 @@ export function IconRail({
                 aria-label={
                   item.unavailable
                     ? `${item.label}, not available yet`
-                    : item.label
+                    : /* ⚠ ON THE BUTTON, NOT IN A LIVE REGION. The digits
+                         are `aria-hidden` below and the count is said here
+                         instead, so the destination is announced once with
+                         its number rather than twice — and a wall left open
+                         through a bad night does not read a running total
+                         out over whatever else is being said. */
+                      badge && waitingLabel
+                      ? `${item.label}. ${waitingLabel}`
+                      : item.label
                 }
                 aria-current={isActive ? "page" : undefined}
                 disabled={item.unavailable}
@@ -171,7 +193,7 @@ export function IconRail({
                 /* The alerts entry is a bell, and a bell swings — the same
                    one the tower bar and the fleet header use. Nothing else in
                    this stack is a bell, so nothing else takes it. */
-                className={`flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
+                className={`relative flex size-[34px] items-center justify-center rounded-[8px] transition-colors ${
                   item.id === "alerts" ? "group/bell" : ""
                 } ${
                   item.unavailable
@@ -186,6 +208,24 @@ export function IconRail({
                   size={24}
                   className={item.id === "alerts" ? "bell-swing" : undefined}
                 />
+                {/* RED, BECAUSE THAT IS WHAT RED MEANS HERE. The colour rule
+                    spends red on a fault, and an unacknowledged alert is the
+                    rail's only claim of that kind. `critical-ink` is the one
+                    token that does NOT invert, so white-on-red stays
+                    white-on-red in light mode.
+
+                    Pinned to the glyph's top right and allowed to overflow
+                    the 34px button: the rail is 71px wide and the badge has
+                    to sit on the bell rather than beside it. */}
+                {badge && (
+                  <span
+                    aria-hidden
+                    data-alerts-badge
+                    className="pointer-events-none absolute -right-[1px] -top-[1px] flex h-[16px] min-w-[16px] items-center justify-center rounded-[8px] bg-critical px-[4px] text-[0.625rem] font-medium leading-none text-critical-ink tabular-nums"
+                  >
+                    {badge}
+                  </span>
+                )}
               </button>
             </li>
           );

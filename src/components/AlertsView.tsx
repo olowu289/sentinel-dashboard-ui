@@ -1,5 +1,6 @@
 import { AnimatePresence, LayoutGroup } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AcknowledgeAllConfirm } from "@/components/AcknowledgeAllConfirm";
 import { AlertDetail } from "@/components/AlertDetail";
 import { AlertRow } from "@/components/AlertRow";
 import { deviceName } from "@/lib/deviceName";
@@ -58,6 +59,7 @@ export function AlertsView({
   nameOf: resolveName,
   cameraNameOf,
   onRefreshAlert,
+  onAcknowledgeAll,
 }: {
   /** Every alert on the fleet, newest first — see the sort in `data.ts`. */
   alerts: Alert[];
@@ -124,6 +126,16 @@ export function AlertsView({
   nameOf?: NameOf;
   /** Re-read one alert for fresh clip URLs. See `useClipHealth`. */
   onRefreshAlert?: (id: string) => Promise<void>;
+  /**
+   * Acknowledge everything up to and including one alert.
+   *
+   * ⚠ THE SHELL OWNS THE WRITE, as it owns every other one. This screen
+   * decides WHICH alert is the bound and how many the operator is agreeing
+   * to; what happens to the feed, the cards and the badge afterwards is one
+   * place above here. Absent means the button is not offered at all, which
+   * is what a harness with no server gets.
+   */
+  onAcknowledgeAll?: (upTo: string) => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
@@ -209,6 +221,77 @@ export function AlertsView({
      every alert these towers have ever raised, which on a wall that has been
      up for a week is a number nobody acts on. */
   const unclaimed = visible.filter((a) => a.status === "triggered").length;
+
+  /* ── ACKNOWLEDGE ALL ──────────────────────────────────────────────────
+
+     ⚠ THE BOUND IS THE NEWEST ROW ON SCREEN, AND THAT IS THE POINT OF THE
+     ROUTE. An operator presses this having read a list. A camera that stops
+     while the dialog is open was not in that list and nobody has seen it, so
+     an unbounded bulk write would claim it -- and the single thing an
+     acknowledgement means in this product is that a person noticed.
+
+     ⚠ AND IT HAS TO BE A SERVER ALERT. This feed is the server's rows plus
+     the two this side still raises (the state simulator's, and a detection
+     whose identity was rejected). A local id as `up_to` is an id the server
+     has never heard of, so the newest SERVER row is the bound and the local
+     ones are left exactly as they are -- they were never on the wire and
+     cannot be acknowledged on it. */
+  const bound = visible.find((a) => a.site !== undefined) ?? null;
+  const upTo = bound?.site?.id ?? null;
+  /**
+   * ⚠ THE NUMBER IN THE DIALOG IS WHAT WILL ACTUALLY BE ACKNOWLEDGED, and on
+   * a FILTERED view that is not the number of rows on screen.
+   *
+   * The route takes an upper bound and an optional site or tower. It takes no
+   * lower bound, because there is no sensible one: acknowledging is "I have
+   * read everything down to here". So with a date filter on, pressing this
+   * clears the four rows in front of the operator AND everything older than
+   * them, and a dialog saying "4" over a write that touches forty is the kind
+   * of small lie that teaches somebody to go and check afterwards every time.
+   *
+   * So this counts against the WHOLE list, bounded by the newest row on
+   * screen. Unfiltered -- which is the ordinary case -- the two numbers are
+   * identical. Filtered, the dialog states the larger one, which is a number
+   * somebody can cancel on.
+   *
+   * Local rows are excluded throughout: the two kinds this side still raises
+   * were never on the wire and cannot be acknowledged on it.
+   */
+  const ackCount =
+    bound === null
+      ? 0
+      : alerts.filter(
+          (a) =>
+            a.status === "triggered" && a.site !== undefined && a.at <= bound.at,
+        ).length;
+  const canAckAll = Boolean(onAcknowledgeAll) && ackCount > 0 && upTo !== null;
+  const [asking, setAsking] = useState(false);
+  const [acking, setAcking] = useState(false);
+  const [ackProblem, setAckProblem] = useState<string | null>(null);
+  /* A synchronous latch. Two fast clicks on Acknowledge all both read the
+     same stale `acking` and both post -- the shape `SignOutConfirm` and
+     `AuthProvider` both document. */
+  const inFlight = useRef(false);
+
+  const confirmAckAll = async () => {
+    if (inFlight.current || upTo === null || !onAcknowledgeAll) return;
+    inFlight.current = true;
+    setAcking(true);
+    setAckProblem(null);
+    try {
+      await onAcknowledgeAll(upTo);
+      setAsking(false);
+    } catch {
+      /* ⚠ ONE SENTENCE, AND THE LIST IS LEFT ALONE. Nothing was written
+         optimistically, so there is nothing to roll back: the rows on screen
+         are still the last thing the server said. */
+      setAckProblem("Couldn't acknowledge those alerts. Try again.");
+      setAsking(false);
+    } finally {
+      inFlight.current = false;
+      setAcking(false);
+    }
+  };
 
   // What each preset would return, shown inline in the picker.
   const counts = Object.fromEntries(
@@ -329,9 +412,43 @@ export function AlertsView({
           </div>
         )}
 
-        {!filtered && visible.length > 0 && (
+        {/* WHAT IS OUTSTANDING, AND THE ONE CONTROL THAT CLEARS IT. The
+            sentence used to be the whole row; the button sits beside it
+            because the number is the reason anybody presses it. */}
+        {onAcknowledgeAll && (
+          <div className="flex shrink-0 items-center justify-between gap-[8px] border-b border-line px-[15px] py-[8px]">
+            <span className="min-w-0 truncate text-[0.75rem] leading-[16px] text-muted tabular-nums">
+              {visible.length > 0 && !filtered
+                ? `${unclaimed} of ${visible.length} not yet acknowledged`
+                : ""}
+            </span>
+            <button
+              type="button"
+              data-ack-all
+              disabled={!canAckAll || acking}
+              onClick={() => setAsking(true)}
+              /* Disabled rather than hidden at zero. A control that comes and
+                 goes with the feed is one an operator stops looking for, and
+                 "there is nothing to do" is a thing worth being able to read
+                 off the screen. */
+              className="h-[24px] shrink-0 rounded-[4px] border border-stroke px-[10px] text-[0.75rem] text-sub transition-colors hover:bg-card-hover hover:text-body-ink disabled:cursor-not-allowed disabled:border-stroke/50 disabled:text-sub/35 disabled:hover:bg-transparent"
+            >
+              Acknowledge all
+            </button>
+          </div>
+        )}
+        {!onAcknowledgeAll && !filtered && visible.length > 0 && (
           <p className="shrink-0 border-b border-line px-[15px] py-[8px] text-[0.75rem] leading-[16px] text-muted tabular-nums">
             {unclaimed} of {visible.length} not yet acknowledged
+          </p>
+        )}
+
+        {ackProblem && (
+          <p
+            data-ack-problem
+            className="shrink-0 border-b border-line px-[15px] py-[8px] text-[0.75rem] leading-[16px] text-critical"
+          >
+            {ackProblem}
           </p>
         )}
 
@@ -441,6 +558,18 @@ export function AlertsView({
           </div>
         )}
       </main>
+
+      {asking && (
+        <AcknowledgeAllConfirm
+          count={ackCount}
+          busy={acking}
+          onCancel={() => {
+            if (acking) return;
+            setAsking(false);
+          }}
+          onConfirm={() => void confirmAckAll()}
+        />
+      )}
 
       <AnimatePresence>
         {playing && (

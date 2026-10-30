@@ -300,6 +300,74 @@ one of those is the best news on the screen and the other is the worst. It is
 gated on the grace period because drops are ORDINARY on this channel, and a
 notice that blinks all day is a notice nobody reads.
 
+**THE NUMBER ON A CARD IS THE SERVER'S, AND IT COUNTS WHAT NOBODY HAS
+PICKED UP.** `GET /v1/viewer/site-alerts/counts` answers `{total, by_device}`,
+read once in the shell and handed down through `AlertCountsProvider` so the
+tower cards and the badge on the rail's Alerts icon cannot disagree. The card
+used to draw `alerts.length` with a `+` glued on, so a quiet site read `0+`
+and a busy one read however many rows the browser happened to be holding
+rather than however many were waiting. `countLabel` is the only thing that
+rounds it: nothing at zero, exact to 99, then `99+`, and that is the ONLY `+`
+in this product. A device with nothing outstanding is ABSENT from `by_device`
+rather than present with a zero, and `parseCounts` collapses both to the same
+thing so the two ways of saying it cannot draw two different cards.
+
+⚠ **A FAILED COUNT IS NOT A ZERO.** The last number stays on screen and a 404
+from a node too old to serve the route draws nothing at all. A badge that
+clears itself because one request did not get out says "all clear", which is
+the fake-green failure this product refuses everywhere else and the worst
+place in the app to make it.
+
+**The counts ride the channel that is already open.** `useSiteAlerts` takes an
+`onEvent` and reports the KIND of every frame; the counts hook re-reads on
+`alert.new`, `alert.updated` and `alerts.acknowledged`, debounced so a raise
+and its clip and its recovery are one request. Nothing polls, and nothing
+opens a second stream — a node holds at most 64.
+
+⚠ **THE SDK DOES NOT FORWARD `alerts.acknowledged` YET.** `alertEventOf`
+returns null for any frame that is not `alert.new`/`alert.updated` and
+`subscribeSiteAlerts` drops what it returns null for, so a bulk
+acknowledgement made in ANOTHER browser reaches these counts only if the
+server also pushes an update per row. This side is finished for it:
+`countsOnKind` knows the name and the callback carries a kind rather than a
+bare signal. `test/alertCounts.test.mjs` holds a pending-dependency test that
+fails the day the SDK forwards it and says so in its own message. This
+browser's own writes do not wait for any of it — the shell re-reads when the
+write returns.
+
+**Acknowledging everything is bounded by what was on screen.**
+`POST /v1/viewer/site-alerts/ack-all` takes `up_to`, and the Alerts page sends
+the newest SERVER row it is showing — never a local one, because the two
+alerts this side still raises have ids the server has never heard of. An
+alert raised while the dialog is open was in nobody's list and stays waiting.
+Still one-way, still no un-acknowledge, and the number in the dialog is what
+the write can actually reach rather than the count in the line above it.
+
+⚠ **AND A DATE FILTER NARROWS THE VIEW, NOT THE WRITE.** The route takes an
+upper bound and an optional site or tower, and no lower bound, because there
+is no sensible one for "I have read everything down to here". So with a filter
+on, pressing this clears the rows in front of the operator AND everything
+older than them. The dialog therefore states the number the WRITE will reach,
+counted against the whole list and bounded by the newest row on screen, rather
+than the number of rows visible: unfiltered they are the same, and filtered
+the larger one is a number somebody can cancel on.
+
+⚠ **AND THE LIST IS RE-READ, NOT THE STREAM REBUILT.** `relist` asks the list
+route again and upserts through the same revision gate; `reload` bumps the
+generation the subscription depends on and would tear the channel down on
+every bulk write.
+
+**A tower list that could not be read says which kind of could not.**
+`useReviewableTowers` used to swallow every failure into one silent state
+while its own docstring promised a fall back to the live fleet that no caller
+ever did — so a 403 drew an EMPTY DROPDOWN on the Footage screen with no
+sentence and no day behind it, which is how it was reported from the live
+site. Two phases now: `refused` (403) says "Footage isn't available for this
+account." and offers nothing, because an account that may not see footage
+will not be able to in ten seconds and a Try again that can only produce the
+same 403 teaches somebody to distrust every other retry in the app; anything
+else says "Couldn't load towers. Try again." and carries the button.
+
 **A HUB IS NOT A TOWER, AND TWO ALERT TYPES ARE ABOUT ONE.** `HUB_OFFLINE`
 (red) and `HUB_ONLINE` (green) are raised by the DATA CENTRE from the uplink
 monitoring it already does, and `device_id` carries the HUB's id on those rows

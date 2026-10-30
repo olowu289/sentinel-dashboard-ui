@@ -2,6 +2,7 @@ import type { Alert, Tower, TowerStatus } from "@/lib/types";
 import { solarState } from "@/lib/data";
 import { formatRelative } from "@/lib/time";
 import { deviceName } from "@/lib/deviceName";
+import { countAria, countLabel } from "@/lib/useAlertCounts";
 import { MaskIcon } from "./Icon";
 import { batteryFill, TowerBattery } from "./TowerBattery";
 import { batteryCurrentLabel, batteryCurrentValue, batteryFlow } from "@/lib/battery";
@@ -58,16 +59,32 @@ function tempTone(c: number) {
 export function TowerCard({
   tower,
   alerts,
+  unacknowledged = 0,
   noticeDismissed = false,
   onOpen,
   onOpenAlerts,
   onDismissNotice,
 }: {
   tower: Tower;
-  /** *All* of this tower's alerts, newest first. Never pre-filtered: the count
-   *  on the pill is a fleet reading and must not move because somebody closed a
+  /** *All* of this tower's alerts, newest first. Never pre-filtered: the strip
+   *  on the card is a fleet reading and must not move because somebody closed a
    *  notice — see `noticeDismissed`. */
   alerts: Alert[];
+  /**
+   * How many of this device's alerts nobody has acknowledged, as the SERVER
+   * counts them.
+   *
+   * ⚠ NOT `alerts.length`, WHICH IS WHAT THIS DREW AND WAS WRONG TWICE OVER.
+   * That number was every alert the browser happened to be holding for this
+   * tower, acknowledged or not, and it was rendered as `${n}+` -- so a quiet
+   * site read `0+` and a site with three handled alerts read `3+`, claiming
+   * both that something was outstanding and that there was more of it than
+   * shown. The count that means anything on a fleet index is the one nobody
+   * has picked up yet, and the only place that knows it is the server.
+   *
+   * Zero draws nothing at all. See `countLabel`.
+   */
+  unacknowledged?: number;
   /** The operator has closed this tower's notice. Hides the strip and nothing
    *  else — dismissing says "I have read this", and the strip is the only part
    *  of the card making that claim. The count keeps counting, because the
@@ -138,7 +155,7 @@ export function TowerCard({
     hasTemp ||
     solar !== undefined ||
     tower.link !== undefined;
-  const alertCount = alerts.length;
+  const waiting = countLabel(unacknowledged);
   /* The strip reports the newest one still waiting on somebody. A card is a
      summary; the feed inside the tower is where the rest of them live, and an
      alert that has already been claimed is not news. */
@@ -175,7 +192,10 @@ export function TowerCard({
         .filter(Boolean)
         .join(" · ")
     : "No cabinet readings reported";
-  const alertsLabel = `${alertCount} ${alertCount === 1 ? "alert" : "alerts"}`;
+  /* What the pill's button says to somebody who cannot see it. A tower with
+     nothing outstanding still has a feed worth opening, so the target stays
+     and only the number goes. */
+  const alertsLabel = countAria(unacknowledged) ?? "Nothing unacknowledged";
 
   return (
     /* Several targets, so the card cannot be one <button>. The primary one is
@@ -442,7 +462,12 @@ export function TowerCard({
           className="flex items-center gap-[3px] text-[0.75rem] leading-[15px] font-medium tracking-[0.12px] text-body-ink transition-colors tabular-nums hover:text-body-ink/70"
         >
           <MaskIcon src="/icons/card-recent.svg" size={16} />
-          {alertCount > 99 ? "99+" : `${alertCount}+`}
+          {/* ⚠ NOTHING AT ZERO, AND EXACTLY ONE "+" IN THIS PRODUCT. It
+              means "over ninety nine" and nothing else; it used to be glued
+              onto every number including the zero. `countLabel` is the one
+              place that decides, shared with the rail's badge so the two
+              surfaces cannot round the same count differently. */}
+          {waiting !== null && <span data-tower-alert-count>{waiting}</span>}
         </button>
       </span>
 

@@ -32,6 +32,11 @@ import { FleetFeedProvider } from "@/lib/useFleetFeed";
 import { ShareDeck } from "@/components/sharing/ShareNotifications";
 import { SharesView } from "@/components/SharesView";
 import { useCapabilities, useCells } from "@/lib/useSites";
+import {
+  AlertCountsProvider,
+  useAlertCountsFeed,
+} from "@/lib/useAlertCounts";
+import { ackAllSiteAlerts } from "@/lib/api/alertCounts";
 import { hasSites, isHubMode } from "@/lib/hubMode";
 import { setPatrol } from "@/lib/api/fleet";
 import type { PatrolEdit } from "@/lib/patrol";
@@ -327,11 +332,28 @@ export function SentinelApp() {
     [feeds],
   );
 
+  /**
+   * HOW MANY ARE WAITING, which is a different read from the feed above.
+   *
+   * ⚠ THE FEED IS NOT A COUNT. `alerts.length` is however many rows this
+   * browser has fetched, and a tower card drew exactly that with a `+` glued
+   * on -- so a quiet site read `0+`. The server counts what is
+   * unacknowledged, per device and in total, and the cards and the rail badge
+   * both draw that one number. See `lib/useAlertCounts.tsx`.
+   */
+  const alertCounts = useAlertCountsFeed(alertsEnabled);
+
   const alertFeed = useSiteAlerts({
     enabled: alertsEnabled,
     nameOf,
     cameraNameOf,
     onArrived,
+    /* ⚠ THE COUNTS RIDE THE CHANNEL THAT IS ALREADY OPEN. Every frame is a
+       reason the number may have moved, and a poll beside a live stream is a
+       second and lossier answer to a question already being answered. The
+       re-read is debounced, so a raise and its clip and its recovery are one
+       request rather than three. */
+    onEvent: alertCounts.noted,
   });
 
   /* The server's rows and this side's two, in one list for every screen that
@@ -1845,13 +1867,42 @@ export function SentinelApp() {
       statusMutation.run(id, async () => {
         if (alertFeed.alerts.some((a) => a.id === id)) {
           await alertFeed.acknowledge(id);
+          /* ⚠ THIS BROWSER'S OWN WRITE DOES NOT WAIT FOR THE CHANNEL. The
+             server will push an update for the row it just changed, and
+             relying on that to move the card and the badge would make the
+             operator's own click look like it did nothing for a second. The
+             count is asked for again the moment the write returns. */
+          alertCounts.reload();
           return;
         }
         setLocalAlerts((prev) =>
           prev.map((a) => (a.id === id ? { ...a, status } : a)),
         );
       }),
-    [alertFeed, statusMutation],
+    [alertFeed, statusMutation, alertCounts],
+  );
+
+  /**
+   * Acknowledge every server alert up to one id.
+   *
+   * ⚠ THE LIST IS RE-READ RATHER THAN THE STREAM REBUILT. `relist` asks the
+   * same question the open channel answers and upserts through the same
+   * revision gate; `reload` would tear the subscription down and build a new
+   * one, and a node holds at most 64 streams. The counts are re-read beside
+   * it, because the cards and the badge are a different read and the whole
+   * point of pressing this is watching all three go quiet.
+   *
+   * Throws on to the screen, which says one sentence. Nothing is written
+   * optimistically here for the same reason a single acknowledgement is not:
+   * who acknowledged is the server's to state.
+   */
+  const acknowledgeAll = useCallback(
+    async (upTo: string) => {
+      await ackAllSiteAlerts(upTo);
+      await alertFeed.relist();
+      alertCounts.reload();
+    },
+    [alertFeed, alertCounts],
   );
 
   /* Returns the alert so the caller can arm its own banner against it —
@@ -1888,6 +1939,10 @@ export function SentinelApp() {
      than disappearing. The two are not redundant; don't consolidate them. */
   return (
     <MotionConfig reducedMotion="user">
+      {/* OUTERMOST, because the rail is inside every screen below and the
+          rail is what draws the badge. One read, provided once; see the
+          header of `lib/useAlertCounts.tsx` for why this is not a prop. */}
+      <AlertCountsProvider value={alertCounts}>
       {/* ── THE TWO PROVIDERS THE CARDS NEED ──────────────────────────────
 
           `ShareFeedProvider` is ONE share list, read by the floating cards,
@@ -2032,6 +2087,9 @@ export function SentinelApp() {
           nameOf={nameOf}
           cameraNameOf={cameraNameOf}
           onRefreshAlert={alertFeed.refresh}
+          /* Only where there is a server to write to. A seeded fleet's
+             alerts were never on the wire and there is nothing to clear. */
+          {...(alertsEnabled ? { onAcknowledgeAll: acknowledgeAll } : {})}
         />
       ) : onPeople ? (
         <PeopleView
@@ -2219,6 +2277,7 @@ export function SentinelApp() {
         </WatchProvider>
         </ShareFeedProvider>
       </NotificationProvider>
+      </AlertCountsProvider>
     </MotionConfig>
   );
 }

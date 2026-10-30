@@ -879,6 +879,75 @@ The detail shows both, in separate cells, with separate labels.
 to: no ticket, no rota, no recipient. A button removed is a feature forgotten,
 and this one has to be wired the day there is one.
 
+### How many are waiting, and one button that clears them
+
+The number on a tower card used to be the length of the alert array this
+browser happened to be holding, with a `+` glued on the end. So a quiet site
+read **0+**, which is both a zero and a claim that there is more of it, and a
+busy site read however many rows had been fetched rather than however many
+were outstanding. Those stop being the same number the moment a feed is paged
+or filtered, and only one of them is a reason to walk over to a screen.
+
+The count is the server's now. One read of the counts route answers how many
+alerts are unacknowledged in total and per device, and the same read feeds two
+surfaces: the pill on each tower card, and a small red badge on the rail's
+Alerts icon. One read rather than two, because the rail is on every screen and
+two copies of a number are two numbers that drift. Nothing at zero, exact to
+ninety nine, then `99+` — the one place in this product that abbreviates
+anything.
+
+A device with nothing outstanding is simply absent from the map the server
+sends, which is the same rule everything else on this wire follows: absence of
+a field and a field whose value is zero are different facts, and only one of
+them needs sending. A count that could not be read leaves the last number on
+screen rather than clearing it. A badge that disappears because one request did
+not get out says *all clear*, and this is the worst screen in the app on which
+to say that by accident.
+
+The number stays current off the channel that is already open. Every frame on
+the alert stream is a reason the count may have moved, so the shell notes each
+one and re-reads, debounced, so a raise and its clips and its recovery are one
+question rather than three. Nothing polls beside the stream and nothing opens a
+second one.
+
+**Acknowledge all** sits over the feed and is bounded by what was on screen.
+The request names the newest alert the list was showing, and anything raised
+after the operator pressed the button stays waiting for somebody — because the
+only thing an acknowledgement means here is that a person saw it, and a bulk
+write with no upper bound would quietly claim an alert nobody has read. The
+confirmation says the number out loud for the same reason: somebody who has
+scrolled a long feed is agreeing to a quantity they cannot see all of. It is
+still one-way, there is still no un-acknowledge, and Escalate is still there
+and still disabled.
+
+One thing the route cannot express: a date filter. It takes an upper bound and
+an optional site or tower, and no lower bound, because "I have read everything
+down to here" does not have one. So with a filter on, pressing the button
+clears the rows in front of the operator and everything older than them. The
+confirmation states the number the write will actually reach rather than the
+number of rows on screen. Unfiltered those are the same number, which is the
+ordinary case; filtered, the larger one is stated, and a number that does not
+match what is visible is a number somebody can cancel on.
+
+### An empty dropdown is not an answer
+
+The Footage screen picks a tower from a list the archive answers for, and that
+list is read through a hook that swallowed every failure into one silent state.
+Its own docstring promised that the caller would fall back to the live fleet;
+no caller ever did. So a refusal from coordination drew a `<select>` with no
+options in it, no sentence anywhere on the screen, and no day of footage behind
+it — which is exactly how it came back from the live site: "the device dropdown
+is empty and no recordings are shown", for a bucket that was filling correctly
+the whole time.
+
+There are two failures now and they read differently, because one of them can
+be acted on. A 403 says *Footage isn't available for this account.* and offers
+nothing else: an account that may not see recorded footage will not be able to
+in ten seconds either, and a Try again that can only produce the same refusal
+is how an operator learns to distrust every other retry in the app. Everything
+else — unreachable, a 500, a body that was not a list — says *Couldn't load
+towers. Try again.* and carries the button.
+
 ### The hub itself, and footage that arrives later
 
 Two more types, raised a tier up. The data centre watches every hub's uplink

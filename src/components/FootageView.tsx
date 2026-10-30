@@ -117,8 +117,15 @@ export function FootageView({
   onClipsOpen: (open: boolean) => void;
   onBack?: () => void;
 }) {
-  const review = useReviewableTowers();
+  const { phase: review, retry: retryTowers } = useReviewableTowers();
   const towers = review.kind === "ready" ? review.towers : [];
+  /* ⚠ AN EMPTY DROPDOWN IS NOT AN ANSWER. The tower list used to swallow
+     every failure, so a refusal and a genuinely empty archive drew the same
+     thing: a select with no options, no sentence, and no day behind it. The
+     reason is on screen now, and the one failure retrying can fix carries a
+     button. See `useReviewableTowers`. */
+  const towersProblem =
+    review.kind === "refused" || review.kind === "failed" ? review : null;
   const [towerId, setTowerId] = useState<string | null>(null);
   const chosen = towerId ?? towers[0]?.deviceId ?? null;
 
@@ -381,7 +388,8 @@ export function FootageView({
     return () => window.removeEventListener("keydown", onKey);
   }, [driven, nudge, setClockFor, toggleFullscreen, clipsOpen, onClipsOpen]);
 
-  const loading = day.phase.kind === "loading" || review.kind === "loading";
+  const loading =
+    !towersProblem && (day.phase.kind === "loading" || review.kind === "loading");
   const empty = day.phase.kind === "ready" && day.cameras.length === 0;
   const chromeHidden = isFull && idle;
 
@@ -407,14 +415,19 @@ export function FootageView({
           Footage
         </h1>
 
-        <select
-          aria-label="Tower"
-          value={chosen ?? ""}
-          onChange={(e) => { setTowerId(e.target.value); setLastTouched(null); }}
-          className="h-[28px] shrink-0 rounded-[6px] bg-card px-[8px] text-[0.75rem] text-body-ink outline-none focus-visible:outline-1 focus-visible:outline-terra"
-        >
-          {towers.map((t) => <option key={t.deviceId} value={t.deviceId}>{deviceName(t.label)}</option>)}
-        </select>
+        {/* ⚠ NO EMPTY SELECT OVER A FAILED READ. A dropdown with nothing in
+            it is a control that looks broken and says nothing; the stage
+            below carries the reason instead. */}
+        {!towersProblem && (
+          <select
+            aria-label="Tower"
+            value={chosen ?? ""}
+            onChange={(e) => { setTowerId(e.target.value); setLastTouched(null); }}
+            className="h-[28px] shrink-0 rounded-[6px] bg-card px-[8px] text-[0.75rem] text-body-ink outline-none focus-visible:outline-1 focus-visible:outline-terra"
+          >
+            {towers.map((t) => <option key={t.deviceId} value={t.deviceId}>{deviceName(t.label)}</option>)}
+          </select>
+        )}
 
         <DatePicker isoDay={isoDay} onDay={setIsoDay} daysWithFootage={day.daysWithFootage} />
         <DayButton label="Today" active={isoDay === siteToday()} onClick={() => setIsoDay(siteToday())} />
@@ -443,7 +456,12 @@ export function FootageView({
       {/* ── 2. THE STAGE. Everything else docks around this. ─────────────── */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="min-h-0 min-w-0 flex-1 p-[6px]">
-          {loading ? (
+          {towersProblem ? (
+            <TowerListProblem
+              message={towersProblem.message}
+              onRetry={towersProblem.kind === "failed" ? retryTowers : undefined}
+            />
+          ) : loading ? (
             <SkeletonGrid />
           ) : day.phase.kind === "error" ? (
             <div className="flex size-full items-center justify-center rounded-[8px] bg-tile-dead">
@@ -738,6 +756,42 @@ function SkeletonGrid() {
           <span className="sweep absolute inset-y-0 w-1/3 bg-overlay/5" />
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The tower list could not be read, and this says which kind of could not.
+ *
+ * ⚠ THE BUTTON IS THE WHOLE DIFFERENCE BETWEEN THE TWO STATES. A refusal is
+ * settled: this account may not see recorded footage, and a Try again that
+ * can only produce the same 403 teaches an operator to distrust every other
+ * retry in the app. Everything else is worth one more ask, so it gets one.
+ */
+function TowerListProblem({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      data-towers-problem
+      className="flex size-full flex-col items-center justify-center gap-[10px] rounded-[8px] bg-tile-dead"
+    >
+      <p className="max-w-[360px] text-center text-[0.875rem] leading-[20px] text-critical">
+        {message}
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="h-[30px] shrink-0 rounded-[6px] bg-card px-[14px] text-[0.8125rem] text-body-ink transition-colors hover:bg-card-hover"
+        >
+          Try again
+        </button>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { fleetOrder } from "@/lib/fleetOrder";
+import { useAlertCounts } from "@/lib/useAlertCounts";
 import type { Alert, Tower } from "@/lib/types";
 import type { Claim } from "@/lib/api/claim";
 import { PendingTowerCard } from "./PendingTowerCard";
@@ -59,6 +60,13 @@ export function TowersPanel({
      drill-in, so a dismissed notice came back the moment an operator visited a
      tower and returned — the control appeared not to work. It is owned by the
      shell now, and remembered per account. */
+
+  /* ⚠ THE COUNT ON A CARD IS THE SERVER'S, AND IT IS READ FROM THE CONTEXT
+     RATHER THAN THREADED. The badge on the rail draws the same read, and the
+     rail is rendered by ten screens — the note in `IconRail` is about what
+     happens to a value those screens have to remember to pass down. One read
+     in the shell, one provider, every consumer. */
+  const counts = useAlertCounts();
 
   const byTower = useMemo(() => {
     const map = new Map<string, Alert[]>();
@@ -133,6 +141,7 @@ export function TowersPanel({
             key={tower.id}
             tower={tower}
             alerts={byTower.get(tower.id) ?? []}
+            unacknowledged={counts.byDevice.get(tower.id) ?? 0}
             noticeDismissed={dismissedNotices?.has(tower.id) ?? false}
             onOpen={() => onOpenTower(tower.id)}
             onOpenAlerts={() => onOpenTower(tower.id, true)}

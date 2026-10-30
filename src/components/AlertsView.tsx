@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { AcknowledgeAllConfirm } from "@/components/AcknowledgeAllConfirm";
 import { AlertDetail } from "@/components/AlertDetail";
 import { AlertRow } from "@/components/AlertRow";
+import { describeAckAllFailure } from "@/lib/api/alertCounts";
 import { deviceName } from "@/lib/deviceName";
 import type { CameraNameOf, NameOf } from "@/lib/alertCopy";
 import { alertPanes } from "@/lib/alertStory";
@@ -16,6 +17,7 @@ import {
   NO_FILTER,
   RANGES,
   applyDateFilter,
+  filterFromIso,
   filterLabel,
   isFiltered,
   type DateFilter,
@@ -130,12 +132,13 @@ export function AlertsView({
    * Acknowledge everything up to and including one alert.
    *
    * ⚠ THE SHELL OWNS THE WRITE, as it owns every other one. This screen
-   * decides WHICH alert is the bound and how many the operator is agreeing
-   * to; what happens to the feed, the cards and the badge afterwards is one
-   * place above here. Absent means the button is not offered at all, which
-   * is what a harness with no server gets.
+   * decides the WINDOW -- which alert is the far bound and which moment is
+   * the near one -- and how many the operator is agreeing to; what happens
+   * to the feed, the cards and the badge afterwards is one place above here.
+   * Absent means the button is not offered at all, which is what a harness
+   * with no server gets.
    */
-  onAcknowledgeAll?: (upTo: string) => Promise<void>;
+  onAcknowledgeAll?: (upTo: string, from?: string) => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DateFilter>(NO_FILTER);
@@ -239,31 +242,37 @@ export function AlertsView({
   const bound = visible.find((a) => a.site !== undefined) ?? null;
   const upTo = bound?.site?.id ?? null;
   /**
-   * ⚠ THE NUMBER IN THE DIALOG IS WHAT WILL ACTUALLY BE ACKNOWLEDGED, and on
-   * a FILTERED view that is not the number of rows on screen.
+   * ⚠ AND THE NEAR BOUND IS THE DATE FILTER'S OWN START.
    *
-   * The route takes an upper bound and an optional site or tower. It takes no
-   * lower bound, because there is no sensible one: acknowledging is "I have
-   * read everything down to here". So with a date filter on, pressing this
-   * clears the four rows in front of the operator AND everything older than
-   * them, and a dialog saying "4" over a write that touches forty is the kind
-   * of small lie that teaches somebody to go and check afterwards every time.
+   * The sweep is a window and both ends are this screen. Before the route
+   * took a `from` it had only the anchor, so a filtered view's button
+   * reached back past everything the operator had filtered OUT of it -- a
+   * week nobody had looked at, cleared by a click on a screen showing
+   * Tuesday. The dialog had to state the larger number for that reason, and
+   * stating it was the honest half of a bad bargain: the operator was being
+   * asked to agree to rows they could not see.
    *
-   * So this counts against the WHOLE list, bounded by the newest row on
-   * screen. Unfiltered -- which is the ordinary case -- the two numbers are
-   * identical. Filtered, the dialog states the larger one, which is a number
-   * somebody can cancel on.
+   * With both ends sent, the write is the view. So the number below is
+   * simply what is on screen, which is the number somebody would have
+   * counted themselves.
    *
-   * Local rows are excluded throughout: the two kinds this side still raises
-   * were never on the wire and cannot be acknowledged on it.
+   * Computed from the same `now` that built `visible` -- the rolling presets
+   * are arithmetic off the current moment, and a bound computed a second
+   * later describes a slightly different list than the one on screen.
    */
-  const ackCount =
-    bound === null
-      ? 0
-      : alerts.filter(
-          (a) =>
-            a.status === "triggered" && a.site !== undefined && a.at <= bound.at,
-        ).length;
+  const from = filterFromIso(filter, now);
+  /**
+   * How many rows this will acknowledge: unacknowledged, on screen, and the
+   * server's.
+   *
+   * Local rows are excluded: the two kinds this side still raises were never
+   * on the wire and cannot be acknowledged on it. They are also why this is
+   * not `unclaimed` above, which counts them because it is describing the
+   * screen rather than a write.
+   */
+  const ackCount = visible.filter(
+    (a) => a.status === "triggered" && a.site !== undefined,
+  ).length;
   const canAckAll = Boolean(onAcknowledgeAll) && ackCount > 0 && upTo !== null;
   const [asking, setAsking] = useState(false);
   const [acking, setAcking] = useState(false);
@@ -279,13 +288,16 @@ export function AlertsView({
     setAcking(true);
     setAckProblem(null);
     try {
-      await onAcknowledgeAll(upTo);
+      await onAcknowledgeAll(upTo, from);
       setAsking(false);
-    } catch {
-      /* ⚠ ONE SENTENCE, AND THE LIST IS LEFT ALONE. Nothing was written
-         optimistically, so there is nothing to roll back: the rows on screen
-         are still the last thing the server said. */
-      setAckProblem("Couldn't acknowledge those alerts. Try again.");
+    } catch (err) {
+      /* ⚠ THE SERVER'S OWN SENTENCE WHEN IT HAS ONE, AND THE LIST IS LEFT
+         ALONE. A refusal here is three different mistakes with three
+         different remedies -- a list gone stale, a date it could not read, a
+         range that ends before it starts -- and only one side knows which.
+         Nothing was written optimistically, so there is nothing to roll
+         back: the rows on screen are still the last thing the server said. */
+      setAckProblem(describeAckAllFailure(err));
       setAsking(false);
     } finally {
       inFlight.current = false;

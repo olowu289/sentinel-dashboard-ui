@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SiteAlert } from "@kallon/sentry-sdk";
+import { isAlertRowEvent, type SiteAlert } from "@kallon/sentry-sdk";
 import {
   ackSiteAlert,
   describeAlertFailure,
@@ -413,6 +413,16 @@ export function useSiteAlerts(options: {
     for (const id of toFetch) scheduleRefreshRef.current?.(id);
   }, []);
 
+  /* Declared ABOVE the subscription effect because the effect depends on it:
+     the batch-acknowledgement frame names no rows, so reacting to one is a
+     re-read. A `const` referenced in a dependency array is read during
+     render, before its own initialiser has run, so leaving it below here is
+     a temporal-dead-zone crash rather than a lint complaint. */
+  const relist = useCallback(async () => {
+    const list = await listSiteAlerts({});
+    upsert(list.alerts);
+  }, [upsert]);
+
   /* ── THE READ, AND THEN THE STREAM ─────────────────────────────────── */
   useEffect(() => {
     if (!enabled) {
@@ -468,10 +478,35 @@ export function useSiteAlerts(options: {
         },
         onAlert: (event) => {
           if (!live) return;
-          upsert([event.alert]);
+          /* ⚠ NARROW BEFORE READING `alert`. `AlertEvent` is a union as of
+             SDK 0.14.0, and the third kind carries no row: ONE
+             `alerts.acknowledged` frame stands for a whole batch, because an
+             `alert.updated` per row would close the channel of every browser
+             watching a busy site for falling behind. `event.alert.id` on one
+             of those is a crash the first time a colleague clears a
+             screenful, which is exactly why the SDK made the union breaking
+             rather than leaving `alert` optional. */
+          if (isAlertRowEvent(event)) {
+            upsert([event.alert]);
+          } else {
+            /* ⚠ AND THE ROWS THIS BROWSER HOLDS ARE NOW STALE. The frame
+               names no alerts — deliberately, because the predicate that
+               decided who receives it knows which towers were touched and a
+               browser must not learn the shape of somebody else's fleet — so
+               there is nothing to upsert and nothing to edit locally. The
+               only honest reaction is to ask again. Without it a screenful
+               somebody else acknowledged keeps reading "Not acknowledged"
+               here until the next drop recovery, which on a healthy channel
+               may be hours. */
+            void relist().catch(() => {
+              /* A failed re-read leaves the last answer on screen. The rows
+                 are stale, not wrong, and blanking a feed because one
+                 request did not get out is the worse of the two. */
+            });
+          }
           /* Every kind, before the branch below: a count moves on an update
-             as readily as on a raise, and an acknowledgement is nothing but
-             an update. */
+             as readily as on a raise, and a batch acknowledgement is the one
+             frame whose whole content is that it moved. */
           eventRef.current?.(event.kind);
           if (event.kind === "alert.new") {
             arrivedRef.current?.({
@@ -488,8 +523,9 @@ export function useSiteAlerts(options: {
       subscription?.stop();
     };
     /* `generation` is the manual reload. `nameOf` and `onArrived` are read
-       through refs and are deliberately NOT dependencies — see above. */
-  }, [enabled, generation, upsert]);
+       through refs and are deliberately NOT dependencies — see above.
+       `relist` is stable for as long as `upsert` is, which is for ever. */
+  }, [enabled, generation, upsert, relist]);
 
   const acknowledge = useCallback(
     async (id: string) => {
@@ -504,11 +540,6 @@ export function useSiteAlerts(options: {
     },
     [upsert],
   );
-
-  const relist = useCallback(async () => {
-    const list = await listSiteAlerts({});
-    upsert(list.alerts);
-  }, [upsert]);
 
   const refresh = useCallback(async (id: string) => {
     const again = await getSiteAlert(id);

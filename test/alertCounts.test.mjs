@@ -18,6 +18,12 @@
  * shared by both surfaces so they cannot round the same count differently,
  * and re-read off the live channel rather than polled beside it.
  *
+ * ⭐ AND AS OF `@kallon/sentry-sdk@0.14.0` BOTH ROUTES ARE THE SDK'S. The
+ * two hand-rolled fetches that stood in for them are gone, `AlertEvent` is a
+ * union because a batch acknowledgement carries no row, and `ack-all` takes a
+ * `from` -- so the sweep is a WINDOW and the dialog states the number on
+ * screen rather than the larger number a lower-bound-less write would reach.
+ *
  * ⚠ THE BROWSER TESTS GO THROUGH THE REAL SDK OVER A ROUTED `fetch`. The list
  * is JSON on the wire, the stream is SSE frames in a `ReadableStream`, and
  * the counts are a second route answering a second question. A test that
@@ -93,6 +99,7 @@ const COUNTS = { total: 147, by_device: { [EAST]: 7, [NORTH]: 140 } };
 describe("the number, as it is drawn", () => {
   let counts;
   let api;
+  let filter;
   before(async () => {
     await mkdir(SCRATCH, { recursive: true });
     const dir = await mkdtemp(join(SCRATCH, "counts-lib-"));
@@ -123,6 +130,18 @@ describe("the number, as it is drawn", () => {
       define: { "import.meta.env": ENV },
     });
     api = await import(pathToFileURL(apiOut).href);
+
+    const filterOut = join(dir, "filter.mjs");
+    await build({
+      entryPoints: [join(SRC, "lib/dateFilter.ts")],
+      outfile: filterOut,
+      bundle: true,
+      format: "esm",
+      platform: "neutral",
+      alias: { "@": SRC, "@kallon/sentry-sdk": SDK },
+      define: { "import.meta.env": ENV },
+    });
+    filter = await import(pathToFileURL(filterOut).href);
   });
 
   test("⭐ nothing is drawn for nothing, which is what `0+` got wrong", () => {
@@ -153,44 +172,154 @@ describe("the number, as it is drawn", () => {
   });
 
   test("⭐ a device with nothing outstanding is ABSENT, not zero", () => {
-    const parsed = api.parseCounts(COUNTS);
+    /* The SDK validates the wire and un-snake-cases it; what is left on
+       this side is the shape the screens read and the one distinction that
+       must not reach a card. */
+    const parsed = api.countsFrom({
+      total: 147,
+      byDevice: { [EAST]: 7, [NORTH]: 140 },
+    });
     assert.equal(parsed.total, 147);
     assert.equal(parsed.byDevice.get(EAST), 7);
     assert.equal(parsed.byDevice.get(NORTH), 140);
     assert.equal(parsed.byDevice.has(WEST), false);
     /* And a server that sends the zero anyway lands in the same place, so
-       the two ways of saying it cannot draw two different cards. */
-    const withZero = api.parseCounts({ total: 7, by_device: { [EAST]: 7, [WEST]: 0 } });
+       the two ways of saying it cannot draw two different cards. A pill
+       reading `0` is a claim about a site; absence is not. */
+    const withZero = api.countsFrom({
+      total: 7,
+      byDevice: { [EAST]: 7, [WEST]: 0 },
+    });
     assert.equal(withZero.byDevice.has(WEST), false);
+    assert.equal(api.countsFrom({ total: 0, byDevice: {} }).total, 0);
   });
 
-  test("a body that is not a count reads as none of it", () => {
-    assert.equal(api.parseCounts({}).total, 0);
-    assert.equal(api.parseCounts({ total: "lots" }).total, 0);
-    assert.equal(api.parseCounts({ total: 4, by_device: null }).byDevice.size, 0);
+  test("⭐ the near bound of a date filter is an instant, stated in UTC", () => {
+    /* ⚠ THE SWEEP IS A WINDOW AND THIS IS ITS NEAR END. The rolling
+       presets are arithmetic off the clock the list was rendered with; the
+       calendar ones are midnight AT THE SITE, which for Lagos is 23:00 the
+       day before in UTC -- and a local wall clock with no offset at all is
+       how a server reads it as its own and acknowledges a window an hour
+       away from the one on screen. */
+    const now = Date.UTC(2026, 9, 29, 9, 30, 0);
+    assert.equal(filter.filterStart({ range: "all" }, now), null);
+    assert.equal(filter.filterFromIso({ range: "all" }, now), undefined);
     assert.equal(
-      api.parseCounts({ by_device: { [EAST]: "three" } }).byDevice.size,
-      0,
+      filter.filterFromIso({ range: "1h" }, now),
+      "2026-10-29T08:30:00.000Z",
+    );
+    assert.equal(
+      filter.filterFromIso({ range: "24h" }, now),
+      "2026-10-28T09:30:00.000Z",
+    );
+    assert.equal(
+      filter.filterFromIso({ range: "7d" }, now),
+      "2026-10-22T09:30:00.000Z",
+    );
+    /* Africa/Lagos is UTC+1 all year, so the site's 29th began at 23:00Z on
+       the 28th -- not at midnight UTC, and not at the viewer's midnight. */
+    assert.equal(
+      filter.filterFromIso({ range: "today" }, now),
+      "2026-10-28T23:00:00.000Z",
+    );
+    assert.equal(
+      filter.filterFromIso({ range: "custom", from: "2026-10-20" }, now),
+      "2026-10-19T23:00:00.000Z",
+    );
+    /* An upper bound alone has no near end. The anchor is the far end and
+       does not need a second opinion. */
+    assert.equal(
+      filter.filterFromIso({ range: "custom", to: "2026-10-20" }, now),
+      undefined,
     );
   });
 
-  test("⭐ the ack-all body carries up_to, and a scope only when there is one", () => {
-    /* ⚠ ABSENT RATHER THAN null. The Alerts page is the fleet and has no
-       site or tower selector, so it narrows nothing; a key carrying
-       undefined would reach the server as `null`, which is a different
-       claim from not mentioning it. */
-    assert.deepEqual(api.ackAllBody("aaaa0001"), { up_to: "aaaa0001" });
-    assert.deepEqual(api.ackAllBody("aaaa0001", { deviceId: EAST }), {
-      up_to: "aaaa0001",
-      device_id: EAST,
-    });
-    assert.deepEqual(api.ackAllBody("aaaa0001", { siteId: "site-7" }), {
-      up_to: "aaaa0001",
-      site_id: "site-7",
-    });
-    assert.deepEqual(api.ackAllBody("aaaa0001", { siteId: "", deviceId: "" }), {
-      up_to: "aaaa0001",
-    });
+  test("⭐ the near bound agrees with the list it describes", () => {
+    /* The bound and the filter are two readings of one statement, written
+       as two functions. A row on screen whose own instant falls before the
+       bound sent with the sweep is a row the operator saw and the write
+       would skip, which is the bug this pins rather than the arithmetic. */
+    const now = Date.UTC(2026, 9, 29, 9, 30, 0);
+    for (const range of ["1h", "24h", "7d", "today"]) {
+      const start = filter.filterStart({ range }, now);
+      const rows = [
+        { at: start - 1, id: "before" },
+        { at: start, id: "edge" },
+        { at: now, id: "now" },
+      ];
+      const visible = filter
+        .applyDateFilter(rows, { range }, now)
+        .map((a) => a.id);
+      assert.deepEqual(visible, ["edge", "now"], range);
+    }
+  });
+
+  test("⭐ a refused sweep says WHICH mistake, in the server's own words", () => {
+    /* ⚠ THREE MISTAKES, THREE REMEDIES, and only the server knows which:
+       an anchor it could not resolve, a date it could not read, and a range
+       that ends before it starts. One sentence of ours covering all three
+       would have to say "try again", which is useless advice for two of
+       them. */
+    for (const sentence of [
+      "That list is out of date. Reload the alerts and try again.",
+      "Those dates could not be read. Choose the date range again.",
+      "That date range ends before it starts. Choose the dates again.",
+    ]) {
+      assert.equal(
+        api.describeAckAllFailure({
+          status: 400,
+          code: "invalid_request",
+          message: sentence,
+        }),
+        sentence,
+      );
+    }
+  });
+
+  test("⚠ but the wire never reaches the screen dressed as a sentence", () => {
+    /* The SDK synthesises `message` from the first 200 characters of a body
+       that is not the error envelope -- a proxy's HTML page, or `HTTP 400`
+       for a status with no body at all. Those are not sentences written for
+       an operator, and putting one on screen would break the first writing
+       rule in the loudest possible way. */
+    const ours = "Couldn't acknowledge those alerts. Try again.";
+    for (const message of [
+      "<html><head><title>400 Bad Request</title></head>",
+      "HTTP 400",
+      "invalid_request",
+      "bad",
+      "That list is out of date",
+      "x".repeat(400) + ".",
+    ]) {
+      assert.equal(
+        api.describeAckAllFailure({
+          status: 400,
+          code: "invalid_request",
+          message,
+        }),
+        ours,
+        message.slice(0, 30),
+      );
+    }
+    /* And the failures that are not this route's three mistakes keep their
+       own one sentence each. */
+    assert.match(
+      api.describeAckAllFailure({
+        status: 403,
+        code: "not_authorized",
+        message: "no",
+      }),
+      /permission/,
+    );
+    assert.match(
+      api.describeAckAllFailure({
+        status: 0,
+        code: "network_error",
+        message: "no",
+      }),
+      /connection/,
+    );
+    assert.equal(api.describeAckAllFailure(new Error("boom")), ours);
   });
 
   test("⭐ three event kinds move this number, and nothing else does", () => {
@@ -227,31 +356,50 @@ describe("what reaches this side off the stream", () => {
     assert.deepEqual(kinds, ["alert.new", "alert.updated"]);
   });
 
-  test("⚠ THE SDK DROPS `alerts.acknowledged`, SO DELETE THIS WHEN IT STOPS", () => {
-    /* ⚠ A PENDING-DEPENDENCY TEST, and it is the shape CLAUDE.md asks for.
-       The data centre sends a third kind when a bulk acknowledgement lands,
-       and `alertEventOf` returns null for every frame that is not
-       `alert.new` or `alert.updated` -- so `subscribeSiteAlerts` never hands
-       it on and a bulk acknowledgement made in ANOTHER browser reaches these
-       counts only if the server also pushes an update per row.
+  test("⭐ and so does a batch acknowledgement, which carries no alert", () => {
+    /* ⚠ THIS USED TO BE A PENDING-DEPENDENCY TEST asserting the OPPOSITE:
+       the third kind existed on the wire and `alertEventOf` returned null
+       for every frame that was not `alert.new` or `alert.updated`, so
+       `subscribeSiteAlerts` dropped it and a screenful cleared in another
+       browser reached these counts only if the server also pushed an update
+       per row. This side was written for the kind it could not receive, with
+       a test that said in its own failure message to delete itself.
 
-       Everything on this side is written for it: `countsOnKind` answers true
-       for the name, `useSiteAlerts` passes the kind through rather than a
-       bare signal, and the day the SDK forwards unknown kinds the change
-       here is none at all.
-
-       The change belongs in the sentry-sdk repository, which is the source of
-       truth for the vendored copy and is NOT edited from here
-       (`npm run check:sdk` fails the build if it is). When this test fails,
-       that is the SDK having landed it: DELETE THIS TEST and assert the
-       refetch on the real frame instead. */
+       `@kallon/sentry-sdk@0.14.0` landed it, so this is that deletion, as
+       the assertion rather than as an absence. */
     const buffer = new sdk.SseBuffer();
-    const frames = [...buffer.push(frame("alerts.acknowledged", { count: 4 }))];
+    const frames = [
+      ...buffer.push(frame("alerts.acknowledged", { count: 4, from: "2026-10-28T23:00:00Z" })),
+    ];
     assert.equal(frames.length, 1, "the frame itself did not even arrive");
-    assert.equal(
-      sdk.alertEventOf(frames[0]),
-      null,
-      "the SDK now forwards alerts.acknowledged: delete this test and wire the real frame",
+    const event = sdk.alertEventOf(frames[0]);
+    assert.equal(event.kind, "alerts.acknowledged");
+    assert.equal(event.count, 4);
+    /* ⚠ AND IT NAMES NO ALERTS, which is the whole reason `AlertEvent`
+       had to become a union. ONE frame stands for the whole batch -- an
+       `alert.updated` per row would close the channel of every browser
+       watching a busy site for falling behind -- so there is no row to
+       upsert and nothing to edit locally. `event.alert.id` here is a crash
+       the first time a colleague clears a screenful, and the narrowing is
+       what stops it being written. */
+    assert.equal(sdk.isAlertRowEvent(event), false);
+    assert.equal("alert" in event, false);
+    assert.equal(sdk.isAlertRowEvent(sdk.alertEventOf([...new sdk.SseBuffer().push(frame("alert.new", ROWS[0]))][0])), true);
+  });
+
+  test("the defensive read of a count MOVED into the SDK, it did not vanish", () => {
+    /* This side used to read the counts body field by field, because it was
+       reading it off a raw response. It does not any more, and the thing
+       worth checking is that the validation went with the parsing rather
+       than being dropped on the way. */
+    assert.deepEqual(
+      sdk.parseSiteAlertCounts({ total: 147, by_device: { [EAST]: 7 } }),
+      { total: 147, byDevice: { [EAST]: 7 } },
+    );
+    assert.throws(() => sdk.parseSiteAlertCounts({ total: "lots", by_device: {} }));
+    assert.throws(() => sdk.parseSiteAlertCounts({ total: 4, by_device: null }));
+    assert.throws(() =>
+      sdk.parseSiteAlertCounts({ total: 4, by_device: { [EAST]: "three" } }),
     );
   });
 });
@@ -318,8 +466,8 @@ describe("the cards, the badge and Acknowledge all", () => {
          ]);
          const alerts = [...local, ...feed.alerts];
          const acknowledgeAll = useCallback(
-           async (upTo: string) => {
-             await ackAllSiteAlerts(upTo);
+           async (upTo: string, from?: string) => {
+             await ackAllSiteAlerts(upTo, from === undefined ? {} : { from });
              await feed.relist();
              counts.reload();
            },
@@ -379,6 +527,7 @@ describe("the cards, the badge and Acknowledge all", () => {
            then make the page go and ask again. */
         w.__serverCounts = counts;
         w.__countReads = 0;
+        w.__streams = 0;
         w.__ackAll = [];
         w.__alerts = new Map(rows.map((a) => [a.id, a]));
 
@@ -397,6 +546,10 @@ describe("the cards, the badge and Acknowledge all", () => {
           }
 
           if (path.includes("/v1/viewer/events")) {
+            /* Counted. A frame must not cost a reconnection: a node holds
+               at most 64 streams, and a handler that throws takes the loop
+               down with it and is recovered by one. */
+            w.__streams += 1;
             const stream = new ReadableStream({
               start(controller) {
                 w.__sse = controller;
@@ -419,13 +572,29 @@ describe("the cards, the badge and Acknowledge all", () => {
           if (path.includes("/v1/viewer/site-alerts/ack-all") && method === "POST") {
             const body = JSON.parse(String(init.body ?? "{}"));
             w.__ackAll.push(body);
-            /* The server's own answer: everything at or below the bound,
-               and the local row is not on the wire so it is untouched. */
+            /* A refusal armed by a test, used once. A 400 from this route
+               changes nothing, so nothing below runs. */
+            const refusal = w.__ackAllRefusal;
+            if (refusal) {
+              w.__ackAllRefusal = null;
+              return new Response(refusal.body, {
+                status: refusal.status,
+                headers: { "content-type": refusal.type },
+              });
+            }
+            /* The server's own answer, and it honours BOTH ends of the
+               window: at or after `from`, no newer than the anchor. The
+               local row is not on the wire, so it is untouched either way. */
             const bound = w.__alerts.get(body.up_to);
+            const from =
+              body.from === undefined
+                ? null
+                : Math.floor(Date.parse(body.from) / 1000);
             let n = 0;
             for (const [id, a] of w.__alerts) {
               if (a.acknowledged) continue;
               if (bound && a.started_epoch > bound.started_epoch) continue;
+              if (from !== null && a.started_epoch < from) continue;
               w.__alerts.set(id, {
                 ...a,
                 acknowledged: true,
@@ -434,7 +603,7 @@ describe("the cards, the badge and Acknowledge all", () => {
               });
               n += 1;
             }
-            w.__serverCounts = { total: 0, by_device: {} };
+            w.__recount();
             return json({ acknowledged: n });
           }
 
@@ -454,9 +623,30 @@ describe("the cards, the badge and Acknowledge all", () => {
 
         w.__push = (kind, alert) => {
           w.__alerts.set(alert.id, alert);
+          w.__pushRaw(kind, alert);
+        };
+
+        /* A frame that is NOT a row. `alerts.acknowledged` names no alerts,
+           so there is nothing to put in the store beside it. */
+        w.__pushRaw = (kind, data) => {
           const frame =
-            `event: ${kind}` + NL + `data: ${JSON.stringify(alert)}` + NL + NL;
+            `event: ${kind}` + NL + `data: ${JSON.stringify(data)}` + NL + NL;
           w.__sse.enqueue(new TextEncoder().encode(frame));
+        };
+
+        /* What the counts route would answer about the rows as they stand.
+           Tests that are about the NUMBER still override `__serverCounts`
+           directly, so a count this side derived for itself could never
+           pass for the server's. */
+        w.__recount = () => {
+          const by = {};
+          let total = 0;
+          for (const a of w.__alerts.values()) {
+            if (a.acknowledged) continue;
+            by[a.device_id] = (by[a.device_id] ?? 0) + 1;
+            total += 1;
+          }
+          w.__serverCounts = { total, by_device: by };
         };
       },
       [
@@ -651,7 +841,13 @@ describe("the cards, the badge and Acknowledge all", () => {
       !JSON.stringify(body[0]).includes("ALT-local"),
       "a local alert id reached the wire",
     );
-    /* No scope: the Alerts page is the fleet and narrows nothing. */
+    /* ⚠ AND NO `from`, BECAUSE THE LIST WAS NOT FILTERED. The near bound
+       is the date filter's start and there was no date filter: an unfiltered
+       feed is "everything I can see down to this row", which is exactly what
+       an anchor alone says. Sending a `from` here would invent a floor the
+       operator never set. */
+    assert.equal("from" in body[0], false);
+    /* No scope either: the Alerts page is the fleet and narrows nothing. */
     assert.equal("site_id" in body[0], false);
     assert.equal("device_id" in body[0], false);
   });
@@ -689,19 +885,24 @@ describe("the cards, the badge and Acknowledge all", () => {
     );
   });
 
-  test("⭐ a date filter narrows the view and does NOT narrow the write", async () => {
-    /* ⚠ THE ROUTE TAKES AN UPPER BOUND AND NO LOWER ONE, because there is
-       no sensible lower bound for "I have read everything down to here". So
-       with a filter on, pressing this clears the rows in front of the
-       operator AND everything older than them -- and a dialog saying "1"
-       over a write that touches two is the kind of small lie that teaches
-       somebody to check afterwards every time. The dialog states the number
-       the WRITE will reach, which is a number they can cancel on. */
+  test("⭐ a date filter sends the window it is showing, and nothing older", async () => {
+    /* ⭐ THE CASE THIS ROUND EXISTS FOR. The route used to take an upper
+       bound and no lower one, so pressing this on a filtered view cleared
+       the rows in front of the operator AND everything older than them --
+       a week nobody had looked at, cleared by a click on a screen showing
+       Tuesday. The dialog had to state the larger number for that reason,
+       which was the honest half of a bad bargain: the operator was agreeing
+       to rows they could not see.
+
+       `from` closes it. Two rows here, one from today and one from five
+       days ago; the filter shows the first, the dialog says one, and the
+       old row is still waiting afterwards. */
     const now = Math.floor(Date.now() / 1000);
     await page.evaluate(
       ([fresh, old]) => {
         window.__push("alert.new", old);
         window.__push("alert.new", fresh);
+        window.__recount();
       },
       [
         { ...alertRow("ffff0006", EAST, 0), started_epoch: now },
@@ -716,26 +917,167 @@ describe("the cards, the badge and Acknowledge all", () => {
     await page.click('[aria-label="Filter alerts by date"]');
     await page.click('[aria-label="Time range"] button:has-text("Today")');
     await page.click('[aria-label="Time range"] button:has-text("Apply")');
-    await page.waitForFunction(
-      () => /Today/.test(document.body.innerText),
-      { timeout: 5000 },
-    );
+    await page.waitForFunction(() => /Today/.test(document.body.innerText), {
+      timeout: 5000,
+    });
 
-    /* One row on screen, and two unacknowledged rows at or below it. */
+    /* One row on screen, and the dialog says one. It used to say two. */
     assert.equal(
       await page.evaluate(
         () => document.querySelectorAll("[data-alert-dot]").length,
       ),
       1,
     );
+    const sent = await page.evaluate(() => window.__ackAll.length);
     await page.click("[data-ack-all]");
     assert.equal(
       (await page.textContent("#ackall-title")).trim(),
-      "Acknowledge all 2 alerts?",
+      "Acknowledge all 1 alert?",
     );
-    await page.click("[data-ack-all-cancel]");
-    /* Put the screen back, so nothing after this inherits a filter. */
+    await page.click("[data-ack-all-confirm]");
+    await page.waitForFunction(
+      (n) => window.__ackAll.length > n,
+      sent,
+      { timeout: 5000 },
+    );
+
+    const body = (await page.evaluate(() => window.__ackAll)).at(-1);
+    assert.equal(body.up_to, "ffff0006");
+    /* ⚠ AN INSTANT IN UTC, SAID OUT LOUD, AND THE SITE'S MIDNIGHT RATHER
+       THAN THE VIEWER'S. Africa/Lagos is UTC+1 all year, so the site's day
+       began at 23:00Z the evening before. A bare local wall clock would be
+       read by the server as its own and would acknowledge a window an hour
+       away from the one on screen. */
+    assert.match(body.from, /^\d{4}-\d{2}-\d{2}T23:00:00\.000Z$/);
+    assert.ok(
+      Date.parse(body.from) / 1000 <= now,
+      "the window starts after the row it was meant to include",
+    );
+
+    /* And the five-day-old row is still outstanding: one server row plus
+       the local one, which the write could never reach. */
     await page.click('[aria-label="Clear date filter"]');
+    await page.waitForFunction(
+      () => /2 of 8 not yet acknowledged/.test(document.body.innerText),
+      { timeout: 5000 },
+    );
+    assert.equal(await badge(), "1");
+  });
+
+  test("⭐ a refusal shows the SERVER's sentence, and changes nothing", async () => {
+    /* ⚠ THREE MISTAKES, THREE REMEDIES. A 400 here is a stale anchor, a
+       date that could not be read, or a range ending before it starts --
+       and only the server knows which, so it is the server's sentence that
+       goes on screen. Ours would have to say "try again", which is useless
+       advice for two of the three. */
+    await page.evaluate(() => {
+      window.__ackAllRefusal = {
+        status: 400,
+        type: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "invalid_request",
+            message: "That list is out of date. Reload the alerts and try again.",
+          },
+        }),
+      };
+    });
+    await page.click("[data-ack-all]");
+    await page.click("[data-ack-all-confirm]");
+    await page.waitForSelector("[data-ack-problem]", { timeout: 5000 });
+    assert.equal(
+      (await page.textContent("[data-ack-problem]")).trim(),
+      "That list is out of date. Reload the alerts and try again.",
+    );
+    /* Nothing was written optimistically, so there is nothing to roll back:
+       the row is exactly as outstanding as it was. */
+    assert.equal(await badge(), "1");
+    assert.match(
+      await page.textContent("body"),
+      /2 of 8 not yet acknowledged/,
+    );
+  });
+
+  test("⚠ but a gateway's own page is not a sentence, and ours is used", async () => {
+    /* The SDK synthesises `message` from the first 200 characters of a body
+       that is not the error envelope. A proxy's HTML 400 is not written for
+       an operator. */
+    await page.evaluate(() => {
+      window.__ackAllRefusal = {
+        status: 400,
+        type: "text/html",
+        body: "<html><head><title>400 Bad Request</title></head><body>nginx</body></html>",
+      };
+    });
+    await page.click("[data-ack-all]");
+    await page.click("[data-ack-all-confirm]");
+    await page.waitForFunction(
+      () =>
+        document.querySelector("[data-ack-problem]")?.textContent?.trim() ===
+        "Couldn't acknowledge those alerts. Try again.",
+      { timeout: 5000 },
+    );
+    assert.equal(await badge(), "1");
+  });
+
+  test("⭐ a sweep made in ANOTHER browser arrives as one frame, and is re-read", async () => {
+    /* ⭐ THE THIRD KIND, END TO END. A batch acknowledgement is ONE
+       `alerts.acknowledged` frame for the whole sweep -- never an
+       `alert.updated` per row, which would close the channel of every
+       browser watching a busy site -- and it names no alerts. So it cannot
+       be applied to the rows this browser holds, and both the count and the
+       list have to be asked for again. Before SDK 0.14.0 the frame did not
+       reach this side at all, and a screenful cleared next door stayed
+       outstanding on this screen until the next drop recovery. */
+    const reads = await page.evaluate(() => window.__countReads);
+    const streams = await page.evaluate(() => window.__streams);
+    await page.evaluate(() => {
+      /* The server's side of it: the rows are acknowledged and the count
+         has moved. Nothing in the frame says so. */
+      for (const [id, a] of window.__alerts) {
+        if (!a.acknowledged) {
+          window.__alerts.set(id, {
+            ...a,
+            acknowledged: true,
+            acknowledged_by: "Terra Industries",
+            rev: a.rev + 1,
+          });
+        }
+      }
+      window.__recount();
+      window.__pushRaw("alerts.acknowledged", { count: 1 });
+    });
+
+    /* The count, re-read rather than adjusted. */
+    await page.waitForFunction(
+      (n) => window.__countReads > n,
+      reads,
+      { timeout: 5000 },
+    );
+    await page.waitForFunction(
+      () => document.querySelector("[data-alerts-badge]") === null,
+      { timeout: 5000 },
+    );
+    /* And the LIST, re-read too -- otherwise the row would keep reading
+       "Not acknowledged" here while another screen showed it handled. Only
+       the local alert is left, and it is the one the sweep cannot touch. */
+    await page.waitForFunction(
+      () => /1 of 8 not yet acknowledged/.test(document.body.innerText),
+      { timeout: 5000 },
+    );
+    assert.deepEqual(await cardNumbers(), []);
+    /* ⚠ AND THE CHANNEL IS STILL THE SAME CHANNEL. This is the assertion
+       that tells the narrowing from the lack of it: reading `event.alert`
+       off this frame throws inside the handler, the SDK's loop dies with
+       it, and the recovery re-reads the list and reconnects -- which looks
+       from the outside exactly like the correct behaviour, right down to
+       the count moving and the rows going quiet. What it costs is a socket
+       per batch acknowledgement, against a node that holds 64 of them. */
+    assert.equal(
+      await page.evaluate(() => window.__streams),
+      streams,
+      "a batch acknowledgement cost a reconnection",
+    );
   });
 
   test("Escalate is still disabled and there is still no Resolve", async () => {

@@ -69,6 +69,7 @@ type Step = "intro" | "handoff" | "code" | "waiting";
 
 export function AddTowerView({
   pendingClaim,
+  claimById,
   onNavigate,
   onCancel,
   onClaimed,
@@ -76,24 +77,52 @@ export function AddTowerView({
 }: {
   /** An open claim from a previous visit, loaded by the shell from the server. */
   pendingClaim?: Claim | null;
+  /**
+   * The shell's live reading of ONE claim, by id.
+   *
+   * ⚠ THIS EXISTS BECAUSE `pendingClaim` GOES AWAY AT THE MOMENT THAT MATTERS,
+   * and that was the bug. The shell derives it as "the claim whose status is
+   * `open`", which is right for the dashboard's pending card — a consumed
+   * claim is a real tower and belongs in the fleet list, not in a card about
+   * a registration. But this screen is watching one particular claim through
+   * to the end, and the end is the status it stops being `open`. So the
+   * moment the tower enrolled, `pendingClaim` became `null`, the effect below
+   * bailed on it, and the local copy kept saying `open` for ever: the screen
+   * sat on WAITING FOR THE TOWER with the pairing window ticking down, for a
+   * tower that had already arrived.
+   *
+   * A claim this screen has never registered is none of its business, which
+   * is why this is a lookup by id rather than a list.
+   */
+  claimById?: (id: string) => Claim | null;
   /** Rail destinations, routed by the shell. */
   onNavigate: (id: string) => void;
   onCancel: () => void;
   /** A claim was registered. The shell starts polling for it. */
   onClaimed: (claim: Claim) => void;
-  /** The claim was consumed — the tower is real now. */
+  /** The tower enrolled, and the operator is finished here. */
   onDone: (deviceLabel: string) => void;
 }) {
   /* Resume straight into the wait if a claim is already open. The operator has
      already done the part that needed them. */
   const [step, setStep] = useState<Step>(pendingClaim ? "waiting" : "intro");
-  const [claim, setClaim] = useState<Claim | null>(pendingClaim ?? null);
+  /**
+   * WHICH claim this screen is following. The row itself is only the fallback.
+   *
+   * Captured once and then kept: what is drawn comes from the shell's live
+   * reading of that id, so a status change reaches this screen on the poll
+   * that sees it rather than when something hands the row back down.
+   */
+  const [watching, setWatching] = useState<Claim | null>(pendingClaim ?? null);
+  const claim = (watching ? claimById?.(watching.claim_id) : null) ?? watching;
 
   useEffect(() => {
-    if (!pendingClaim) return;
-    setClaim(pendingClaim);
-    if (pendingClaim.status === "consumed") onDone(pendingClaim.label);
-  }, [pendingClaim, onDone]);
+    /* `prev ?? next`: the id is settled on the first claim this screen sees
+       and does not move afterwards. The lookup above is what keeps it
+       current, and it answers for a consumed claim as readily as an open
+       one -- which is the whole point of it. */
+    if (pendingClaim) setWatching((prev) => prev ?? pendingClaim);
+  }, [pendingClaim]);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-ink">
@@ -139,7 +168,7 @@ export function AddTowerView({
             {step === "code" && (
               <EnterCode
                 onRegistered={(c) => {
-                  setClaim(c);
+                  setWatching(c);
                   onClaimed(c);
                   setStep("waiting");
                 }}
@@ -487,15 +516,31 @@ function EnterCode({
 /* ----------------------------------------------------------------- 3 */
 
 /**
- * Waiting for the tower to enrol.
+ * How long the finished state is held before this screen takes the operator
+ * to the dashboard.
+ *
+ * Long enough to read one heading and decide to press the button instead,
+ * short enough that nobody waits on it. Exported so the test names the same
+ * number the screen does.
+ */
+export const REGISTERED_DWELL_MS = 5000;
+
+/**
+ * Waiting for the tower to enrol, and then saying so.
  *
  * This is a REAL wait on a real deadline. The claim lives on the server, so
  * closing the browser and coming back finds it still here — which is the point,
  * and is what the old 4.5-second timer could never do.
  *
- * The countdown is the honest shape for it: the window is fifteen minutes and
- * then the claim lapses, so a spinner with no end would be lying about what
- * happens next.
+ * The countdown is the honest shape for the wait: the window is fifteen
+ * minutes and then the claim lapses, so a spinner with no end would be lying
+ * about what happens next.
+ *
+ * ⚠ AND IT IS THE WRONG SHAPE THE INSTANT THE TOWER ARRIVES. That clock is
+ * the time left to TYPE THE CODE, nothing else, so a screen still running it
+ * after enrolment is counting down to a deadline that cannot be missed any
+ * more. It stopped and it is hidden, because a number that has stopped
+ * meaning anything is worse than no number: it is still being read.
  */
 function Waiting({
   claim,
@@ -508,18 +553,45 @@ function Waiting({
 }) {
   const [left, setLeft] = useState(() => msUntilExpiry(claim));
 
+  /* `enrolled` beats everything, including a window that lapsed in the same
+     second the tower came up. A claim the tower consumed is spent, and the
+     deadline it was racing stopped applying the moment it did. */
+  const enrolled = claim.status === "consumed";
+  const dead =
+    !enrolled &&
+    (claim.status === "expired" || claim.status === "superseded" || left <= 0);
+
   useEffect(() => {
+    if (enrolled) return;
     setLeft(msUntilExpiry(claim));
     const t = setInterval(() => setLeft(msUntilExpiry(claim)), 1000);
     return () => clearInterval(t);
-  }, [claim]);
+  }, [claim, enrolled]);
 
-  const consumed = claim.status === "consumed";
-  const dead = claim.status === "expired" || claim.status === "superseded" || left <= 0;
-
+  /**
+   * ⚠ THE CALLBACK IS READ THROUGH A REF, AND THE TIMER DOES NOT DEPEND ON IT.
+   *
+   * `onDone` is an inline arrow at the shell's call site, so it is a new
+   * function on every render of the shell — and the shell re-renders about
+   * once a second on its own, for the battery fill and the latency walk. A
+   * `setTimeout` in an effect that listed it as a dependency would be torn
+   * down and started again before it ever fired, and this screen would sit on
+   * the finished state for ever while looking entirely correct. The effect
+   * depends on the one thing that actually gates it.
+   */
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
   useEffect(() => {
-    if (consumed) onDone();
-  }, [consumed, onDone]);
+    if (!enrolled) return;
+    const t = setTimeout(() => doneRef.current(), REGISTERED_DWELL_MS);
+    /* ⚠ AND LEAVING THIS SCREEN CANCELS IT. An operator who presses Dashboard
+       or a rail destination during these five seconds has chosen where to be,
+       and a timer that fired afterwards would move them from a screen they
+       asked for to one they did not. Unmounting is the cancel. */
+    return () => clearTimeout(t);
+  }, [enrolled]);
+
+  const name = deviceName(claim.label);
 
   return (
     <motion.div
@@ -531,11 +603,19 @@ function Waiting({
       <img src="/icons/twr-mast-lg.svg" alt="" width={183} height={317} className="block max-h-[220px] w-auto" />
 
       <Heading
-        title={dead ? "REGISTRATION EXPIRED" : "WAITING FOR THE TOWER"}
+        title={
+          enrolled
+            ? `${name} is registered`
+            : dead
+              ? "REGISTRATION EXPIRED"
+              : "WAITING FOR THE TOWER"
+        }
         body={
-          dead
-            ? "The tower did not connect in time. The code is still valid, so register it again."
-            : "The tower will connect on its own. You can leave this page; the registration is saved."
+          enrolled
+            ? "It will show online once it connects."
+            : dead
+              ? "The tower did not connect in time. The code is still valid, so register it again."
+              : "The tower will connect on its own. You can leave this page; the registration is saved."
         }
       />
 
@@ -544,22 +624,38 @@ function Waiting({
         <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
           <dt className="sr-only">Site name</dt>
           <dd className="truncate font-display text-[0.875rem] tracking-[0.14px] text-body-ink">
-            {deviceName(claim.label)}
+            {name}
           </dd>
           <dt className="sr-only">Status</dt>
+          {/* Three states, and the enrolled one deliberately does not repeat
+              the heading. "Registered" is said above it now, so the line says
+              the part that is still outstanding and nothing else. */}
           <dd className="text-[0.75rem] leading-[15px] tracking-[0.12px] text-sub">
-            {dead ? "Not registered" : "Registered, waiting to connect"}
+            {enrolled
+              ? "Waiting to connect"
+              : dead
+                ? "Not registered"
+                : "Registered, waiting to connect"}
           </dd>
         </div>
-        {!dead && (
-          <span className="flex shrink-0 items-center gap-[6px] font-display text-[0.75rem] tracking-[0.12px] text-detect tabular-nums">
+        {/* ⚠ GONE ONCE THE TOWER IS IN, not frozen at whatever it read. This
+            is the pairing window and nothing else. */}
+        {!dead && !enrolled && (
+          <span
+            data-claim-countdown
+            className="flex shrink-0 items-center gap-[6px] font-display text-[0.75rem] tracking-[0.12px] text-detect tabular-nums"
+          >
             <span aria-hidden className="pulse-dot size-[6px] rounded-full bg-detect" />
             {formatCountdown(left)}
           </span>
         )}
       </dl>
 
-      {dead ? (
+      {enrolled ? (
+        <Action tone="primary" onClick={onDone}>
+          Go to dashboard
+        </Action>
+      ) : dead ? (
         <Action tone="primary" onClick={onReenter}>
           Register again
         </Action>

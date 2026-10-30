@@ -564,6 +564,10 @@ export function SentinelApp() {
   /* Bumped when a claim is registered, so the poll picks it up at once rather
      than on its next tick. */
   const [claimTick, setClaimTick] = useState(0);
+  /* Claims whose enrolment has already cost a fleet read. See the poll. A ref
+     rather than state: nothing renders from it, and it must be readable and
+     writable inside one pass of the poll without waiting for a render. */
+  const fleetReadFor = useRef<Set<string>>(new Set());
   /**
    * Open registrations, from the server.
    *
@@ -576,6 +580,27 @@ export function SentinelApp() {
    */
   const [claims, setClaims] = useState<Claim[]>([]);
   const openClaim = claims.find((c) => c.status === "open") ?? null;
+  /**
+   * ONE claim, by id, whatever state it is in.
+   *
+   * ⚠ `openClaim` IS NOT THIS, AND THE DIFFERENCE WAS THE BUG. A card on the
+   * dashboard about a registration in progress should disappear the moment
+   * the tower enrols, because the tower is in the fleet list below it from
+   * then on — so filtering to `open` is right there. The Add Tower screen is
+   * the opposite case: it is watching one claim THROUGH that transition, and
+   * `open` is the one status it is waiting to stop seeing. Handed `openClaim`
+   * alone it was handed `null` at exactly the moment the answer arrived, and
+   * sat on "WAITING FOR THE TOWER" with the pairing countdown running until
+   * the operator gave up and clicked Dashboard.
+   *
+   * By id rather than as a list, so the screen can only ask about the claim
+   * it registered. A consumed claim from last week is not an answer to
+   * "has my tower arrived".
+   */
+  const claimById = useCallback(
+    (id: string) => claims.find((c) => c.claim_id === id) ?? null,
+    [claims],
+  );
 
   /* The watchlist, and the screen that edits it. Up here with the feeds and the
      towers because a match is an alert like any other — the roster and the feed
@@ -1560,12 +1585,22 @@ export function SentinelApp() {
      list puts it. */
 
   /**
-   * Poll while a registration is open.
+   * The claim poll: every five seconds, for as long as a real fleet is on
+   * screen.
    *
-   * Only while one is open: there is nothing to watch otherwise, and a fleet
-   * screen quietly polling forever is the kind of traffic nobody notices until
-   * it matters. When a claim flips to `consumed` the tower appears in the fleet,
-   * so the fleet is re-read once and the polling stops.
+   * ⚠ THIS IS THE ONLY WAY THIS APP LEARNS THAT A TOWER ENROLLED. There is no
+   * claim event on the alert channel and nothing pushes it, so a registration
+   * finishing is something the browser finds out by asking. It keeps asking
+   * after the claim is consumed rather than stopping, which is deliberate: a
+   * second registration starts from the same screen, and an interval that
+   * had switched itself off would make the next one invisible.
+   *
+   * ⚠ BUT THE FLEET RE-READ BELOW IS ONCE PER CLAIM, NOT ONCE PER TICK. A
+   * consumed claim stays consumed and stays in the list, so testing the
+   * status alone made every later tick fetch the whole fleet again — a
+   * registration earlier in the session left this screen reading
+   * `/v1/viewer/towers` every five seconds until the tab closed. The ids
+   * already acted on are remembered instead.
    */
   useEffect(() => {
     if (seededFleet) return;
@@ -1579,8 +1614,11 @@ export function SentinelApp() {
         setClaims(next);
         /* A claim that has just been consumed means a real tower now exists
            that the fleet has not seen. One re-read, not a poll. */
-        const consumed = next.some((c) => c.status === "consumed");
-        if (consumed) {
+        const arrived = next.filter(
+          (c) => c.status === "consumed" && !fleetReadFor.current.has(c.claim_id),
+        );
+        if (arrived.length > 0) {
+          for (const c of arrived) fleetReadFor.current.add(c.claim_id);
           const snapshot = await listFleet(controller.signal);
           if (!controller.signal.aborted && !stopped) {
             takeSnapshot(snapshot);
@@ -2120,6 +2158,7 @@ export function SentinelApp() {
       ) : adding ? (
         <AddTowerView
           pendingClaim={openClaim}
+          claimById={claimById}
           onNavigate={navigate}
           onCancel={() => setAdding(false)}
           onClaimed={(claim) => {
@@ -2127,8 +2166,25 @@ export function SentinelApp() {
             setClaimTick((n) => n + 1);
           }}
           onDone={() => {
-            setAdding(false);
+            /* ⚠ THE FLEET IS RE-READ AS PART OF THE MOVE, not left to the
+               poll. The claims poll does re-read it when it sees a consumed
+               claim, and that is usually what has already happened by the
+               time this fires — but "usually" is not what the operator is
+               owed here. They are being sent to a list specifically to see
+               the tower they just registered, and arriving at a list without
+               it in reads as the registration having failed. Quietly,
+               because nobody asked for a fleet read and a banner over a
+               success would be the wrong noise.
+
+               Not awaited: the navigation is the operator's and must not
+               wait on a network call. The list fills in behind them. */
+            void refreshFleetQuietly();
             setClaimTick((n) => n + 1);
+            /* The dashboard specifically, rather than `setAdding(false)` and
+               whatever happened to be behind this screen. Dropping the flag
+               alone would land an operator who opened Add Tower from the
+               towers board back on the board. */
+            navigate("dashboard");
           }}
         />
       ) : onTowers ? (

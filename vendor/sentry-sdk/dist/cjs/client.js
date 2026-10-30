@@ -1915,6 +1915,99 @@ class SentryClient {
         return (0, alerts_js_1.parseSiteAlert)(body, { status, path });
     }
     /**
+     * How many alerts nobody has answered — `GET /v1/viewer/site-alerts/counts`.
+     *
+     * **The badge on the tower card.** The website counted this for itself until
+     * the route existed: one `GET /v1/viewer/site-alerts` with no limit — the
+     * newest 100 across the whole fleet — grouped in JavaScript, acknowledged
+     * ones included, with a literal `"+"` appended. So `"17+"` meant seventeen,
+     * and would still have meant seventeen with four hundred outstanding.
+     *
+     * ⚠ `byDevice` OMITS A DEVICE WITH NONE rather than sending a zero. Read it
+     * as `byDevice[deviceId] ?? 0`.
+     *
+     * Scoped from identity like every other viewer route, through the same choke
+     * point the list uses — a count leaks perfectly well without ever naming a
+     * row, so it must not have a second answer to "whose alerts".
+     */
+    async siteAlertCounts(opts = {}) {
+        const path = "/v1/viewer/site-alerts/counts";
+        const { status, body } = await this.http.send({
+            method: "GET",
+            path,
+            accept: "json",
+            ...pick(opts),
+        });
+        return (0, alerts_js_1.parseSiteAlertCounts)(body, { status, path });
+    }
+    /**
+     * Acknowledge a screenful at once — `POST /v1/viewer/site-alerts/ack-all`.
+     * Returns how many rows changed.
+     *
+     * **THE SWEEP IS A WINDOW, and both ends are the operator's own screen.**
+     * `upTo` is the **alert id** of the newest alert they have in front of them;
+     * `from` is the near end of the date range that list was filtered to. Alerts
+     * raised at or after `from` and no newer than `upTo` — within this account's
+     * scope, narrowed further by `siteId` / `deviceId` — are the ones
+     * acknowledged. Both bounds are inclusive.
+     *
+     * `upTo` is required and there is deliberately no "acknowledge everything":
+     * as far back as the table goes is not something an operator can have
+     * *seen*. `from` is optional, but **send it whenever the list is filtered by
+     * date** — without it the button reaches back past everything the operator
+     * had filtered out of view. ISO-8601, and no offset means UTC
+     * ({@link AckAllSiteAlertsRequest.from}).
+     *
+     * One `alerts.acknowledged` frame goes out on the live channel for the whole
+     * batch — never one `alert.updated` per row, which would close the stream of
+     * every browser watching a busy site. {@link subscribeSiteAlerts} delivers it;
+     * the reaction is a re-read, since the frame names no alerts. The frame
+     * echoes the `from` it used.
+     *
+     * `0` is a normal answer: a second click changes nothing, and nothing changed
+     * is not announced on the channel either.
+     *
+     * @throws {InvalidRequestError} `400 invalid_request` — **three different
+     *   mistakes with three different remedies**, told apart by the message, so
+     *   show the server's sentence rather than one of your own:
+     *
+     *   - *"That list is out of date. Reload the alerts and try again."* — the
+     *     anchor could not be resolved: missing, or an id this account may not
+     *     see, or one that no longer exists. One answer for all three, so the
+     *     anchor cannot become a way to learn somebody else's alert exists.
+     *   - *"Those dates could not be read. Choose the date range again."* —
+     *     `from` is not a timestamp this route can parse.
+     *   - *"That date range ends before it starts. Choose the dates again."* —
+     *     `from` is later than the anchor's own alert. Nobody can have seen
+     *     alerts from after the newest row on their screen, and answering `0`
+     *     would look like a click that worked.
+     *
+     *   A refusal changes **nothing**: every alert is still outstanding after it.
+     * @throws {AuthError} `401` / `403 not_authorized` — the write is gated
+     *   exactly as the read of the same alert is.
+     */
+    async ackAllSiteAlerts(req) {
+        // A WHITELIST, built field by field — `req` also carries transport options,
+        // and a spread here is how `timeoutMs` would one day arrive on the wire as
+        // a filter the server might start reading.
+        const body = { up_to: req.upTo };
+        if (req.from !== undefined)
+            body.from = req.from;
+        if (req.siteId !== undefined)
+            body.site_id = req.siteId;
+        if (req.deviceId !== undefined)
+            body.device_id = req.deviceId;
+        const path = "/v1/viewer/site-alerts/ack-all";
+        const { status, body: raw } = await this.http.send({
+            method: "POST",
+            path,
+            json: body,
+            accept: "json",
+            ...pick(req),
+        });
+        return (0, alerts_js_1.parseAckAllSiteAlertsResult)(raw, { status, path });
+    }
+    /**
      * Subscribe to the live alert channel — `GET /v1/viewer/events`.
      *
      * ⚠ THIS DOES NOT USE `EventSource`, AND THAT IS THE WHOLE REASON IT EXISTS.
@@ -1940,12 +2033,22 @@ class SentryClient {
      *   exceptional. On every one this re-reads `listSiteAlerts({since})` from the
      *   last alert seen, emits whatever the gate accepts, and reconnects.
      *
-     * Unknown event kinds are ignored rather than thrown on: a new kind on this
-     * channel is an additive server change, and a reader that threw would turn it
-     * into a broken dashboard.
+     * - **Batch acknowledgements.** An `alerts.acknowledged` frame is delivered
+     *   like any other event, ungated — it carries no row to order and no
+     *   timestamp to move the watermark by. Narrow on `kind` before reaching for
+     *   `alert`; the reaction is a re-read, since the frame names no alerts.
+     *
+     * Unknown event kinds are still ignored rather than thrown on: a new kind on
+     * this channel is an additive server change, and a reader that threw would
+     * turn it into a broken dashboard.
      *
      * ```ts
-     * const sub = client.subscribeSiteAlerts({ onAlert: (e) => store.upsert(e.alert) });
+     * const sub = client.subscribeSiteAlerts({
+     *   onAlert: (e) => {
+     *     if (isAlertRowEvent(e)) store.upsert(e.alert);
+     *     else void refreshCounts();        // a screenful was acknowledged
+     *   },
+     * });
      * // ...on teardown:
      * sub.stop();
      * ```
@@ -1978,6 +2081,15 @@ class SentryClient {
                 handlers.signal.addEventListener("abort", stop);
         }
         const emit = (event) => {
+            // ⚠ A BATCH ACKNOWLEDGEMENT NAMES NO ROWS, so there is no `rev` to order
+            // it by and no watermark to move: it is delivered every time. Gating it
+            // on the alert fields would mean reading them off an object that has
+            // none, and dropping it would lose the one notice a dashboard gets that
+            // its badges are now wrong.
+            if (!(0, alerts_js_1.isAlertRowEvent)(event)) {
+                handlers.onAlert(event);
+                return;
+            }
             if (!gate.accept(event.alert))
                 return;
             if (event.alert.started_epoch > (since ?? -Infinity))

@@ -1,0 +1,180 @@
+{
+  "_": [
+    "GENERATED -- do not hand-edit. Regenerate with the scripts named below.",
+    "",
+    "Unlike the other fixtures here, these are not a projection function's",
+    "return value: they are the REAL HTTP RESPONSE BODIES of a running",
+    "coordination node, and the sse_* blocks are the real bytes off its event",
+    "stream. A node was started on 127.0.0.1 with the harness from",
+    "core/coordination/tests/test_alert_counts_and_ack_all.py (data centre",
+    "tier, one site, one hub, two towers D1 and D2, five unacknowledged",
+    "alerts: three on D1 one second apart from BASE, two on D2 from",
+    "BASE+100), then called over HTTP:",
+    "",
+    "  GET  /v1/viewer/site-alerts/counts    -> counts_*",
+    "  POST /v1/viewer/site-alerts/ack-all   -> ack_all_*",
+    "  GET  /v1/viewer/events                -> sse_* (captured while the",
+    "                                           ack-all was in flight)",
+    "",
+    "sentry-core e368a3f (on main as 25bee85). Spec: docs/alerts.md 4.",
+    "",
+    "The ack_all_*from* and sse_acknowledged_from* blocks come from a second",
+    "run that starts a FRESH node per scenario, so each one begins from the",
+    "same five alerts and none of them depends on the order they ran in.",
+    "",
+    "Worth knowing when reading the blocks:",
+    "  * counts_after_ack has NO key for the tower that was just cleared --",
+    "    a device with none is absent, never a zero.",
+    "  * ack_all_with_from acknowledged 2 of D1's 3 and counts_after_from",
+    "    still shows 1 outstanding there: `from` was the MIDDLE alert's",
+    "    second, and the oldest one is outside the window. That is the whole",
+    "    point of the field -- the button used to reach past everything the",
+    "    operator had filtered out of view.",
+    "  * ack_all_from_no_offset sent the same instant with no `Z` and got the",
+    "    same answer: no offset means UTC, not the server's local time.",
+    "  * ack_all_from_equals_anchor acknowledged 1 -- the window is",
+    "    inclusive at both ends.",
+    "  * THREE refusals, each its own sentence and all of them 400",
+    "    invalid_request: a stale anchor (reload the list), a date that",
+    "    cannot be read, and a range that ends before it starts.",
+    "    counts_untouched_by_refusals shows all five alerts still",
+    "    outstanding after them."
+  ],
+  "ack_all_bad_anchor": {
+    "body": {
+      "error": {
+        "code": "invalid_request",
+        "message": "That list is out of date. Reload the alerts and try again."
+      }
+    },
+    "status": 400
+  },
+  "ack_all_by_site": {
+    "acknowledged": 2
+  },
+  "ack_all_filtered": {
+    "acknowledged": 3
+  },
+  "ack_all_no_anchor": {
+    "body": {
+      "error": {
+        "code": "invalid_request",
+        "message": "That list is out of date. Reload the alerts and try again."
+      }
+    },
+    "status": 400
+  },
+  "ack_all_nothing_left": {
+    "acknowledged": 0
+  },
+  "ack_all_unfiltered": {
+    "acknowledged": 0
+  },
+  "counts_after_ack": {
+    "by_device": {
+      "kln_north_000002": 2
+    },
+    "total": 2
+  },
+  "counts_empty": {
+    "by_device": {},
+    "total": 0
+  },
+  "counts_two_towers": {
+    "by_device": {
+      "kln_north_000001": 3,
+      "kln_north_000002": 2
+    },
+    "total": 5
+  },
+  "counts_unauthenticated": {
+    "body": {
+      "error": {
+        "code": "unauthorized",
+        "message": "authentication required"
+      }
+    },
+    "status": 401
+  },
+  "site_id": "site_27218af2aa5c6421",
+  "sse_acknowledged_raw": "retry: 3000\n: open\n\nid: 1\nevent: alerts.acknowledged\ndata: {\"count\":3,\"device_id\":\"kln_north_000001\"}\n\n",
+  "sse_acknowledged_site_raw": "retry: 3000\n: open\n\nid: 2\nevent: alerts.acknowledged\ndata: {\"count\":2,\"site_id\":\"site_27218af2aa5c6421\"}\n\n",
+  "ack_all_backwards_from": {
+    "body": {
+      "error": {
+        "code": "invalid_request",
+        "message": "That date range ends before it starts. Choose the dates again."
+      }
+    },
+    "status": 400
+  },
+  "ack_all_from_and_site": {
+    "acknowledged": 2
+  },
+  "ack_all_from_equals_anchor": {
+    "acknowledged": 1
+  },
+  "ack_all_from_no_offset": {
+    "acknowledged": 2
+  },
+  "ack_all_impossible_date": {
+    "body": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Those dates could not be read. Choose the date range again."
+      }
+    },
+    "status": 400
+  },
+  "ack_all_unreadable_from": {
+    "body": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Those dates could not be read. Choose the date range again."
+      }
+    },
+    "status": 400
+  },
+  "ack_all_with_from": {
+    "acknowledged": 2
+  },
+  "anchor_newest_d1": "camera_stopped-kln_north_000001-2",
+  "counts_after_from": {
+    "by_device": {
+      "kln_north_000001": 1,
+      "kln_north_000002": 2
+    },
+    "total": 3
+  },
+  "counts_after_from_and_site": {
+    "by_device": {
+      "kln_north_000001": 3
+    },
+    "total": 3
+  },
+  "counts_after_no_offset": {
+    "by_device": {
+      "kln_north_000001": 1,
+      "kln_north_000002": 2
+    },
+    "total": 3
+  },
+  "counts_before": {
+    "by_device": {
+      "kln_north_000001": 3,
+      "kln_north_000002": 2
+    },
+    "total": 5
+  },
+  "counts_untouched_by_refusals": {
+    "by_device": {
+      "kln_north_000001": 3,
+      "kln_north_000002": 2
+    },
+    "total": 5
+  },
+  "from_at_second_alert": "2026-10-26T07:33:21Z",
+  "from_no_offset": "2026-10-26T07:33:21",
+  "sse_acknowledged_from_raw": "retry: 3000\n: open\n\nid: 1\nevent: alerts.acknowledged\ndata: {\"count\":2,\"from\":\"2026-10-26T07:33:21Z\"}\n\n",
+  "sse_acknowledged_from_site_raw": "retry: 3000\n: open\n\nid: 1\nevent: alerts.acknowledged\ndata: {\"count\":2,\"from\":\"2026-10-26T07:35:00Z\",\"site_id\":\"site_27218af2aa5c6421\"}\n\n"
+}

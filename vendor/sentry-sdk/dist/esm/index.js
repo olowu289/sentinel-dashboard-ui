@@ -24,5 +24,5 @@ export { SHARE_DEFAULT_SEC, SHARE_MAX_SEC, SHARE_MESSAGE_MAX, SHARE_MIN_SEC, isA
 /* ------------------------------------------------------------------ *
  * Site alerts and the live channel (docs/alerts.md §4)
  * ------------------------------------------------------------------ */
-export { AlertRevisionGate, SseBuffer, alertEventOf, parseSiteAlert, parseSiteAlertList, parseSseFrame, } from "./alerts.js";
+export { AlertRevisionGate, SseBuffer, alertEventOf, isAlertRowEvent, parseAckAllSiteAlertsResult, parseAlertsAcknowledged, parseSiteAlert, parseSiteAlertCounts, parseSiteAlertList, parseSseFrame, } from "./alerts.js";
 //# sourceMappingURL=index.js.map

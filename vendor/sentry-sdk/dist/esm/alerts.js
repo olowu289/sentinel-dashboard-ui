@@ -3,7 +3,9 @@
  *
  * Source of truth: `sentry-core/docs/alerts.md` §4. Scope: the viewer-facing
  * routes `GET /v1/viewer/site-alerts`, `GET /v1/viewer/site-alerts/{id}`,
- * `POST /v1/viewer/site-alerts/{id}/ack`, and `GET /v1/viewer/events`.
+ * `GET /v1/viewer/site-alerts/counts`,
+ * `POST /v1/viewer/site-alerts/{id}/ack`,
+ * `POST /v1/viewer/site-alerts/ack-all`, and `GET /v1/viewer/events`.
  *
  * ## Why a module of its own
  *
@@ -37,6 +39,10 @@
  *   component state and render it an hour later.
  */
 import { ValidationError } from "./errors.js";
+/** `true` for the frames that carry an alert, narrowing the union for TypeScript. */
+export function isAlertRowEvent(event) {
+    return event.kind === "alert.new" || event.kind === "alert.updated";
+}
 /** Same kernel as `sites.ts`, for the same reason: structural, not exhaustive. */
 class Check {
     issues = [];
@@ -214,6 +220,64 @@ export function parseSiteAlertList(raw, ctx = {}) {
     c.done("site alert list", ctx);
     return { alerts, colours };
 }
+/**
+ * Validate `GET /v1/viewer/site-alerts/counts`.
+ *
+ * `by_device` → `byDevice`, and every count is required to be a real number:
+ * a `null` here is a badge that renders as nothing on a tower that may have
+ * fifty outstanding, which is worth failing loudly for.
+ */
+export function parseSiteAlertCounts(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const total = c.num("$.total", o.total);
+    const byDevice = {};
+    for (const [deviceId, n] of Object.entries(c.obj("$.by_device", o.by_device))) {
+        byDevice[deviceId] = c.num(`$.by_device.${deviceId}`, n);
+    }
+    c.done("site alert counts", ctx);
+    return { total, byDevice };
+}
+/** Validate `POST /v1/viewer/site-alerts/ack-all`. */
+export function parseAckAllSiteAlertsResult(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    // Required, and never defaulted. "How many did that change" is the whole
+    // answer; a missing one silently reported as 0 would tell an operator their
+    // click did nothing when it cleared the fleet.
+    const acknowledged = c.num("$.acknowledged", o.acknowledged);
+    c.done("ack-all result", ctx);
+    return { acknowledged };
+}
+/**
+ * Validate the `data` of an `alerts.acknowledged` frame.
+ *
+ * A WHITELIST, like every other parser here: `count` and the two optional
+ * filters are read and nothing else is carried through, so a field the server
+ * adds for its own use cannot become something a dashboard starts depending on.
+ */
+export function parseAlertsAcknowledged(raw, ctx = {}) {
+    const c = new Check();
+    const o = c.obj("$", raw);
+    const out = {
+        kind: "alerts.acknowledged",
+        count: c.num("$.count", o.count),
+    };
+    // snake_case on the wire, camelCase in hand — and absent, never null.
+    if (o.site_id !== undefined && o.site_id !== null) {
+        put(out, "siteId", c.str("$.site_id", o.site_id));
+    }
+    if (o.device_id !== undefined && o.device_id !== null) {
+        put(out, "deviceId", c.str("$.device_id", o.device_id));
+    }
+    // The window, echoed back by a server that was given one. Same name on both
+    // sides -- `from` is not a Python keyword problem out here.
+    if (o.from !== undefined && o.from !== null) {
+        put(out, "from", c.str("$.from", o.from));
+    }
+    c.done("alerts.acknowledged event", ctx);
+    return out;
+}
 /* ------------------------------------------------------------------ *
  * Ordering
  * ------------------------------------------------------------------ */
@@ -328,18 +392,20 @@ export class SseBuffer {
         return out;
     }
 }
+const EVENT_KINDS = ["alert.new", "alert.updated", "alerts.acknowledged"];
 /**
- * Read one frame as an alert event, or `null` when it is not one.
+ * Read one frame as an event, or `null` when it is not one this build knows.
  *
- * `null` for anything that is not `alert.new` / `alert.updated` — a future event
- * kind on this channel is additive and a reader that threw on one would turn a
- * compatible server change into a broken dashboard (§A.9's rule, same shape).
+ * `null` for any other kind — a future event kind on this channel is additive
+ * and a reader that threw on one would turn a compatible server change into a
+ * broken dashboard (§A.9's rule, same shape).
  *
- * Throws {@link ValidationError} only when a frame *claims* to be an alert and
- * its `data` is not one: that is a real contract break, not an unknown.
+ * Throws {@link ValidationError} only when a frame *claims* to be a kind we
+ * know and its `data` is not that shape: a real contract break, not an unknown.
  */
 export function alertEventOf(frame) {
-    if (frame.event !== "alert.new" && frame.event !== "alert.updated")
+    const kind = frame.event;
+    if (kind === undefined || !EVENT_KINDS.includes(kind))
         return null;
     if (!frame.data)
         return null;
@@ -348,15 +414,17 @@ export function alertEventOf(frame) {
         parsed = JSON.parse(frame.data);
     }
     catch {
-        throw new ValidationError(`${frame.event} carried data that is not JSON`, {
+        throw new ValidationError(`${kind} carried data that is not JSON`, {
             issues: [`$.data: expected JSON, got ${frame.data.slice(0, 60)}`],
             path: "/v1/viewer/events",
         });
     }
-    const out = {
-        kind: frame.event,
-        alert: parseSiteAlert(parsed, { path: "/v1/viewer/events" }),
-    };
+    const out = kind === "alerts.acknowledged"
+        ? parseAlertsAcknowledged(parsed, { path: "/v1/viewer/events" })
+        : {
+            kind: kind,
+            alert: parseSiteAlert(parsed, { path: "/v1/viewer/events" }),
+        };
     if (frame.id !== undefined)
         return { ...out, id: frame.id };
     return out;

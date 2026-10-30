@@ -443,6 +443,36 @@ site they cannot see. `status` is derived from the readings, not chosen — a ne
 tower with a dead camera joins the fleet `degraded`, because saying `online`
 because it is new is exactly the lie the dashboard exists to catch.
 
+### When the tower arrives
+
+The wait ends by itself, and for a while it did not. The claim is polled from
+`GET /v1/viewer/claims` every five seconds, which is the only way this app
+learns that a tower enrolled — nothing pushes it. The shell saw the status
+change immediately and then handed the screen the claim whose status is
+`open`, which from that moment is none of them. The screen kept its own stale
+copy, and an operator watched WAITING FOR THE TOWER with the pairing countdown
+ticking down for a tower that was already up, until they gave up and clicked
+Dashboard to find it sitting in the fleet.
+
+Two different questions were being answered by one value. The dashboard's
+pending card should disappear the instant the tower enrols, because the tower
+is in the list below it from then on. This screen is following one claim
+*through* that moment. It asks by id now, so it can see the answer, and a
+consumed claim from last week is not an answer to "has my tower arrived".
+
+The countdown stops and goes with it. That number is the time left to type the
+code, nothing else; after enrolment it is counting down to a deadline that
+cannot be missed, and a number nobody can act on is worse than no number
+because it is still being read. What replaces it is the tower's name, one line
+saying it will show online once it connects, and a button. After about five
+seconds the screen goes to the dashboard on its own — with the fleet re-read
+on the way, because being sent to a list to see your new tower and arriving at
+a list without it in reads as a registration that failed.
+
+Leaving during those five seconds cancels it. An operator who has pressed
+Dashboard, or a rail destination, or the breadcrumb, has chosen where to be,
+and a timer that fired afterwards would move them off the page they asked for.
+
 ### Copy
 
 The flow was reviewed against Material's UX writing guidance and rewritten in

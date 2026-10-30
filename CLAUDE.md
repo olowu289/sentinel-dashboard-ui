@@ -399,6 +399,42 @@ will not be able to in ten seconds and a Try again that can only produce the
 same 403 teaches somebody to distrust every other retry in the app; anything
 else says "Couldn't load towers. Try again." and carries the button.
 
+**THE ADD TOWER SCREEN LEARNS BY ASKING, AND IT IS WATCHING ONE CLAIM.**
+Nothing pushes an enrolment: there is no claim event on the alert channel, so
+the only way this app finds out that a tower came up is the shell polling
+`GET /v1/viewer/claims` every five seconds. That poll keeps running after a
+claim is consumed, deliberately, because the next registration starts from the
+same screen.
+
+⚠ **`openClaim` IS NOT WHAT THAT SCREEN NEEDS, AND THAT WAS THE BUG.** The
+shell derives `claims.find(c => c.status === "open")`, which is right for the
+dashboard's `PendingTowerCard` — a consumed claim is a real tower and belongs
+in the fleet list below it, not in a card about a registration. The Add Tower
+screen is the opposite case: it is following ONE claim THROUGH that
+transition, and `open` is the status it is waiting to stop seeing. Handed
+`openClaim` alone it was handed `null` at exactly the moment the answer
+arrived, kept its own stale copy, and sat on WAITING FOR THE TOWER with the
+pairing countdown running for a tower that had already enrolled. It takes
+`claimById` instead: by id, so it can only ask about the claim it registered,
+and a consumed claim from last week is not an answer to "has my tower
+arrived".
+
+**And the countdown goes when the tower does.** That clock is the time left to
+TYPE THE CODE and nothing else, so a screen still running it after enrolment
+is counting down to a deadline that cannot be missed any more. `enrolled`
+beats `dead`, including a window that lapsed in the same second the tower came
+up. The finished state names the tower, says it will show online once it
+connects, offers one button, and after `REGISTERED_DWELL_MS` goes to the
+dashboard itself — refreshing the fleet on the way, because an operator sent
+to a list to see the tower they just registered must not arrive at a list
+without it in.
+
+⚠ **AND THE FLEET RE-READ ON ENROLMENT IS ONCE PER CLAIM, NOT PER TICK.** A
+consumed claim stays consumed and stays in the list, so testing the status
+alone made every later poll fetch the whole fleet again — one registration
+left the browser reading `/v1/viewer/towers` every five seconds until the tab
+closed. `fleetReadFor` remembers the ids already acted on.
+
 **A HUB IS NOT A TOWER, AND TWO ALERT TYPES ARE ABOUT ONE.** `HUB_OFFLINE`
 (red) and `HUB_ONLINE` (green) are raised by the DATA CENTRE from the uplink
 monitoring it already does, and `device_id` carries the HUB's id on those rows
@@ -639,6 +675,17 @@ The *components* are still separate and should stay that way. `CameraTile`
 wraps the picture in a PTZ pad, a talk timer and a zoom readout; a 380px cell in
 a grid of four has room for none of it. What is shared is what a control is, not
 how a tile is laid out.
+
+⚠ **A `setTimeout` IN AN EFFECT THAT DEPENDS ON AN INLINE CALLBACK NEVER
+FIRES.** The shell passes most of its handlers as inline arrows, and it
+re-renders about once a second on its own for the battery fill and the latency
+walk — so such a callback is a new function on every tick. An effect listing
+it as a dependency is torn down and started again before a five-second timer
+can run, and the screen sits there looking entirely correct. `AddTowerView`'s
+redirect reads `onDone` through a ref and depends only on the thing that gates
+it. **A test harness that renders once cannot see this**: the one in
+`test/addTower.browser.test.mjs` re-renders every 250 ms on purpose, and so
+does the real shell it also drives.
 
 **Native drag handlers cannot go on a `motion.*` element.** Motion replaces
 `onDragStart`/`onDragEnd` with its own pan handlers, which have no
